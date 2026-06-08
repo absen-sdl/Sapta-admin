@@ -4,3 +4,279 @@
 @theme {
   --font-sans: "DM Sans", ui-sans-serif, system-ui, sans-serif;
 }
+
+/* Custom Dark theme for Main Area & Modals only */
+.dark-theme-main {
+  background-color: #0b0f19 !important;
+  color: #f1f5f9 !important;
+}
+
+/* Header toolbar inside dark theme */
+.dark-theme-main header {
+  background-color: #0f172a !important;
+  border-color: #1e293b !important;
+  color: #f8fafc !important;
+}
+
+.dark-theme-main header h2 {
+  color: #f8fafc !important;
+}
+
+/* Input search bar */
+.dark-theme-main header .bg-\[\#f1f5f9\]\/70,
+.dark-theme-main .bg-\[\#f1f5f9\]\/70 {
+  background-color: #1e293b !important;
+  border-color: #334155 !important;
+}
+
+.dark-theme-main header input {
+  color: #f8fafc !important;
+}
+
+/* Scrollbars inside dark theme */
+.dark-theme-main *::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.dark-theme-main *::-webkit-scrollbar-track {
+  background: #0b0f19;
+}
+.dark-theme-main *::-webkit-scrollbar-thumb {
+  background-color: #334155;
+  border-radius: 9999px;
+}
+
+/* Base Cards, Containers, and Dividers */
+.dark-theme-main .bg-white,
+.dark-theme-main .bg-slate-50,
+.dark-theme-main .bg-slate-100,
+.dark-theme-main .bg-\[\#f8fafc\],
+.dark-theme-main .bg-\[\#f1f5f9\],
+.dark-theme-main .bg-\[\#f8fafc\]\/90,
+.dark-theme-main .bg-\[\#f8fafc\]\/50,
+.dark-theme-main .bg-slate-50\/40,
+.dark-theme-main .bg-slate-50\/70,
+.dark-theme-main .bg-indigo-50\/40,
+.dark-theme-main .bg-indigo-50\/10 {
+  background-color: #111827 !important;
+  border-color: #1e293b !important;
+}
+
+/* Row elements hover and card adaptive backgrounds */
+.dark-theme-main .hover\:bg-slate-50\/40:hover,
+.dark-theme-main .hover\:bg-\[\#f8fafc\]\/50:hover,
+.dark-theme-main .hover\:bg-slate-50:hover {
+  background-color: #1e293b !important;
+}
+
+/* Text adaptations: map dark light-sensitive labels to high-contrast whites */
+.dark-theme-main .text-\[\#0f172a\],
+.dark-theme-main .text-slate-800,
+.dark-theme-main .text-slate-950,
+.dark-theme-main .text-slate-900,
+.dark-theme-main .text-slate-700,
+.dark-theme-main .text-\[\#475569\],
+.dark-theme-main .text-\[\#1a202c\],
+.dark-theme-main .text-\[\#334155\],
+.dark-theme-main .text-\[\#1e293b\] {
+  color: #f1f5f9 !important;
+}
+
+/* Sub-text gray labels */
+.dark-theme-main .text-slate-600,
+.dark-theme-main .text-slate-500,
+.dark-theme-main .text-slate-400,
+.dark-theme-main .text-\[\#64748b\],
+.dark-theme-main .text-slate-405 {
+  color: #94a3b8 !important;
+}
+
+/* Border lines and dividers */
+.dark-theme-main .border,
+.dark-theme-main .border-slate-200,
+.dark-theme-main .border-\[\#e2e8f0\],
+.dark-theme-main .border-\[\#f1f5f9\],
+.dark-theme-main .border-\[\#e2e8f0\]\/80,
+.dark-theme-main .border-\[\#e2e8f0\]\/75,
+.dark-theme-main .border-slate-150,
+.dark-theme-main .border-slate-150\/80,
+.dark-theme-main .divide-slate-100 > * {
+  border-color: #1e293b !important;
+}
+
+/* Specific Badge and Status Color Adjustments (Emerald/Blue/Amber/Rose) using escaped classes */
+.dark-theme-main .bg-\[\#ecfdf5\],
+.dark-theme-main .bg-emerald-50 {
+  background-color: rgba(16, 185, 129, 0.15) !important;
+  border-color: rgba(16, 185, 129, 0.3) !important;
+  color: #34d399 !important;
+}
+.dark-theme-main .text-\[\#059669\],
+.dark-theme-main .text-emerald-700,
+.dark-theme-main .text-emerald-600 {
+  color: #34d399 !important;
+}
+
+.dark-theme-main .bg-blue-50,
+.dark-theme-main .bg-indigo-50,
+.dark-theme-main .bg-indigo-50\/40,
+.dark-theme-main .bg-indigo-50\/70 {
+  background-color: rgba(99, 102, 241, 0.15) !important;
+  border-color: rgba(99, 102, 241, 0.25) !important;
+  color: #818cf8 !important;
+}
+.dark-theme-main .text-indigo-700,
+.dark-theme-main .text-indigo-600 {
+  color: #818cf8 !important;
+}
+
+/* Jenis Kegiatan tags inside Informasi */
+.dark-theme-main .bg-\[\#eff6ff\] {
+  background-color: rgba(59, 130, 246, 0.15) !important;
+  color: #60a5fa !important;
+}
+.dark-theme-main .text-\[\#1d4ed8\] {
+  color: #60a5fa !important;
+}
+
+/* Action button background overrides in rows */
+.dark-theme-main .bg-\[\#f1f5f9\] {
+  background-color: #1f2937 !important;
+}
+.dark-theme-main .text-\[\#475569\] {
+  color: #cbd5e1 !important;
+}
+.dark-theme-main .hover\:bg-\[\#e2e8f0\]:hover {
+  background-color: #374151 !important;
+}
+
+.dark-theme-main .bg-\[\#fffbeb\],
+.dark-theme-main .bg-amber-50 {
+  background-color: rgba(245, 158, 11, 0.15) !important;
+  border-color: rgba(245, 158, 11, 0.25) !important;
+  color: #fbbf24 !important;
+}
+.dark-theme-main .text-amber-700,
+.dark-theme-main .text-\[\#d97706\],
+.dark-theme-main .text-amber-600 {
+  color: #fbbf24 !important;
+}
+
+.dark-theme-main .bg-\[\#fef2f2\],
+.dark-theme-main .bg-rose-50,
+.dark-theme-main .bg-red-50 {
+  background-color: rgba(239, 68, 68, 0.15) !important;
+  border-color: rgba(239, 68, 68, 0.25) !important;
+  color: #f87171 !important;
+}
+.dark-theme-main .text-\[\#b91c1c\],
+.dark-theme-main .text-rose-705,
+.dark-theme-main .text-red-650,
+.dark-theme-main .text-red-600 {
+  color: #f87171 !important;
+}
+
+.dark-theme-main .bg-violet-50 {
+  background-color: rgba(139, 92, 246, 0.15) !important;
+  color: #a78bfa !important;
+}
+.dark-theme-main .text-violet-600,
+.dark-theme-main .text-violet-605 {
+  color: #a78bfa !important;
+}
+
+.dark-theme-main .bg-sky-50 {
+  background-color: rgba(14, 165, 233, 0.15) !important;
+  color: #38bdf8 !important;
+}
+.dark-theme-main .text-sky-600,
+.dark-theme-main .text-sky-650 {
+  color: #38bdf8 !important;
+}
+
+.dark-theme-main .bg-orange-50 {
+  background-color: rgba(249, 115, 22, 0.15) !important;
+  color: #fb923c !important;
+}
+.dark-theme-main .text-orange-600,
+.dark-theme-main .text-orange-650 {
+  color: #fb923c !important;
+}
+
+/* Card boundary and interaction highlight transitions */
+.dark-theme-main .hover\:border-indigo-200:hover { border-color: rgba(99, 102, 241, 0.4) !important; }
+.dark-theme-main .hover\:border-sky-200:hover { border-color: rgba(14, 165, 233, 0.4) !important; }
+.dark-theme-main .hover\:border-rose-200:hover { border-color: rgba(244, 63, 94, 0.4) !important; }
+.dark-theme-main .hover\:border-amber-200:hover { border-color: rgba(245, 158, 11, 0.4) !important; }
+.dark-theme-main .hover\:border-orange-200:hover { border-color: rgba(249, 115, 22, 0.4) !important; }
+.dark-theme-main .hover\:border-violet-200:hover { border-color: rgba(139, 92, 246, 0.4) !important; }
+.dark-theme-main .hover\:border-emerald-200:hover { border-color: rgba(16, 185, 129, 0.4) !important; }
+.dark-theme-main .hover\:border-red-200:hover { border-color: rgba(239, 68, 68, 0.4) !important; }
+
+/* Table styling in dark theme */
+.dark-theme-main table {
+  border-color: #1e293b !important;
+}
+
+.dark-theme-main table th {
+  background-color: #0f172a !important;
+  color: #cbd5e1 !important;
+  border-color: #1e293b !important;
+}
+
+.dark-theme-main table td {
+  border-color: #1e293b !important;
+  color: #e2e8f0 !important;
+}
+
+.dark-theme-main table tr {
+  background-color: #111827 !important;
+}
+
+.dark-theme-main table tr:hover {
+  background-color: #1e293b !important;
+}
+
+/* Input Fields inside view forms, filters, and searches */
+.dark-theme-main select,
+.dark-theme-main input[type="text"],
+.dark-theme-main input[type="number"],
+.dark-theme-main input[type="date"],
+.dark-theme-main textarea {
+  background-color: #151e2e !important;
+  border-color: #334155 !important;
+  color: #f8fafc !important;
+}
+
+.dark-theme-main select option {
+  background-color: #111827 !important;
+  color: #f8fafc !important;
+}
+
+/* Modals adaptive headers and footers */
+.dark-theme-main .rounded-t-2xl,
+.dark-theme-main .rounded-b-2xl,
+.dark-theme-main header,
+.dark-theme-main footer {
+  background-color: #111827 !important;
+  border-color: #1e293b !important;
+}
+
+/* Chart SVGs elements adaptation in Dark Mode */
+.dark-theme-main circle[stroke="#f1f5f9"],
+.dark-theme-main circle[stroke="#cbd5e1"] {
+  stroke: #1e293b !important;
+}
+
+.dark-theme-main line[stroke="#cbd5e1"] {
+  stroke: #1e293b !important;
+}
+
+.dark-theme-main svg text {
+  fill: #94a3b8 !important;
+}
+
+.dark-theme-main .text-slate-705 {
+  color: #c7d2fe !important;
+}
+

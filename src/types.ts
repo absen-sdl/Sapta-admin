@@ -48,6 +48,7 @@ export interface Pelanggaran {
   adaDenda: 'Ya' | 'Tidak';
   nominalDenda: number;
   jenisHukuman: string;
+  statusHukuman?: 'Belum Ditindak' | 'Proses' | 'Selesai';
 }
 
 export interface Absensi {

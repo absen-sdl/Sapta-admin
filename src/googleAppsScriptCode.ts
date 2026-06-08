@@ -1,6 +1,6 @@
 export const GOOGLE_APPS_SCRIPT_CODE = `/**
- * GOOGLE APPS SCRIPT WEB APP - SYSTEM PANEL ANGGOTA & OPERASIONAL (V5 STABILISASI TOTAL)
- * Mendukung Semua Sheet: DATA ANGGOTA, PEMBAYARAN, PRESTASI, PELANGGARAN, ABSENSI, INFORMASI
+ * GOOGLE APPS SCRIPT WEB APP - SYSTEM PANEL ANGGOTA & OPERASIONAL (V6 REVOLUSI INTEGRASI TOTAL)
+ * Mendukung Semua Sheet: AKUN SAPTA, DATA ANGGOTA, PEMBAYARAN, PRESTASI, PELANGGARAN, INFORMASI, SURAT, PERATURAN, ABSENSI
  * 
  * Silakan SALIN dan TEMPEL kode ini di Google Apps Script Anda (Ekstensi -> Apps Script).
  * Pastikan Anda melakukan "Deploy" -> "New Deployment" -> "Web App" dengan:
@@ -39,8 +39,11 @@ function doGet(e) {
         }
       }
       
-      // Jika sheet belum ada, kembalikan array kosong agar aplikasi tidak lag
+      // Jika sheet belum ada, buat otomatis
       if (!sheet) {
+        sheet = ss.insertSheet(sheetName);
+        var defHeaders = getDefaultHeaders(sheetName);
+        sheet.getRange(1, 1, 1, defHeaders.length).setValues([defHeaders]);
         return successResponse([]);
       }
       
@@ -101,12 +104,6 @@ function doPost(e) {
       return errorResponse("Parameter 'action' dan 'sheetName' wajib disediakan dalam payload.");
     }
     
-    // Proteksi: Tabel ABSENSI diatur murni Read-Only demi menjaga independensi rekam absensi harian
-    var parsedSheetNameClean = String(sheetName || "").trim().toLowerCase().replace(/[\\s\\-_.]/g, "");
-    if (parsedSheetNameClean === "absensi") {
-      return errorResponse("Tabel ABSENSI diset murni Read-Only demi menjaga independensi rekam absensi harian.");
-    }
-    
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var sheet = ss.getSheetByName(sheetName);
     
@@ -145,7 +142,7 @@ function doPost(e) {
       sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
     }
     
-    // Cari baris data yang memiliki ID sama jika melakukan Edit atau Delete (Gunakan pencarian Range native)
+    // Cari baris data yang memiliki ID sama jika melakukan Edit atau Delete
     var foundRowIndex = findRowIndexById(sheet, headers, targetId, sheetName);
     
     // 1. OPERASI: TAMBAH (ADD)
@@ -200,7 +197,7 @@ function doPost(e) {
     
     return errorResponse("Action POST '" + action + "' tidak dikenali.");
   } catch (err) {
-    return errorResponse("Kesalahan Server: " + err.toString());
+    return errorResponse("Kesalahan Server App Script: " + err.toString());
   }
 }
 
@@ -225,10 +222,16 @@ function getPrimaryKeyHeaderForSheet(sheetName) {
   if (sName.indexOf("INFORMASI") !== -1 || sName.indexOf("INFO") !== -1 || sName.indexOf("KABAR") !== -1) {
     return "idinformasi";
   }
+  if (sName.indexOf("SURAT") !== -1 || sName.indexOf("LETTER") !== -1 || sName.indexOf("DOKUMEN") !== -1) {
+    return "idsurat";
+  }
+  if (sName.indexOf("PERATURAN") !== -1 || sName.indexOf("ATURAN") !== -1 || sName.indexOf("REGULASI") !== -1) {
+    return "idperaturan";
+  }
   return "id";
 }
 
-// Fungsi Pencarian Baris dengan ID secara cerdas & Ultra-Presisi (Berdasarkan getDataRange-Values)
+// Fungsi Pencarian Baris dengan ID secara cerdas & Ultra-Presisi
 function findRowIndexById(sheet, headers, targetId, sheetName) {
   var data = sheet.getDataRange().getValues();
   if (data.length < 2) return -1;
@@ -236,14 +239,12 @@ function findRowIndexById(sheet, headers, targetId, sheetName) {
   var targetValStr = String(targetId !== undefined && targetId !== null ? targetId : "").trim().toLowerCase().replace(/[\\u200B-\\u200D\\uFEFF]/g, "");
   if (!targetValStr) return -1;
   
-  // 1. Ambil headers dari baris pertama sheet secara riil
   var actualHeaders = data[0];
   var primaryKeyHeaderNorm = getPrimaryKeyHeaderForSheet(sheetName);
   
-  // 2. Cari letak kolom ID/Kunci Utama di lembar kerja secara presisi
   var idColumnIdx = -1; 
   
-  // Prioritas utama: Cari nama kolom yang 100% cocok dengan primary key yang diharapkan oleh sistem
+  // Ambil letak kolom ID/Kunci Utama di lembar kerja secara presisi
   for (var i = 0; i < actualHeaders.length; i++) {
     var hNorm = String(actualHeaders[i] || "").trim().toLowerCase().replace(/[\\u200B-\\u200D\\uFEFF]/g, "").replace(/[\\s\\-_.]/g, "");
     if (hNorm === primaryKeyHeaderNorm) {
@@ -252,13 +253,12 @@ function findRowIndexById(sheet, headers, targetId, sheetName) {
     }
   }
   
-  // Prioritas cadangan: Jika tidak ketemu, cari kolom yang mengandung kata 'id' atau 'nia' (kecuali jika itu 'nia' pada sheet non-keanggotaan)
   if (idColumnIdx === -1) {
-    var idColumnsList = ["nia", "idtransaksi", "idprestasi", "idpelanggaran", "idabsensi", "idinformasi", "id", "no", "nik", "nomorinduk", "idanggota"];
+    var idColumnsList = ["nia", "idtransaksi", "idprestasi", "idpelanggaran", "idabsensi", "idinformasi", "idsurat", "idperaturan", "id", "no", "nik", "nomorinduk", "idanggota"];
     for (var i = 0; i < actualHeaders.length; i++) {
       var hNorm = String(actualHeaders[i] || "").trim().toLowerCase().replace(/[\\u200B-\\u200D\\uFEFF]/g, "").replace(/[\\s\\-_.]/g, "");
       if (primaryKeyHeaderNorm !== "nia" && hNorm === "nia") {
-        continue; // Lewati 'nia' agar pencarian tidak salah masuk ke kolom NIA anggota pada rincian transaksi
+        continue;
       }
       if (idColumnsList.indexOf(hNorm) !== -1 || hNorm.indexOf("id") !== -1) {
         idColumnIdx = i;
@@ -267,23 +267,22 @@ function findRowIndexById(sheet, headers, targetId, sheetName) {
     }
   }
 
-  // Fallback default: Jika semua pencarian penamaan gagal, default-kan ke kolom pertama (kolom 0)
   if (idColumnIdx === -1) {
     idColumnIdx = 0;
   }
   
-  // 3. Bandingkan sel pada kolom Kunci Utama dahulu (Pencarian Utama - Sangat Cepat & Akurat)
+  // Bandingkan sel pada kolom Kunci Utama dahulu
   if (idColumnIdx !== -1) {
     for (var r = 1; r < data.length; r++) {
       var rawCell = data[r][idColumnIdx];
       var cellVal = (rawCell !== undefined && rawCell !== null) ? String(rawCell).trim().toLowerCase() : "";
       if (compareValuesForId(cellVal, targetValStr)) {
-        return r + 1; // Mengembalikan posisi baris riil di Google Sheets
+        return r + 1;
       }
     }
   }
   
-  // 4. Fallback Terakhir: Pindai seluruh tabel di baris mana saja jika mungkin ID-nya tersimpan di kolom lain
+  // Fallback Terakhir: Pindai seluruh tabel di baris mana saja jika mungkin ID-nya tersimpan di kolom lain
   for (var r = 1; r < data.length; r++) {
     var rowData = data[r];
     for (var c = 0; c < rowData.length; c++) {
@@ -298,23 +297,19 @@ function findRowIndexById(sheet, headers, targetId, sheetName) {
   return -1;
 }
 
-// Fungsi pembantu pembandingan ID paling toleran & stabil terhadap format numeric/float/string
 function compareValuesForId(val1, val2) {
   var v1 = String(val1 !== undefined && val1 !== null ? val1 : "").trim().toLowerCase().replace(/[\\u200B-\\u200D\\uFEFF]/g, "");
   var v2 = String(val2 !== undefined && val2 !== null ? val2 : "").trim().toLowerCase().replace(/[\\u200B-\\u200D\\uFEFF]/g, "");
   if (v1 === v2 && v1 !== "") return true;
   
-  // Potong akhiran desimal seperti .0 atau .00 yang otomatis ditambahkan Google Spreadsheet pada konversi numeric
   var v1Clean = v1.replace(/\\.0+$/, "");
   var v2Clean = v2.replace(/\\.0+$/, "");
   if (v1Clean === v2Clean && v1Clean !== "") return true;
   
-  // Normalisasi karakter spasi/tanda hubung/titik
   var v1Plain = v1Clean.replace(/[\\s\\-_.]/g, "");
   var v2Plain = v2Clean.replace(/[\\s\\-_.]/g, "");
   if (v1Plain === v2Plain && v1Plain !== "") return true;
   
-  // Konversi numerik murni
   var n1 = Number(v1Clean);
   var n2 = Number(v2Clean);
   if (!isNaN(n1) && !isNaN(n2) && n1 === n2) return true;
@@ -322,57 +317,108 @@ function compareValuesForId(val1, val2) {
   return false;
 }
 
-// Bantuan pencarian nilai penyesuai casing spasi dan tanda baca kolom (Serta bridging nama <-> namaLengkap)
+// Bantuan pencarian nilai penyesuai casing spasi dan tanda baca kolom payload React ke Sheets
 function getObjectValueByHeaderName(obj, colHeader) {
-  if (!obj) return undefined;
-  var cleanHeader = String(colHeader || "").toLowerCase().replace(/[\\u200B-\\u200D\\uFEFF]/g, "").replace(/[\\s\\-_.]/g, "");
+  if (!obj) return "";
+  var cleanHeader = String(colHeader || "").trim().toLowerCase().replace(/[\\u200B-\\u200D\\uFEFF]/g, "").replace(/[\\s\\-_.]/g, "");
   
+  var mappings = {
+    // PELANGGARAN
+    "idpelanggaran": ["idPelanggaran", "idpelanggaran", "id"],
+    "tanggal": ["tanggal", "date", "tgl"],
+    "nia": ["nia", "Nia", "idanggota", "nomorinduk"],
+    "nama": ["nama", "namaLengkap", "nama_lengkap", "namalengkap", "fullname"],
+    "namalengkap": ["namaLengkap", "namalengkap", "nama", "fullname"],
+    "jenispelanggaran": ["jenisPelanggaran", "jenispelanggaran", "kategori", "tingkat"],
+    "namapelanggaran": ["namaPelanggaran", "namapelanggaran", "pelanggaran", "kasus"],
+    "keterangan": ["keterangan", "notes", "catatan", "deskripsi"],
+    "adadenda": ["adaDenda", "adadenda", "denda"],
+    "nominaldenda": ["nominalDenda", "nominaldenda", "jumlahdenda"],
+    "jenishukuman": ["jenisHukuman", "jenishukuman", "sanksi", "hukuman"],
+    "statustindaklanjut": ["statusHukuman", "statushukuman", "status", "tindaklanjut"],
+
+    // INFORMASI
+    "idinformasi": ["idInformasi", "idinformasi", "id"],
+    "judul": ["judul", "title", "headline"],
+    "isi": ["isi", "content", "deskripsi", "pengumuman"],
+    "jeniskegiatan": ["jenisKegiatan", "jeniskegiatan", "kegiatan", "kategori", "jenis"],
+    "waktu": ["waktu", "time", "jam"],
+
+    // PRESTASI
+    "idprestasi": ["idPrestasi", "idprestasi", "id"],
+    "linkfoto": ["linkFoto", "linkfoto", "foto", "photo", "gambar"],
+
+    // PEMBAYARAN
+    "idtransaksi": ["idTransaksi", "idtransaksi", "id", "transid"],
+    "namatagihan": ["namaTagihan", "namatagihan", "tagihan", "keperluan"],
+    "nominal": ["nominal", "jumlah", "amount"],
+    "status": ["status", "keadaan"],
+
+    // SURAT
+    "idsurat": ["idSurat", "idsurat", "id"],
+    "perihal": ["perihal", "perihalsurat", "hal", "about"],
+    "linkdokumen": ["linkGoogleDoc", "linkgoogledoc", "linkdokumen", "url", "link"],
+    "linkgoogledoc": ["linkGoogleDoc", "linkgoogledoc", "linkdokumen", "url", "link"],
+
+    // PERATURAN
+    "idperaturan": ["idPeraturan", "idperaturan", "id"],
+    "sanksi": ["sanksi", "konsekuensi", "hukuman"],
+    "status": ["status", "tingkat", "statuspelanggaran", "statusPelanggaran", "st"]
+  };
+
+  if (mappings[cleanHeader]) {
+    var candidateKeys = mappings[cleanHeader];
+    for (var i = 0; i < candidateKeys.length; i++) {
+      var k = candidateKeys[i];
+      if (obj[k] !== undefined && obj[k] !== null) {
+        return obj[k];
+      }
+    }
+  }
+
+  // Fallback to exact direct key matching
   if (obj[colHeader] !== undefined) return obj[colHeader];
-  
-  // Bridging nama <-> namaLengkap demi mencegah miss-match data
-  if (cleanHeader === "nama" && obj.namaLengkap !== undefined) {
-    return obj.namaLengkap;
-  }
-  if (cleanHeader === "namalengkap" && obj.nama !== undefined) {
-    return obj.nama;
-  }
-  if (cleanHeader === "nama" && obj.NamaLengkap !== undefined) {
-    return obj.NamaLengkap;
-  }
-  if (cleanHeader === "namalengkap" && obj.Nama !== undefined) {
-    return obj.Nama;
-  }
-  
+
+  // Case-insensitive & space-insensitive general match
   for (var key in obj) {
-    var keyClean = String(key || "").toLowerCase().replace(/[\\u200B-\\u200D\\uFEFF]/g, "").replace(/[\\s\\-_.]/g, "");
+    var keyClean = String(key || "").trim().toLowerCase().replace(/[\\u200B-\\u200D\\uFEFF]/g, "").replace(/[\\s\\-_.]/g, "");
     if (keyClean === cleanHeader) {
       return obj[key];
     }
   }
-  return undefined;
+  return "";
 }
 
-// Kolom standar bawaan untuk masing-masing tabel aplikasi jika tersisip sheet kosong baru (Normalized Case-Insensitive)
+// Kolom standar bawaan untuk masing-masing tabel aplikasi jika dibuat sheet kosong baru
 function getDefaultHeaders(sheetName) {
   var sName = String(sheetName || "").trim().toUpperCase().replace(/[\\u200B-\\u200D\\uFEFF]/g, "").replace(/[\\s\\-_.]/g, "");
   
+  if (sName.indexOf("AKUN") !== -1 || sName.indexOf("SAPTA") !== -1) {
+    return ["g-mail", "pasword", "lembaga", "url_app_script", "url_absensi", "link-profile"];
+  }
   if (sName.indexOf("ANGGOTA") !== -1 || sName.indexOf("MEMBER") !== -1) {
     return ["nia", "namaLengkap", "tempatLahir", "tanggalLahir", "jenisKelamin", "jenjangPendidikan", "namaSekolah", "kelas", "alamat", "noHp", "email", "key", "linkProfile", "status"];
   }
   if (sName.indexOf("PEMBAYARAN") !== -1 || sName.indexOf("TRANSAKSI") !== -1 || sName.indexOf("BAYAR") !== -1) {
-    return ["idTransaksi", "tanggal", "nia", "namaLengkap", "namaTagihan", "nominal", "status", "keterangan"];
+    return ["ID Transaksi", "Tanggal", "Nia", " Nama Lengkap", "Nama Tagihan", "Keterangan", "Nominal", "Status"];
   }
   if (sName.indexOf("PRESTASI") !== -1) {
-    return ["idPrestasi", "tanggal", "nia", "namaLengkap", "jenisPrestasi", "deskripsi", "linkFoto"];
+    return ["ID Prestasi", "Tanggal", "NIA", "Nama lengkap", "Jenis Prestasi", "Deskripsi", "Link-foto"];
   }
   if (sName.indexOf("PELANGGARAN") !== -1 || sName.indexOf("DISIPLIN") !== -1 || sName.indexOf("SANKSI") !== -1) {
-    return ["idPelanggaran", "tanggal", "nia", "nama", "jenisPelanggaran", "namaPelanggaran", "keterangan", "adaDenda", "nominalDenda", "jenisHukuman"];
+    return ["ID Pelanggaran", "Tanggal", "NIA", "Nama ", "Jenis Pelanggaran", "Nama Pelanggaran", "Keterangan", "Ada Denda ", "Nominal Denda", "Jenis Hukuman", "Status Tindak Lanjut"];
   }
   if (sName.indexOf("ABSENSI") !== -1 || sName.indexOf("HADIR") !== -1) {
     return ["idAbsensi", "nia", "namaLengkap", "kelas", "tanggalAbsen", "waktuAbsen", "keterangan", "jenisKegiatan"];
   }
   if (sName.indexOf("INFORMASI") !== -1 || sName.indexOf("INFO") !== -1 || sName.indexOf("KABAR") !== -1) {
-    return ["idInformasi", "judul", "isi", "jenisKegiatan", "tanggal", "waktu"];
+    return ["idInformasi", "Judul ", "Isi", "Jenis kegiatan", "Tanggal", "Waktu"];
+  }
+  if (sName.indexOf("SURAT") !== -1 || sName.indexOf("LETTER") !== -1 || sName.indexOf("DOKUMEN") !== -1) {
+    return ["ID Surat", "Tanggal", "NIA", "Nama Lengkap", "Perihal", "Link Dokumen"];
+  }
+  if (sName.indexOf("PERATURAN") !== -1 || sName.indexOf("ATURAN") !== -1 || sName.indexOf("REGULASI") !== -1) {
+    return ["ID Peraturan", "Judul", "Sanksi", "Tingkat"];
   }
   return ["id"];
 }

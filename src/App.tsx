@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Home,
   Users,
+  User,
   CreditCard,
   Trophy,
   AlertTriangle,
@@ -38,7 +39,9 @@ import {
   EyeOff,
   Menu,
   Scale,
-  FileText
+  FileText,
+  Sun,
+  Moon
 } from 'lucide-react';
 
 import { initializeDatabase } from './dataSdk';
@@ -148,6 +151,13 @@ export default function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(false);
   const [hoveredTrendIndex, setHoveredTrendIndex] = useState<number | null>(null);
   
+  // Theme state for main content area (Terang/Gelap)
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => (localStorage.getItem('theme') as 'light' | 'dark') || 'light');
+
+  useEffect(() => {
+    localStorage.setItem('theme', theme);
+  }, [theme]);
+  
   // Custom sidebar and dashboard view states
   const [isBiodataOpen, setIsBiodataOpen] = useState<boolean>(true);
   const [currentTime, setCurrentTime] = useState<Date>(new Date());
@@ -198,6 +208,10 @@ export default function App() {
     return localStorage.getItem('LEMBAGA_LOGIN') || '';
   });
 
+  const [institusiProfileUrl, setInstitusiProfileUrl] = useState<string>(() => {
+    return localStorage.getItem('LINK_PROFILE') || '';
+  });
+
   const [appsScriptUrl, setAppsScriptUrl] = useState<string>(() => {
     if (localStorage.getItem('status_login') === 'true') {
       const savedScript = localStorage.getItem('LINK_SCRIPT_UTAMA');
@@ -225,6 +239,41 @@ export default function App() {
     return localStorage.getItem('google_sheets_absensi_csv_url') || '';
   });
 
+  // --- SUB-ACCOUNT PORTAL INTEGRATION STATES ---
+  const [userNama, setUserNama] = useState<string>(() => {
+    return localStorage.getItem('USER_NAMA') || '';
+  });
+
+  const [userUsername, setUserUsername] = useState<string>(() => {
+    return localStorage.getItem('USER_USERNAME') || '';
+  });
+
+  const [userMenu, setUserMenu] = useState<string>(() => {
+    return localStorage.getItem('USER_MENU') || '';
+  });
+
+  const [isLembagaVerified, setIsLembagaVerified] = useState<boolean>(false);
+  const [lembagaAkunList, setLembagaAkunList] = useState<any[]>([]);
+
+  const isMenuAllowed = (tab: ActiveTab): boolean => {
+    if (tab === 'dashboard' || tab === 'pengaturan') return true;
+    const savedMenu = localStorage.getItem('USER_MENU') || userMenu;
+    if (!savedMenu || savedMenu.trim() === '') return true;
+    
+    const allowedNormalized = savedMenu.toLowerCase();
+    
+    if (tab === 'anggota' && (allowedNormalized.includes('anggota') || allowedNormalized.includes('member'))) return true;
+    if (tab === 'pembayaran' && (allowedNormalized.includes('bayar') || allowedNormalized.includes('pembayaran') || allowedNormalized.includes('nominal') || allowedNormalized.includes('uang') || allowedNormalized.includes('keuangan') || allowedNormalized.includes('transaksi'))) return true;
+    if (tab === 'prestasi' && allowedNormalized.includes('prestasi')) return true;
+    if (tab === 'pelanggaran' && (allowedNormalized.includes('pelanggaran') || allowedNormalized.includes('hukum') || allowedNormalized.includes('disiplin'))) return true;
+    if (tab === 'absensi' && (allowedNormalized.includes('absen') || allowedNormalized.includes('hadir') || allowedNormalized.includes('presensi'))) return true;
+    if (tab === 'informasi' && (allowedNormalized.includes('informasi') || allowedNormalized.includes('info') || allowedNormalized.includes('kabar') || allowedNormalized.includes('pengumuman'))) return true;
+    if (tab === 'surat' && (allowedNormalized.includes('surat') || allowedNormalized.includes('dokumen') || allowedNormalized.includes('letter'))) return true;
+    if (tab === 'peraturan' && (allowedNormalized.includes('aturan') || allowedNormalized.includes('peraturan') || allowedNormalized.includes('regulasi'))) return true;
+    
+    return false;
+  };
+
   // --- AKUN SAPTA STATE FOR LOGIN PAGE ---
   const [akunList, setAkunList] = useState<any[]>([]);
   const [isFetchingAkun, setIsFetchingAkun] = useState<boolean>(false);
@@ -239,6 +288,7 @@ export default function App() {
   const [showPassword, setShowPassword] = useState<boolean>(false);
   const [loginError, setLoginError] = useState<string | null>(null);
   const [isLoggingIn, setIsLoggingIn] = useState<boolean>(false);
+  const [isVerifyingLembaga, setIsVerifyingLembaga] = useState<boolean>(false);
   const [loginProgressText, setLoginProgressText] = useState<string>('');
   const [loginProgressStep, setLoginProgressStep] = useState<'idle' | 'auth' | 'anggota' | 'keuangan' | 'absensi' | 'selesai'>('idle');
 
@@ -259,6 +309,7 @@ export default function App() {
           let lembaga = '';
           let urlAppScript = '';
           let urlAbsensi = '';
+          let linkProfile = '';
 
           // Dynamically matches keys and handles any automated transformations by parseCSV
           Object.keys(item).forEach(key => {
@@ -274,6 +325,8 @@ export default function App() {
               urlAppScript = val;
             } else if (lowerKey === 'urlabsensi' || lowerKey === 'url_absensi' || lowerKey.includes('absen')) {
               urlAbsensi = val;
+            } else if (lowerKey === 'linkprofile' || lowerKey === 'link-profile' || lowerKey === 'link_profile' || lowerKey.includes('profile') || lowerKey.includes('foto') || lowerKey.includes('photo')) {
+              linkProfile = val;
             }
           });
 
@@ -283,8 +336,9 @@ export default function App() {
           if (!lembaga) lembaga = String(item['lembaga'] || '').trim();
           if (!urlAppScript) urlAppScript = String(item['urlappscript'] || item['url_app_script'] || '').trim();
           if (!urlAbsensi) urlAbsensi = String(item['urlabsensi'] || item['url_absensi'] || '').trim();
+          if (!linkProfile) linkProfile = String(item['link-profile'] || item['link_profile'] || item['linkprofile'] || item['profile'] || item['foto'] || item['photo'] || '').trim();
 
-          return { gmail, pasword, lembaga, urlAppScript, urlAbsensi };
+          return { gmail, pasword, lembaga, urlAppScript, urlAbsensi, linkProfile };
         }).filter(acc => acc.gmail || acc.lembaga);
         
         console.log('AKUN_SAPTA loaded successfully. Parsed count:', formatted.length, formatted);
@@ -307,7 +361,7 @@ export default function App() {
     onProgress?: (step: 'idle' | 'auth' | 'anggota' | 'keuangan' | 'absensi' | 'selesai', text: string) => void
   ) => {
     setIsLoading(true);
-    addToast('Memulai sinkronisasi otomatis dari cloud...', 'info');
+    addToast('Memulai pembaruan data otomatis dari basis data...', 'info');
 
     let syncAnggotaSuccess = false;
     let syncAbsensiSuccess = false;
@@ -431,7 +485,8 @@ export default function App() {
           keterangan: String(getProp(item, 'keterangan', 'notes', 'catatan', 'deskripsi') || '').trim(),
           adaDenda: String(getProp(item, 'adaDenda', 'adadenda', 'denda') || 'Tidak').trim(),
           nominalDenda: Number(getProp(item, 'nominalDenda', 'nominaldenda', 'jumlahdenda', 'dendatagihan') || 0),
-          jenisHukuman: String(getProp(item, 'jenisHukuman', 'jenishukuman', 'sanksi', 'hukuman') || '').trim()
+          jenisHukuman: String(getProp(item, 'jenisHukuman', 'jenishukuman', 'sanksi', 'hukuman') || '').trim(),
+          statusHukuman: String(getProp(item, 'statusHukuman', 'statushukuman', 'statustindaklanjut', 'tindaklanjut') || 'Belum Ditindak').trim() as any
         }));
 
         // Sync INFORMASI (Announcements/Information Data)
@@ -443,12 +498,30 @@ export default function App() {
           tanggal: String(getProp(item, 'tanggal', 'tgl', 'date') || new Date().toISOString().split('T')[0]).trim(),
           waktu: String(getProp(item, 'waktu', 'time', 'jam') || '--:--').trim()
         }));
+
+        // Sync SURAT (Letter Data)
+        await fetchAndSyncSheet('SURAT', 'idSurat', (item: any, idx: number) => ({
+          idSurat: String(getProp(item, 'idSurat', 'idsurat', 'id') || `SRT-CL-${idx + 10001}`).trim(),
+          tanggal: String(getProp(item, 'tanggal', 'tgl', 'date') || new Date().toISOString().split('T')[0]).trim(),
+          nia: String(getProp(item, 'nia', 'idanggota', 'nomorinduk')).trim(),
+          namaLengkap: String(getProp(item, 'namaLengkap', 'namalengkap', 'nama', 'fullname')).trim(),
+          perihal: String(getProp(item, 'perihal', 'perihalsurat', 'hal', 'about') || '').trim(),
+          linkGoogleDoc: String(getProp(item, 'linkGoogleDoc', 'linkgoogledoc', 'linkdokumen', 'url', 'link') || '').trim()
+        }));
+
+        // Sync PERATURAN (Rules Data)
+        await fetchAndSyncSheet('PERATURAN', 'idPeraturan', (item: any, idx: number) => ({
+          idPeraturan: String(getProp(item, 'idPeraturan', 'idperaturan', 'id') || `REG-CL-${idx + 10001}`).trim(),
+          judul: String(getProp(item, 'judul', 'judulperaturan', 'peraturan', 'rule') || '').trim(),
+          sanksi: String(getProp(item, 'sanksi', 'konsekuensi', 'hukuman') || '').trim(),
+          status: String(getProp(item, 'status', 'tingkat', 'statuspelanggaran') || 'Ringan').trim() as any
+        }));
       } else {
         console.warn('Kemungkinan URL Apps Script belum terkonfigurasi untuk menyinkronkan data Anggota.');
       }
 
       // 2. ABSENSI (read purely from published CSV URL of Rekap Absensi, as requested: read-only, not from Apps Script)
-      onProgress?.('absensi', 'Menyinkronkan rekap data Absensi dari jalur CDN Google...');
+      onProgress?.('absensi', 'Memuat rekap data Absensi dari server utama...');
       let parsedAbsensi: any[] = [];
       const activeAbsensiRawUrl = attendanceUrl || absensiCsvPublishUrl || localStorage.getItem('LINK_ABSENSI') || localStorage.getItem('google_sheets_absensi_csv_url') || '';
       if (activeAbsensiRawUrl) {
@@ -510,17 +583,17 @@ export default function App() {
       onProgress?.('selesai', 'Selesai! Mempersiapkan dashboard sistem...');
 
       if (syncAnggotaSuccess && syncAbsensiSuccess) {
-        addToast('Lengkap! Data Anggota & Rekap Absensi berhasil disinkronkan.', 'success');
+        addToast('Lengkap! Data Anggota & Rekap Absensi berhasil diperbarui.', 'success');
       } else if (syncAnggotaSuccess) {
-        addToast('Lengkap! Database Anggota & operasional disinkronkan.', 'success');
+        addToast('Lengkap! Database Anggota & operasional berhasil diperbarui.', 'success');
       } else if (syncAbsensiSuccess) {
-        addToast('Lengkap! Rekap Absensi disinkronkan.', 'success');
+        addToast('Lengkap! Rekap Absensi berhasil diperbarui.', 'success');
       } else {
-        addToast('Sinkronisasi cloud selesai (Tidak ada data terupdate).', 'info');
+        addToast('Pemeriksaan file data selesai (Tidak ada perubahan baru).', 'info');
       }
     } catch (err: any) {
       console.error(err);
-      addToast('Kesalahan sinkronisasi otomatis: ' + (err.message || err), 'error');
+      addToast('Kesalahan penyelarasan data otomatis: ' + (err.message || err), 'error');
     } finally {
       setIsLoading(false);
     }
@@ -540,35 +613,15 @@ export default function App() {
     }
   }, [isLoggedIn]);
 
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (isLoggingIn) return;
+  const handleVerifyLembaga = async () => {
+    if (!selectedLembaga) {
+      setLoginError('Silakan pilih Lembaga Anda terlebih dahulu.');
+      return;
+    }
+    setIsVerifyingLembaga(true);
     setLoginError(null);
-
-    const emailTrimmed = emailInput.trim().toLowerCase();
-    const passwordTrimmed = passwordInput.trim();
-    const lembagaTrimmed = selectedLembaga.trim();
-
-    if (!emailTrimmed) {
-      setLoginError('Silakan masukkan G-Mail Anda.');
-      return;
-    }
-    if (!passwordTrimmed) {
-      setLoginError('Silakan masukkan password Anda.');
-      return;
-    }
-    if (!lembagaTrimmed) {
-      setLoginError('Silakan pilih Lembaga Anda.');
-      return;
-    }
-
-    setIsLoggingIn(true);
-
     try {
-      // Simulate verification / matching delay (1000ms) for high-end professional feel
-      await new Promise(resolve => setTimeout(resolve, 1000));
-
-      // If for some reason accounting list is not fetched, try to fetch it now
+      // Find the selected institution in the master spreadsheet list
       let localAkunList = akunList;
       if (localAkunList.length === 0) {
         try {
@@ -584,6 +637,7 @@ export default function App() {
                 let lembaga = '';
                 let urlAppScript = '';
                 let urlAbsensi = '';
+                let linkProfile = '';
 
                 Object.keys(item).forEach(key => {
                   const lowerKey = key.toLowerCase();
@@ -598,6 +652,8 @@ export default function App() {
                     urlAppScript = val;
                   } else if (lowerKey === 'urlabsensi' || lowerKey === 'url_absensi' || lowerKey.includes('absen')) {
                     urlAbsensi = val;
+                  } else if (lowerKey === 'linkprofile' || lowerKey === 'link-profile' || lowerKey === 'link_profile' || lowerKey.includes('profile') || lowerKey.includes('foto') || lowerKey.includes('photo')) {
+                    linkProfile = val;
                   }
                 });
 
@@ -606,36 +662,171 @@ export default function App() {
                 if (!lembaga) lembaga = String(item['lembaga'] || '').trim();
                 if (!urlAppScript) urlAppScript = String(item['urlappscript'] || item['url_app_script'] || '').trim();
                 if (!urlAbsensi) urlAbsensi = String(item['urlabsensi'] || item['url_absensi'] || '').trim();
+                if (!linkProfile) linkProfile = String(item['link-profile'] || item['link_profile'] || item['linkprofile'] || item['profile'] || item['foto'] || item['photo'] || '').trim();
 
-                return { gmail, pasword, lembaga, urlAppScript, urlAbsensi };
+                return { gmail, pasword, lembaga, urlAppScript, urlAbsensi, linkProfile };
               }).filter(acc => acc.gmail || acc.lembaga);
               setAkunList(localAkunList);
             }
           }
         } catch (fetchErr) {
-          console.error("Gagal memuat darurat akun:", fetchErr);
+          console.error("Gagal memuat darurat database lembaga:", fetchErr);
         }
       }
 
-      const match = localAkunList.find(acc => 
-        acc.gmail.toLowerCase() === emailTrimmed && 
-        acc.pasword === passwordTrimmed && 
-        acc.lembaga.toLowerCase() === lembagaTrimmed.toLowerCase()
+      const match = localAkunList.find(acc => acc.lembaga.toLowerCase() === selectedLembaga.toLowerCase());
+      if (!match) {
+        throw new Error('Lembaga tidak terdaftar dalam database utama.');
+      }
+
+      if (!match.urlAppScript) {
+        throw new Error('Konfigurasi URL Google Apps Script untuk lembaga ini belum lengkap.');
+      }
+
+      // Fetch user sub-accounts from 'AKUN SAPTA' sheet via Google Apps Script
+      setLoginProgressText('Membuka koneksi & mengunduh database akun...');
+      const targetUrl = match.urlAppScript + (match.urlAppScript.includes('?') ? '&' : '?') + 'action=read&sheetName=' + encodeURIComponent('AKUN SAPTA');
+      
+      const response = await fetch(targetUrl);
+      if (!response.ok) {
+        throw new Error('Gagal berkomunikasi dengan server App Script lembaga.');
+      }
+
+      const resText = await response.text();
+      let parsedJson: any = null;
+      try {
+        parsedJson = JSON.parse(resText);
+      } catch (e) {
+        throw new Error('Data user dari server tidak berformat JSON valid.');
+      }
+
+      if (parsedJson && parsedJson.error) {
+        throw new Error(parsedJson.message || 'Error internal Google Sheets App Script.');
+      }
+
+      if (Array.isArray(parsedJson)) {
+        const parsedAccounts = parsedJson.map((item: any) => {
+          let nama = '';
+          let username = '';
+          let pasword = '';
+          let menu = '';
+
+          Object.keys(item).forEach(key => {
+            const lowerK = key.toLowerCase();
+            const val = String(item[key] || '').trim();
+            if (lowerK === 'nama' || lowerK === 'name' || lowerK.includes('nama_lengkap') || lowerK.includes('fullname')) {
+              nama = val;
+            } else if (lowerK === 'username' || lowerK === 'user' || lowerK === 'login') {
+              username = val;
+            } else if (lowerK === 'pasword' || lowerK === 'password' || lowerK.includes('pass') || lowerK.includes('word')) {
+              pasword = val;
+            } else if (lowerK === 'menu' || lowerK.includes('akses') || lowerK.includes('fitur') || lowerK.includes('role')) {
+              menu = val;
+            }
+          });
+
+          if (!nama) nama = String(item['nama'] || item['name'] || '').trim();
+          if (!username) username = String(item['username'] || item['user'] || '').trim();
+          if (!pasword) pasword = String(item['pasword'] || item['password'] || '').trim();
+          if (!menu) menu = String(item['menu'] || item['aksesMenu'] || item['akses_menu'] || '').trim();
+
+          return { nama, username, pasword, menu };
+        }).filter(acc => acc.username || acc.nama);
+
+        setLembagaAkunList(parsedAccounts);
+        setIsLembagaVerified(true);
+        addToast('Lembaga Terhubung! Silakan masukkan username dan password akun Anda.', 'success');
+      } else {
+        throw new Error('Sistem gagal membaca sheet "AKUN SAPTA". Buat sheet baru bernama AKUN SAPTA di Spreadsheet lembaga terlebih dahulu.');
+      }
+    } catch (err: any) {
+      console.error(err);
+      setLoginError('Error Verifikasi: ' + (err.message || 'Gagal memverifikasi lembaga.'));
+    } finally {
+      setIsVerifyingLembaga(false);
+      setLoginProgressText('');
+    }
+  };
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (isLoggingIn) return;
+    setLoginError(null);
+
+    const usernameTrimmed = emailInput.trim();
+    const passwordTrimmed = passwordInput.trim();
+    const lembagaTrimmed = selectedLembaga.trim();
+
+    if (!lembagaTrimmed) {
+      setLoginError('Silakan pilih Lembaga Anda.');
+      return;
+    }
+
+    if (!isLembagaVerified) {
+      setLoginError('Silakan klik "OKE" untuk verifikasi & memuat database akun lembaga Anda terlebih dahulu.');
+      return;
+    }
+
+    if (!usernameTrimmed) {
+      setLoginError('Silakan masukkan Username Anda.');
+      return;
+    }
+
+    if (!passwordTrimmed) {
+      setLoginError('Silakan masukkan Sandi Password Anda.');
+      return;
+    }
+
+    setIsLoggingIn(true);
+
+    try {
+      await new Promise(resolve => setTimeout(resolve, 800));
+
+      const match = akunList.find(acc => acc.lembaga.toLowerCase() === lembagaTrimmed.toLowerCase());
+      if (!match) {
+        setLoginError('Sistem tidak menemukan informasi server untuk lembaga terpilih.');
+        setIsLoggingIn(false);
+        return;
+      }
+
+      // Check sub-accounts from 'AKUN SAPTA'
+      let matchedUser = lembagaAkunList.find(u => 
+        u.username.toLowerCase() === usernameTrimmed.toLowerCase() && 
+        u.pasword === passwordTrimmed
       );
 
-      if (match) {
+      // Superadmin fallback (Gmail master / password registered in the master list)
+      if (!matchedUser) {
+        const isMasterMatch = match.gmail.toLowerCase() === usernameTrimmed.toLowerCase() && match.pasword === passwordTrimmed;
+        if (isMasterMatch) {
+          matchedUser = {
+            nama: 'Super Admin',
+            username: match.gmail,
+            pasword: match.pasword,
+            menu: '' // Empty means all privileges
+          };
+        }
+      }
+
+      if (matchedUser) {
         const targetGidMatch = match.urlAbsensi.match(/gid=(\d+)/);
         const targetGid = targetGidMatch && targetGidMatch[1] ? targetGidMatch[1] : '987258577';
         const formattedAbsensiUrl = getCSVUrlForGid(match.urlAbsensi, targetGid);
 
         setLoginProgressStep('auth');
         setLoginProgressText('Mengautentikasi dan menyelaraskan sesi lembaga...');
-        await new Promise(resolve => setTimeout(resolve, 800));
+        await new Promise(resolve => setTimeout(resolve, 600));
 
         localStorage.setItem('LINK_SCRIPT_UTAMA', match.urlAppScript);
         localStorage.setItem('LINK_ABSENSI', match.urlAbsensi);
         localStorage.setItem('G-MAIL_LOGIN', match.gmail);
         localStorage.setItem('LEMBAGA_LOGIN', match.lembaga);
+        localStorage.setItem('LINK_PROFILE', match.linkProfile || '');
+
+        // Store sub-account custom states
+        localStorage.setItem('USER_NAMA', matchedUser.nama || 'Amd');
+        localStorage.setItem('USER_USERNAME', matchedUser.username);
+        localStorage.setItem('USER_MENU', matchedUser.menu || '');
 
         localStorage.setItem('google_sheets_absensi_csv_url', formattedAbsensiUrl);
         localStorage.setItem('google_apps_script_url', match.urlAppScript);
@@ -652,6 +843,12 @@ export default function App() {
         setAbsensiCsvPublishUrl(formattedAbsensiUrl);
         setGmailLogin(match.gmail);
         setLembagaLogin(match.lembaga);
+        setInstitusiProfileUrl(match.linkProfile || '');
+
+        // Set React States for Sub-Account
+        setUserNama(matchedUser.nama || 'Amd');
+        setUserUsername(matchedUser.username);
+        setUserMenu(matchedUser.menu || '');
 
         // Run sync data from cloud urls synchronously BEFORE declaring user logged in!
         await syncDataFromCloudUrls(match.urlAppScript, formattedAbsensiUrl, (step, text) => {
@@ -668,13 +865,9 @@ export default function App() {
         setActiveTab('dashboard');
         
         hasAutoSyncedRef.current = true;
-        addToast('Login Berhasil! Selamat datang.', 'success');
+        addToast(`Login Berhasil! Selamat datang, ${matchedUser.nama || matchedUser.username}.`, 'success');
       } else {
-        console.warn('Login failed diagnostics:', {
-          entered: { email: emailTrimmed, pasword: passwordTrimmed, lembaga: lembagaTrimmed },
-          available_accounts: localAkunList
-        });
-        setLoginError('G-Mail, Password, atau Lembaga tidak cocok dengan data terdaftar di AKUN SAPTA.');
+        setLoginError('Username atau Sandi Password tidak cocok dengan database Lembaga terpilih.');
       }
     } catch (err: any) {
       setLoginError('Terjadi kesalahan koneksi server. Silakan coba lagi.');
@@ -691,18 +884,31 @@ export default function App() {
     localStorage.removeItem('LINK_ABSENSI');
     localStorage.removeItem('G-MAIL_LOGIN');
     localStorage.removeItem('LEMBAGA_LOGIN');
+    localStorage.removeItem('LINK_PROFILE');
     localStorage.removeItem('google_apps_script_url');
     localStorage.removeItem('google_sheets_absensi_csv_url');
+    localStorage.removeItem('USER_NAMA');
+    localStorage.removeItem('USER_USERNAME');
+    localStorage.removeItem('USER_MENU');
 
     setAppsScriptUrl('');
     setAbsensiCsvPublishUrl('');
     setGmailLogin('');
     setLembagaLogin('');
+    setInstitusiProfileUrl('');
     setIsLoggedIn(false);
     setEmailInput('');
     setPasswordInput('');
     setSelectedLembaga('');
     setLembagaSearch('');
+    
+    // Clear sub-account states
+    setUserNama('');
+    setUserUsername('');
+    setUserMenu('');
+    setIsLembagaVerified(false);
+    setLembagaAkunList([]);
+
     hasAutoSyncedRef.current = false;
     addToast('Anda berhasil keluar dari sistem.', 'info');
   };
@@ -781,11 +987,11 @@ export default function App() {
     try {
       const activeScriptUrl = appsScriptUrl || localStorage.getItem('LINK_SCRIPT_UTAMA') || localStorage.getItem('google_apps_script_url') || '';
       if (!activeScriptUrl) {
-        addToast('Gagal sinkronisasi: Link Google Apps Script utama belum dikonfigurasi. Silakan login atau konfigurasi di Pengaturan.', 'error');
+        addToast('Gagal pembaruan: Tautan server utama belum dikonfigurasi. Silakan masuk atau konfigurasi di bagian Pengaturan.', 'error');
         setIsLoading(false);
         return;
       }
-      addToast('Memulai sinkronisasi cloud dari Server...', 'info');
+      addToast('Memulai pembaruan data dari basis data pusat...', 'info');
       const url = activeScriptUrl + (activeScriptUrl.includes('?') ? '&' : '?') + 'action=read&sheetName=DATA%20ANGGOTA';
       const response = await fetch(url);
       if (!response.ok) throw new Error('Koneksi Web App Server gagal.');
@@ -857,16 +1063,16 @@ export default function App() {
 
         refreshAllData();
         if (deleteCount > 0) {
-          addToast(`Sinkronisasi sukses! Menghapus ${deleteCount} anggota yang tidak lagi terdaftar di cloud.`, 'success');
+          addToast(`Pembaruan sukses! Menghapus ${deleteCount} anggota yang tidak aktif dari database.`, 'success');
         } else {
-          addToast(`Data Anggota berhasil disinkronkan (${formatted.length} rekam)!`, 'success');
+          addToast(`Data Anggota berhasil diperbarui (${formatted.length} rekam)!`, 'success');
         }
       } else {
         addToast('Data CSV kosong atau tidak valid.', 'error');
       }
     } catch (e: any) {
       console.error(e);
-      addToast('Gagal sinkronisasi data sheet, menggunakan basis data lokal.', 'error');
+      addToast('Gagal memperbarui data berkas, menggunakan basis data lokal.', 'error');
     } finally {
       setIsLoading(false);
     }
@@ -874,11 +1080,11 @@ export default function App() {
 
   const handleSyncAbsensi = async () => {
     setIsLoading(true);
-    addToast('Memulai sinkronisasi rekap absensi dari cloud...', 'info');
+    addToast('Memulai pembaruan rekap absensi dari database pusat...', 'info');
     try {
       const activeAbsensiUrl = absensiCsvPublishUrl || localStorage.getItem('LINK_ABSENSI') || localStorage.getItem('google_sheets_absensi_csv_url') || '';
       if (!activeAbsensiUrl) {
-        addToast('Gagal sinkronisasi: Link Rekap Absensi belum dikonfigurasi. Silakan login atau konfigurasi di Pengaturan.', 'error');
+        addToast('Gagal pembaruan: Tautan Rekap Absensi belum dikonfigurasi. Silakan masuk atau konfigurasi di bagian Pengaturan.', 'error');
         setIsLoading(false);
         return;
       }
@@ -940,16 +1146,16 @@ export default function App() {
 
         refreshAllData();
         if (deleteCount > 0) {
-          addToast(`Sinkronisasi sukses! Menghapus ${deleteCount} rekam absensi usang di lokal. Berhasil memperbarui ${formatted.length} rekam absensi dari cloud.`, 'success');
+          addToast(`Pembaruan sukses! Menghapus ${deleteCount} rekam absensi usang. Berhasil memuat ${formatted.length} rekam absensi baru ke dalam sistem.`, 'success');
         } else {
-          addToast(`Rekap Absensi berhasil disinkronkan (${formatted.length} rekam)!`, 'success');
+          addToast(`Rekap Absensi berhasil diperbarui (${formatted.length} rekam)!`, 'success');
         }
       } else {
         addToast('Data absensi kosong atau tidak valid.', 'error');
       }
     } catch (e: any) {
       console.error(e);
-      addToast('Gagal sinkronisasi data absensi dari cloud.', 'error');
+      addToast('Gagal memperbarui data absensi dari berkas database.', 'error');
     } finally {
       setIsLoading(false);
     }
@@ -982,11 +1188,11 @@ export default function App() {
     try {
       const activeScriptUrl = appsScriptUrl || localStorage.getItem('LINK_SCRIPT_UTAMA') || localStorage.getItem('google_apps_script_url') || '';
       if (!activeScriptUrl) {
-        addToast('Gagal sinkronisasi: Link Google Apps Script utama belum dikonfigurasi. Silakan login atau konfigurasi di Pengaturan.', 'error');
+        addToast('Gagal pembaruan: Tautan server utama belum dikonfigurasi. Silakan masuk atau konfigurasi di bagian Pengaturan.', 'error');
         setIsLoading(false);
         return;
       }
-      addToast('Memeriksa keanggotaan aktif dari cloud...', 'info');
+      addToast('Memeriksa keanggotaan aktif dari basis data pusat...', 'info');
       const url = activeScriptUrl + (activeScriptUrl.includes('?') ? '&' : '?') + 'action=read&sheetName=DATA%20ANGGOTA';
       const response = await fetch(url);
       if (!response.ok) throw new Error('Koneksi Web App Server gagal.');
@@ -1026,16 +1232,16 @@ export default function App() {
 
         refreshAllData();
         if (deleteCount > 0) {
-          addToast(`Berhasil! Menghapus ${deleteCount} anggota lokal yang tidak ditemukan/tidak terdaftar di cloud.`, 'success');
+          addToast(`Berhasil! Menghapus ${deleteCount} anggota lokal yang tidak ditemukan/tidak aktif di server utama.`, 'success');
         } else {
-          addToast('Seluruh data anggota lokal Anda sudah terdaftar dan sinkron dengan database cloud!', 'info');
+          addToast('Seluruh data anggota lokal Anda sudah sesuai dengan database utama!', 'info');
         }
       } else {
-        addToast('Gagal memuat data cloud atau format kosong.', 'error');
+        addToast('Gagal memuat data utama atau format kosong.', 'error');
       }
     } catch (e: any) {
       console.error(e);
-      addToast('Gagal memeriksa data cloud. Silakan periksa URL CSV Anda.', 'error');
+      addToast('Gagal memeriksa data utama. Silakan periksa URL berkas Anda.', 'error');
     } finally {
       setIsLoading(false);
     }
@@ -1098,7 +1304,8 @@ export default function App() {
           { name: 'keterangan', label: 'Keterangan Kronologi', type: 'textarea', placeholder: 'Rincian detail kronologi kejadian di tempat' },
           { name: 'adaDenda', label: 'Dikenai Denda Uang?', type: 'select', options: ['Tidak', 'Ya'], required: true },
           { name: 'nominalDenda', label: 'Nominal Denda (Jika Ada)', type: 'number', placeholder: 'Isi 0 jika tidak ada denda' },
-          { name: 'jenisHukuman', label: 'Bentuk Hukuman / Sanksi', type: 'text', required: true, placeholder: 'Teguran tertulis, Kerja sosial, Skorsing 3 hari' }
+          { name: 'jenisHukuman', label: 'Bentuk Hukuman / Sanksi', type: 'text', required: true, placeholder: 'Teguran tertulis, Kerja sosial, Skorsing 3 hari' },
+          { name: 'statusHukuman', label: 'Status Tindak Lanjut', type: 'select', options: ['Belum Ditindak', 'Proses', 'Selesai'], required: true }
         ]
       },
       informasi: {
@@ -1156,6 +1363,7 @@ export default function App() {
       initialVals.jenisPelanggaran = 'Ringan';
       initialVals.adaDenda = 'Tidak';
       initialVals.nominalDenda = 0;
+      initialVals.statusHukuman = 'Belum Ditindak';
     } else if (tab === 'anggota') {
       initialVals.status = 'Aktif';
       initialVals.jenisKelamin = 'Laki-laki';
@@ -1666,8 +1874,14 @@ export default function App() {
   const dashboardStats = useMemo(() => {
     const totalAnggota = anggotaList.length;
     const activeAnggota = anggotaList.filter(m => m.status === 'Aktif').length;
-    const countLaki = anggotaList.filter(m => m.jenisKelamin === 'Laki-laki').length;
-    const countPerempuan = anggotaList.filter(m => m.jenisKelamin === 'Perempuan').length;
+    const countLaki = anggotaList.filter(m => {
+      const jk = (m.jenisKelamin || '').trim().toLowerCase();
+      return jk === 'laki-laki' || jk === 'laki laki' || jk === 'lakilaki' || jk === 'l' || jk === 'pria' || jk === 'lk' || jk === 'cowok';
+    }).length;
+    const countPerempuan = anggotaList.filter(m => {
+      const jk = (m.jenisKelamin || '').trim().toLowerCase();
+      return jk === 'perempuan' || jk === 'p' || jk === 'wanita' || jk === 'pr' || jk === 'cewek';
+    }).length;
     
     // Pembayaran stats
     const totalNominalPaid = pembayaranList
@@ -1981,131 +2195,192 @@ export default function App() {
             )}
 
             <form onSubmit={handleLogin} className="space-y-5 text-left">
-              {/* Institution Selection custom searchable field */}
-              <div className="space-y-2 relative">
-                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block pl-1">Pilih Lembaga Anda</label>
-                <div className="relative">
-                  <School className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                  <input
-                    type="text"
-                    disabled={isLoggingIn}
-                    placeholder={selectedLembaga ? selectedLembaga : "Cari Lembaga Anda..."}
-                    value={lembagaSearch}
-                    onChange={(e) => {
-                      setLembagaSearch(e.target.value);
-                      setIsLembagaDropdownOpen(true);
-                    }}
-                    onFocus={() => setIsLembagaDropdownOpen(true)}
-                    className="w-full text-xs pl-11 pr-20 py-3.5 bg-slate-950/70 border border-slate-800 rounded-xl focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 transition text-slate-100 placeholder-slate-500 font-semibold shadow-inner"
-                  />
-                  {selectedLembaga && (
+              {!isLembagaVerified ? (
+                <>
+                  {/* Institution Selection custom searchable field */}
+                  <div className="space-y-4">
+                    <div className="space-y-2 relative">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block pl-1">Pilih Lembaga Anda</label>
+                      <div className="relative">
+                        <School className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                        <input
+                          type="text"
+                          disabled={isVerifyingLembaga}
+                          placeholder={selectedLembaga ? selectedLembaga : "Cari Lembaga Anda..."}
+                          value={lembagaSearch}
+                          onChange={(e) => {
+                            setLembagaSearch(e.target.value);
+                            setIsLembagaDropdownOpen(true);
+                          }}
+                          onFocus={() => setIsLembagaDropdownOpen(true)}
+                          className="w-full text-xs pl-11 pr-20 py-3.5 bg-slate-950/70 border border-slate-800 rounded-xl focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 transition text-slate-100 placeholder-slate-500 font-semibold shadow-inner"
+                        />
+                        {selectedLembaga && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedLembaga('');
+                              setLembagaSearch('');
+                            }}
+                            className="absolute right-12 top-1/2 -translate-y-1/2 text-rose-400 hover:text-rose-300 font-bold p-1 text-[10px] cursor-pointer bg-rose-950/20 px-2 py-0.5 rounded-md border border-rose-900/40"
+                          >
+                            Batal
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => setIsLembagaDropdownOpen(!isLembagaDropdownOpen)}
+                          className="absolute right-4 top-1/2 -translate-y-1/2 p-0.5 hover:bg-slate-850 rounded cursor-pointer transition text-slate-400"
+                        >
+                          <ChevronDown className={`w-4 h-4 transition-transform duration-200 ${isLembagaDropdownOpen ? 'rotate-180' : ''}`} />
+                        </button>
+                      </div>
+
+                      {/* Combobox List dropdown */}
+                      {isLembagaDropdownOpen && (
+                        <div className="absolute left-0 right-0 mt-2 bg-[#0a0d1e] border border-slate-800 rounded-xl shadow-2xl z-30 max-h-48 overflow-y-auto divide-y divide-slate-800/60 animate-slide-down">
+                          {filteredLembaga.length === 0 ? (
+                            <div className="p-4 text-center text-xs text-slate-500 font-medium font-sans">
+                              {isFetchingAkun ? 'Memuat data lembaga...' : 'Lembaga tidak ditemukan'}
+                            </div>
+                          ) : (
+                            filteredLembaga.map((lemb) => (
+                              <button
+                                key={lemb}
+                                type="button"
+                                onClick={() => {
+                                  setSelectedLembaga(lemb);
+                                  setLembagaSearch(lemb);
+                                  setIsLembagaDropdownOpen(false);
+                                  setLoginError(null);
+                                }}
+                                className={`w-full text-left px-4 py-3 text-xs font-semibold select-none flex items-center justify-between transition cursor-pointer ${
+                                  selectedLembaga === lemb 
+                                    ? 'bg-indigo-950/50 text-indigo-300 font-bold' 
+                                    : 'text-slate-300 hover:bg-slate-900'
+                                }`}
+                              >
+                                <span className="font-mono">{lemb}</span>
+                                {selectedLembaga === lemb && <Check className="w-3.5 h-3.5 text-indigo-400 shrink-0" />}
+                              </button>
+                            ))
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {isVerifyingLembaga && loginProgressText && (
+                      <div className="text-center py-2 text-[10px] text-slate-400 font-mono flex items-center justify-center gap-2">
+                        <RefreshCw className="w-3 h-3 animate-spin text-indigo-400" />
+                        <span>{loginProgressText}</span>
+                      </div>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={handleVerifyLembaga}
+                      disabled={isVerifyingLembaga || !selectedLembaga}
+                      className="w-full py-3.5 bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-500 hover:to-indigo-600 disabled:from-slate-800 disabled:to-slate-900 disabled:opacity-45 text-white rounded-xl text-xs font-bold active:scale-[0.98] transition-all shadow-lg shadow-indigo-950/50 cursor-pointer flex items-center justify-center space-x-2 border border-indigo-500/20"
+                    >
+                      {isVerifyingLembaga ? (
+                        <>
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin text-indigo-200" />
+                          <span>Menghubungkan Server...</span>
+                        </>
+                      ) : (
+                        <>
+                          <span>OKE (Pilih Lembaga)</span>
+                          <Check className="w-3.5 h-3.5 text-indigo-300 animate-pulse" />
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  {/* Lembaga Terhubung Header */}
+                  <div className="bg-indigo-950/30 border border-slate-800 rounded-xl p-3.5 flex items-center justify-between animate-fade-in">
+                    <div className="flex items-center space-x-3 text-left">
+                      <div className="p-2 bg-indigo-500/10 text-indigo-400 rounded-lg border border-indigo-500/20 shrink-0">
+                        <School className="w-4 h-4" />
+                      </div>
+                      <div className="overflow-hidden">
+                        <p className="text-[9px] uppercase font-bold text-indigo-400 tracking-wider">Lembaga Terhubung</p>
+                        <p className="text-xs font-bold text-slate-100 font-mono mt-0.5 truncate">{selectedLembaga}</p>
+                      </div>
+                    </div>
                     <button
                       type="button"
                       onClick={() => {
-                        setSelectedLembaga('');
-                        setLembagaSearch('');
+                        setIsLembagaVerified(false);
+                        setLembagaAkunList([]);
+                        setEmailInput('');
+                        setPasswordInput('');
+                        setLoginError(null);
                       }}
-                      className="absolute right-12 top-1/2 -translate-y-1/2 text-rose-400 hover:text-rose-300 font-bold p-1 text-[10px] cursor-pointer bg-rose-950/20 px-2 py-0.5 rounded-md border border-rose-900/40"
+                      className="text-[10px] font-bold text-rose-400 hover:text-rose-300 bg-rose-950/20 px-2.5 py-1 rounded-md border border-rose-900/40 shrink-0 hover:bg-rose-950/40 cursor-pointer active:scale-95 transition"
                     >
-                      Batal
+                      Ubah
                     </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => setIsLembagaDropdownOpen(!isLembagaDropdownOpen)}
-                    className="absolute right-4 top-1/2 -translate-y-1/2 p-0.5 hover:bg-slate-850 rounded cursor-pointer transition text-slate-400"
-                  >
-                    <ChevronDown className={`w-4 h-4 transition-transform duration-200 ${isLembagaDropdownOpen ? 'rotate-180' : ''}`} />
-                  </button>
-                </div>
-
-                {/* Combobox List dropdown */}
-                {isLembagaDropdownOpen && (
-                  <div className="absolute left-0 right-0 mt-2 bg-[#0a0d1e] border border-slate-800 rounded-xl shadow-2xl z-30 max-h-48 overflow-y-auto divide-y divide-slate-800/60 animate-slide-down">
-                    {filteredLembaga.length === 0 ? (
-                      <div className="p-4 text-center text-xs text-slate-500 font-medium font-sans">
-                        {isFetchingAkun ? 'Memuat data lembaga...' : 'Lembaga tidak ditemukan'}
-                      </div>
-                    ) : (
-                      filteredLembaga.map((lemb) => (
-                        <button
-                          key={lemb}
-                          type="button"
-                          onClick={() => {
-                            setSelectedLembaga(lemb);
-                            setLembagaSearch(lemb);
-                            setIsLembagaDropdownOpen(false);
-                            setLoginError(null);
-                          }}
-                          className={`w-full text-left px-4 py-3 text-xs font-semibold select-none flex items-center justify-between transition cursor-pointer ${
-                            selectedLembaga === lemb 
-                              ? 'bg-indigo-950/50 text-indigo-300 font-bold' 
-                              : 'text-slate-300 hover:bg-slate-900'
-                          }`}
-                        >
-                          <span className="font-mono">{lemb}</span>
-                          {selectedLembaga === lemb && <Check className="w-3.5 h-3.5 text-indigo-400 shrink-0" />}
-                        </button>
-                      ))
-                    )}
                   </div>
-                )}
-              </div>
 
-              {/* Email Input */}
-              <div className="space-y-2">
-                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block pl-1">Alamat G-Mail Terdaftar</label>
-                <div className="relative">
-                  <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                  <input
-                    type="email"
-                    disabled={isLoggingIn}
-                    placeholder="nama@gmail.com"
-                    value={emailInput}
-                    onChange={(e) => {
-                      setEmailInput(e.target.value);
-                      setLoginError(null);
-                    }}
-                    className="w-full text-xs pl-11 pr-4 py-3.5 bg-slate-950/70 border border-slate-800 rounded-xl focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 transition text-slate-100 placeholder-slate-500 shadow-inner"
-                  />
-                </div>
-              </div>
+                  {/* Username / E-mail Input */}
+                  <div className="space-y-2 animate-fade-in" style={{ animationDelay: '100ms' }}>
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block pl-1">Username Akun</label>
+                    <div className="relative">
+                      <User className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                      <input
+                        type="text"
+                        disabled={isLoggingIn}
+                        autoFocus
+                        placeholder="Masukkan Username Anda"
+                        value={emailInput}
+                        onChange={(e) => {
+                          setEmailInput(e.target.value);
+                          setLoginError(null);
+                        }}
+                        className="w-full text-xs pl-11 pr-4 py-3.5 bg-slate-950/70 border border-slate-800 rounded-xl focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 transition text-slate-100 placeholder-slate-500 shadow-inner"
+                      />
+                    </div>
+                  </div>
 
-              {/* Password Input */}
-              <div className="space-y-2">
-                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block pl-1">Sandi Password Anda</label>
-                <div className="relative">
-                  <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                  <input
-                    type={showPassword ? "text" : "password"}
-                    disabled={isLoggingIn}
-                    placeholder="••••••••"
-                    value={passwordInput}
-                    onChange={(e) => {
-                      setPasswordInput(e.target.value);
-                      setLoginError(null);
-                    }}
-                    className="w-full text-xs pl-11 pr-12 py-3.5 bg-slate-950/70 border border-slate-800 rounded-xl focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 transition text-slate-100 placeholder-slate-500 shadow-inner"
-                  />
+                  {/* Password Input */}
+                  <div className="space-y-2 animate-fade-in" style={{ animationDelay: '200ms' }}>
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block pl-1">Sandi Password</label>
+                    <div className="relative">
+                      <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                      <input
+                        type={showPassword ? "text" : "password"}
+                        disabled={isLoggingIn}
+                        placeholder="••••••••"
+                        value={passwordInput}
+                        onChange={(e) => {
+                          setPasswordInput(e.target.value);
+                          setLoginError(null);
+                        }}
+                        className="w-full text-xs pl-11 pr-12 py-3.5 bg-slate-950/70 border border-slate-800 rounded-xl focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 transition text-slate-100 placeholder-slate-500 shadow-inner"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="absolute right-4 top-1/2 -translate-y-1/2 p-0.5 hover:bg-slate-850 rounded text-slate-400 hover:text-slate-200 cursor-pointer transition"
+                      >
+                        {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Submit button with beautiful layout and active hover transitions */}
                   <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-4 top-1/2 -translate-y-1/2 p-0.5 hover:bg-slate-850 rounded text-slate-400 hover:text-slate-200 cursor-pointer transition"
+                    type="submit"
+                    disabled={isLoggingIn}
+                    className="w-full py-3.5 bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-500 hover:to-emerald-600 disabled:from-indigo-800 disabled:to-indigo-900 text-white rounded-xl text-xs font-bold active:scale-[0.98] transition-all shadow-lg shadow-indigo-950/50 cursor-pointer flex items-center justify-center space-x-2 border border-indigo-500/20"
                   >
-                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    <span>Masuk Ke Sistem Portal</span>
+                    <ChevronRight className="w-4 h-4 text-indigo-200" />
                   </button>
-                </div>
-              </div>
-
-              {/* Submit button with beautiful layout and active hover transitions */}
-              <button
-                type="submit"
-                disabled={isLoggingIn}
-                className="w-full py-3.5 bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-500 hover:to-indigo-600 disabled:from-indigo-800 disabled:to-indigo-900 text-white rounded-xl text-xs font-bold active:scale-[0.98] transition-all shadow-lg shadow-indigo-950/50 cursor-pointer flex items-center justify-center space-x-2 border border-indigo-500/20"
-              >
-                <span>Masuk Ke Sistem Portal</span>
-                <ChevronRight className="w-4 h-4 text-indigo-200" />
-              </button>
+                </>
+              )}
             </form>
           </div>
         </div>
@@ -2193,7 +2468,7 @@ export default function App() {
         <div className="flex-1 flex flex-col overflow-y-auto min-h-0">
           
           {/* Logo Brand Frame */}
-          <div className="h-16 border-b border-[#1e293b] flex items-center bg-[#090d16] px-5 shrink-0">
+          <div className="h-14 border-b border-[#1e293b] flex items-center bg-[#090d16] px-5 shrink-0">
             <img
               src="https://i.ibb.co.com/s9PmXBn3/20260605-214518.png"
               alt="SAPTA ADMIN Logo"
@@ -2207,24 +2482,31 @@ export default function App() {
           </div>
 
           {/* User Profile Info Section */}
-          <div className="p-4 border-b border-[#1e293b] bg-[#0c1322] flex items-center space-x-3.5 text-left shrink-0">
-            <div className="relative w-11 h-11 rounded-full shrink-0">
+          <div className="p-3 border-b border-[#1e293b] bg-[#0c1322] flex items-center space-x-2.5 text-left shrink-0">
+            <div className="relative w-8 h-8 rounded-full shrink-0">
               <img
-                src="https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=facearea&facepad=2&w=256&h=256&q=80"
-                alt="Super Admin Avatar"
+                src={institusiProfileUrl || "https://images.unsplash.com/photo-1579546929518-9e396f3cc809?auto=format&fit=crop&w=256&h=256&q=80"}
+                alt={userNama || lembagaLogin || "Administrator"}
                 className="w-full h-full object-cover rounded-full border border-slate-700"
                 referrerPolicy="no-referrer"
+                onError={(e) => {
+                  (e.currentTarget as HTMLImageElement).src = "https://images.unsplash.com/photo-1579546929518-9e396f3cc809?auto=format&fit=crop&w=256&h=256&q=80";
+                }}
               />
-              <span className="absolute bottom-0 right-0 w-3 h-3 rounded-full bg-[#10b981] border-2 border-[#0c1322] animate-pulse"></span>
+              <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-[#10b981] border border-[#0c1322] animate-pulse"></span>
             </div>
             <div className="overflow-hidden flex-1">
-              <p className="text-xs font-bold text-white truncate leading-tight">Super Admin</p>
-              <p className="text-[10px] text-[#64748b] truncate font-sans tracking-wide mt-0.5">Super Admin</p>
+              <p className="text-[11px] font-bold text-white truncate leading-tight font-sans" title={userNama || lembagaLogin}>
+                {userNama || 'Admin Sapta'}
+              </p>
+              <p className="text-[9px] text-[#64748b] truncate font-sans tracking-wide mt-0.5 uppercase">
+                {userUsername ? `@${userUsername} • ` : ''}{lembagaLogin || 'Lembaga'}
+              </p>
             </div>
           </div>
 
           {/* Connected DB status */}
-          <div className="px-4 py-2 bg-[#090d16]/30 border-b border-[#1e293b] flex items-center justify-between text-[11px] font-semibold text-slate-400">
+          <div className="px-3.5 py-1.5 bg-[#090d16]/30 border-b border-[#1e293b] flex items-center justify-between text-[10px] font-semibold text-slate-400">
             <span>Koneksi DB:</span>
             <span className="text-[#10b981] flex items-center gap-1 font-bold font-sans">
               <span className="w-1.5 h-1.5 bg-[#10b981] rounded-full animate-ping"></span>
@@ -2246,101 +2528,117 @@ export default function App() {
               <span>Dashboard</span>
             </button>
 
-            <button
-              onClick={() => handleTabSwitch('anggota')}
-              className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-[13px] font-medium transition-all duration-150 select-none border-l-4 ${
-                activeTab === 'anggota'
-                  ? 'bg-indigo-600/10 text-indigo-400 border-indigo-500 font-semibold'
-                  : 'text-[#94a3b8] hover:bg-slate-800/40 hover:text-slate-100 border-transparent hover:translate-x-0.5'
-              }`}
-            >
-              <Users className={`w-4 h-4 shrink-0 ${activeTab === 'anggota' ? 'text-indigo-400' : 'text-[#94a3b8]'}`} />
-              <span>Daftar Anggota</span>
-            </button>
+            {isMenuAllowed('anggota') && (
+              <button
+                onClick={() => handleTabSwitch('anggota')}
+                className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-[13px] font-medium transition-all duration-150 select-none border-l-4 ${
+                  activeTab === 'anggota'
+                    ? 'bg-indigo-600/10 text-indigo-400 border-indigo-500 font-semibold'
+                    : 'text-[#94a3b8] hover:bg-slate-800/40 hover:text-slate-100 border-transparent hover:translate-x-0.5'
+                }`}
+              >
+                <Users className={`w-4 h-4 shrink-0 ${activeTab === 'anggota' ? 'text-indigo-400' : 'text-[#94a3b8]'}`} />
+                <span>Daftar Anggota</span>
+              </button>
+            )}
 
-            <button
-              onClick={() => handleTabSwitch('pembayaran')}
-              className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-[13px] font-medium transition-all duration-150 select-none border-l-4 ${
-                activeTab === 'pembayaran'
-                  ? 'bg-indigo-600/10 text-indigo-400 border-indigo-500 font-semibold'
-                  : 'text-[#94a3b8] hover:bg-slate-800/40 hover:text-slate-100 border-transparent hover:translate-x-0.5'
-              }`}
-            >
-              <CreditCard className={`w-4 h-4 shrink-0 ${activeTab === 'pembayaran' ? 'text-indigo-400' : 'text-[#94a3b8]'}`} />
-              <span>Pembayaran</span>
-            </button>
+            {isMenuAllowed('pembayaran') && (
+              <button
+                onClick={() => handleTabSwitch('pembayaran')}
+                className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-[13px] font-medium transition-all duration-150 select-none border-l-4 ${
+                  activeTab === 'pembayaran'
+                    ? 'bg-indigo-600/10 text-indigo-400 border-indigo-500 font-semibold'
+                    : 'text-[#94a3b8] hover:bg-slate-800/40 hover:text-slate-100 border-transparent hover:translate-x-0.5'
+                }`}
+              >
+                <CreditCard className={`w-4 h-4 shrink-0 ${activeTab === 'pembayaran' ? 'text-indigo-400' : 'text-[#94a3b8]'}`} />
+                <span>Pembayaran</span>
+              </button>
+            )}
 
-            <button
-              onClick={() => handleTabSwitch('prestasi')}
-              className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-[13px] font-medium transition-all duration-150 select-none border-l-4 ${
-                activeTab === 'prestasi'
-                  ? 'bg-indigo-600/10 text-indigo-400 border-indigo-500 font-semibold'
-                  : 'text-[#94a3b8] hover:bg-slate-800/40 hover:text-slate-100 border-transparent hover:translate-x-0.5'
-              }`}
-            >
-              <Trophy className={`w-4 h-4 shrink-0 ${activeTab === 'prestasi' ? 'text-indigo-400' : 'text-[#94a3b8]'}`} />
-              <span>Prestasi</span>
-            </button>
+            {isMenuAllowed('prestasi') && (
+              <button
+                onClick={() => handleTabSwitch('prestasi')}
+                className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-[13px] font-medium transition-all duration-150 select-none border-l-4 ${
+                  activeTab === 'prestasi'
+                    ? 'bg-indigo-600/10 text-indigo-400 border-indigo-500 font-semibold'
+                    : 'text-[#94a3b8] hover:bg-slate-800/40 hover:text-slate-100 border-transparent hover:translate-x-0.5'
+                }`}
+              >
+                <Trophy className={`w-4 h-4 shrink-0 ${activeTab === 'prestasi' ? 'text-indigo-400' : 'text-[#94a3b8]'}`} />
+                <span>Prestasi</span>
+              </button>
+            )}
 
-            <button
-              onClick={() => handleTabSwitch('pelanggaran')}
-              className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-[13px] font-medium transition-all duration-150 select-none border-l-4 ${
-                activeTab === 'pelanggaran'
-                  ? 'bg-indigo-600/10 text-indigo-400 border-indigo-500 font-semibold'
-                  : 'text-[#94a3b8] hover:bg-slate-800/40 hover:text-slate-100 border-transparent hover:translate-x-0.5'
-              }`}
-            >
-              <AlertTriangle className={`w-4 h-4 shrink-0 ${activeTab === 'pelanggaran' ? 'text-indigo-400' : 'text-[#94a3b8]'}`} />
-              <span>Pelanggaran</span>
-            </button>
+            {isMenuAllowed('pelanggaran') && (
+              <button
+                onClick={() => handleTabSwitch('pelanggaran')}
+                className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-[13px] font-medium transition-all duration-150 select-none border-l-4 ${
+                  activeTab === 'pelanggaran'
+                    ? 'bg-indigo-600/10 text-indigo-400 border-indigo-500 font-semibold'
+                    : 'text-[#94a3b8] hover:bg-slate-800/40 hover:text-slate-100 border-transparent hover:translate-x-0.5'
+                }`}
+              >
+                <AlertTriangle className={`w-4 h-4 shrink-0 ${activeTab === 'pelanggaran' ? 'text-indigo-400' : 'text-[#94a3b8]'}`} />
+                <span>Pelanggaran</span>
+              </button>
+            )}
 
-            <button
-              onClick={() => handleTabSwitch('absensi')}
-              className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-[13px] font-medium transition-all duration-150 select-none border-l-4 ${
-                activeTab === 'absensi'
-                  ? 'bg-indigo-600/10 text-indigo-400 border-indigo-500 font-semibold'
-                  : 'text-[#94a3b8] hover:bg-slate-800/40 hover:text-slate-100 border-transparent hover:translate-x-0.5'
-              }`}
-            >
-              <Calendar className={`w-4 h-4 shrink-0 ${activeTab === 'absensi' ? 'text-indigo-400' : 'text-[#94a3b8]'}`} />
-              <span>Rekap Absensi</span>
-            </button>
+            {isMenuAllowed('absensi') && (
+              <button
+                onClick={() => handleTabSwitch('absensi')}
+                className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-[13px] font-medium transition-all duration-150 select-none border-l-4 ${
+                  activeTab === 'absensi'
+                    ? 'bg-indigo-600/10 text-indigo-400 border-indigo-500 font-semibold'
+                    : 'text-[#94a3b8] hover:bg-slate-800/40 hover:text-slate-100 border-transparent hover:translate-x-0.5'
+                }`}
+              >
+                <Calendar className={`w-4 h-4 shrink-0 ${activeTab === 'absensi' ? 'text-indigo-400' : 'text-[#94a3b8]'}`} />
+                <span>Rekap Absensi</span>
+              </button>
+            )}
 
-            <button
-              onClick={() => handleTabSwitch('informasi')}
-              className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-[13px] font-medium transition-all duration-150 select-none border-l-4 ${
-                activeTab === 'informasi'
-                  ? 'bg-indigo-600/10 text-indigo-400 border-indigo-500 font-semibold'
-                  : 'text-[#94a3b8] hover:bg-slate-800/40 hover:text-slate-100 border-transparent hover:translate-x-0.5'
-              }`}
-            >
-              <Info className={`w-4 h-4 shrink-0 ${activeTab === 'informasi' ? 'text-indigo-400' : 'text-[#94a3b8]'}`} />
-              <span>Informasi</span>
-            </button>
+            {isMenuAllowed('informasi') && (
+              <button
+                onClick={() => handleTabSwitch('informasi')}
+                className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-[13px] font-medium transition-all duration-150 select-none border-l-4 ${
+                  activeTab === 'informasi'
+                    ? 'bg-indigo-600/10 text-indigo-400 border-indigo-500 font-semibold'
+                    : 'text-[#94a3b8] hover:bg-slate-800/40 hover:text-slate-100 border-transparent hover:translate-x-0.5'
+                }`}
+              >
+                <Info className={`w-4 h-4 shrink-0 ${activeTab === 'informasi' ? 'text-indigo-400' : 'text-[#94a3b8]'}`} />
+                <span>Informasi</span>
+              </button>
+            )}
 
-            <button
-              onClick={() => handleTabSwitch('surat')}
-              className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-[13px] font-medium transition-all duration-150 select-none border-l-4 ${
-                activeTab === 'surat'
-                  ? 'bg-indigo-600/10 text-indigo-400 border-indigo-500 font-semibold'
-                  : 'text-[#94a3b8] hover:bg-slate-800/40 hover:text-slate-100 border-transparent hover:translate-x-0.5'
-              }`}
-            >
-              <MailOpen className={`w-4 h-4 shrink-0 ${activeTab === 'surat' ? 'text-indigo-400' : 'text-[#94a3b8]'}`} />
-              <span>Surat</span>
-            </button>
+            {isMenuAllowed('surat') && (
+              <button
+                onClick={() => handleTabSwitch('surat')}
+                className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-[13px] font-medium transition-all duration-150 select-none border-l-4 ${
+                  activeTab === 'surat'
+                    ? 'bg-indigo-600/10 text-indigo-400 border-indigo-500 font-semibold'
+                    : 'text-[#94a3b8] hover:bg-slate-800/40 hover:text-slate-100 border-transparent hover:translate-x-0.5'
+                }`}
+              >
+                <MailOpen className={`w-4 h-4 shrink-0 ${activeTab === 'surat' ? 'text-indigo-400' : 'text-[#94a3b8]'}`} />
+                <span>Surat</span>
+              </button>
+            )}
 
-            <button
-              onClick={() => handleTabSwitch('peraturan')}
-              className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-[13px] font-medium transition-all duration-150 select-none border-l-4 ${
-                activeTab === 'peraturan'
-                  ? 'bg-indigo-600/10 text-indigo-400 border-indigo-500 font-semibold'
-                  : 'text-[#94a3b8] hover:bg-slate-800/40 hover:text-slate-100 border-transparent hover:translate-x-0.5'
-              }`}
-            >
-              <Scale className={`w-4 h-4 shrink-0 ${activeTab === 'peraturan' ? 'text-indigo-400' : 'text-[#94a3b8]'}`} />
-              <span>Peraturan</span>
-            </button>
+            {isMenuAllowed('peraturan') && (
+              <button
+                onClick={() => handleTabSwitch('peraturan')}
+                className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-[13px] font-medium transition-all duration-150 select-none border-l-4 ${
+                  activeTab === 'peraturan'
+                    ? 'bg-indigo-600/10 text-indigo-400 border-indigo-500 font-semibold'
+                    : 'text-[#94a3b8] hover:bg-slate-800/40 hover:text-slate-100 border-transparent hover:translate-x-0.5'
+                }`}
+              >
+                <Scale className={`w-4 h-4 shrink-0 ${activeTab === 'peraturan' ? 'text-indigo-400' : 'text-[#94a3b8]'}`} />
+                <span>Peraturan</span>
+              </button>
+            )}
 
             <button
               onClick={() => handleTabSwitch('pengaturan')}
@@ -2357,10 +2655,10 @@ export default function App() {
         </div>
 
         {/* User Workspace Info (Simplified match) */}
-        <div className="p-4 border-t border-[#1e293b] bg-[#090d16]/30 flex flex-col gap-2 shrink-0">
+        <div className="p-3 border-t border-[#1e293b] bg-[#090d16]/30 flex flex-col gap-2 shrink-0">
           <button
             onClick={handleLogout}
-            className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-rose-950/10 hover:bg-rose-900/20 text-rose-400 hover:text-rose-300 border border-rose-500/10 hover:border-rose-500/25 rounded-lg text-[10px] font-bold tracking-wider uppercase transition-all cursor-pointer"
+            className="w-full flex items-center justify-center gap-2 px-3 py-1.5 bg-rose-950/10 hover:bg-rose-900/20 text-rose-400 hover:text-rose-300 border border-rose-500/10 hover:border-rose-500/25 rounded-lg text-[10px] font-bold tracking-wider uppercase transition-all cursor-pointer"
           >
             <LogOut className="w-3.5 h-3.5 shrink-0" />
             <span>Keluar Akun</span>
@@ -2369,28 +2667,49 @@ export default function App() {
       </aside>
 
       {/* 2. CHOSEN CONTENT VIEW (SCROLLABLE AREA) */}
-      <main className="flex-1 flex flex-col min-w-0 overflow-hidden bg-[#f8fafc]">
+      <main className={`flex-1 flex flex-col min-w-0 overflow-hidden transition-colors duration-200 ${theme === 'dark' ? 'dark-theme-main bg-[#0b0f19] text-slate-100' : 'bg-[#f8fafc]'}`}>
         
         {/* Global Toolbar Header matches Top Header style with mobile responsiveness */}
-        <header className="bg-white border-b border-[#e2e8f0]/80 h-16 flex items-center justify-between px-4 md:px-6 shrink-0 shadow-[0_1px_3px_0_rgba(0,0,0,0.02)]">
-          <div className="flex items-center space-x-1 sm:space-x-2">
+        <header className="relative bg-white border-b border-[#e2e8f0]/80 h-14 flex items-center justify-between px-4 md:px-6 shrink-0 shadow-[0_1px_3px_0_rgba(0,0,0,0.02)]">
+          <div className="flex items-center space-x-1.5 sm:space-x-3">
             {/* Hamburger menu for mobile screen */}
             <button
               onClick={() => setIsSidebarOpen(true)}
-              className="lg:hidden p-1.5 rounded-xl text-slate-600 hover:bg-slate-100 transition cursor-pointer"
+              className="lg:hidden p-1.5 rounded-xl text-slate-600 hover:bg-slate-100 transition cursor-pointer shrink-0"
               title="Buka Menu"
             >
               <Menu className="w-5 h-5" />
             </button>
-            <h2 className="text-[13px] sm:text-[15px] font-bold text-slate-800 capitalize tracking-tight font-sans">
-              {activeTab === 'dashboard' ? 'Overview' : activeTab.replace('-', ' ')}
-            </h2>
+
+            {/* Left-aligned title shown for all menus except dashboard and pengaturan */}
+            {activeTab !== 'dashboard' && activeTab !== 'pengaturan' && (
+              <h2 className="text-sm sm:text-base font-extrabold text-slate-800 uppercase tracking-wide font-sans whitespace-nowrap">
+                {activeTab === 'anggota' ? 'Daftar Anggota' :
+                 activeTab === 'pembayaran' ? 'Pembayaran' :
+                 activeTab === 'prestasi' ? 'Prestasi' :
+                 activeTab === 'pelanggaran' ? 'Pelanggaran' :
+                 activeTab === 'absensi' ? 'Rekap Absensi' :
+                 activeTab === 'informasi' ? 'Informasi' :
+                 activeTab === 'surat' ? 'Surat' :
+                 activeTab === 'peraturan' ? 'Peraturan' :
+                 activeTab.replace('-', ' ')}
+              </h2>
+            )}
           </div>
 
-          <div className="flex items-center space-x-1.5 sm:space-x-3">
-            {/* Elegant Search Bar */}
-            {activeTab !== 'dashboard' && activeTab !== 'pengaturan' && activeTab !== 'absensi' && (
-              <div className="flex items-center bg-[#f1f5f9]/70 px-2 sm:px-4 py-1.5 sm:py-2 rounded-xl w-28 sm:w-48 md:w-80 gap-1.5 sm:gap-2.5 border border-transparent focus-within:border-indigo-300 focus-within:bg-white transition-all duration-200">
+          {/* Centered Header Title only for dashboard and pengaturan */}
+          {(activeTab === 'dashboard' || activeTab === 'pengaturan') && (
+            <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none sm:pointer-events-auto z-10">
+              <h2 className="text-sm sm:text-base font-extrabold text-slate-800 uppercase tracking-wide font-sans text-center whitespace-nowrap">
+                {activeTab === 'dashboard' ? 'Dashboard' : 'Pengaturan'}
+              </h2>
+            </div>
+          )}
+
+          {/* Centered Search Bar for all menus except dashboard and pengaturan */}
+          {activeTab !== 'dashboard' && activeTab !== 'pengaturan' && (
+            <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-10 w-28 xs:w-36 sm:w-48 md:w-64">
+              <div className="flex items-center bg-[#f1f5f9]/70 px-2 sm:px-4 py-1 sm:py-1.5 rounded-lg gap-1.5 border border-transparent focus-within:border-indigo-300 focus-within:bg-white transition-all duration-200">
                 <Search className="w-3.5 h-3.5 text-[#94a3b8] shrink-0" />
                 <input
                   type="text"
@@ -2402,22 +2721,25 @@ export default function App() {
                 {searchTerm && (
                   <button 
                     onClick={() => setSearchTerm('')} 
-                    className="text-[#94a3b8] hover:text-[#475569] transition"
+                    className="text-[#94a3b8] hover:text-[#475569] transition cursor-pointer"
+                    title="Bersihkan Pencarian"
                   >
                     <X className="w-3.5 h-3.5" />
                   </button>
                 )}
               </div>
-            )}
+            </div>
+          )}
 
+          <div className="flex items-center space-x-1.5 sm:space-x-3 z-0">
             {/* Dynamic Tambah Data Trigger (Exclude dashboard, absensi, and pengaturan) */}
             {activeTab !== 'dashboard' && activeTab !== 'absensi' && activeTab !== 'pengaturan' && (
               <button
                 onClick={() => handleOpenAddModal(activeTab as any)}
-                className="flex items-center bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl px-2.5 sm:px-4 py-1.5 sm:py-2 text-[11px] sm:text-xs font-semibold shadow-md shadow-indigo-600/10 transition-all duration-200 cursor-pointer hover:-translate-y-0.5 active:translate-y-0 shrink-0"
+                className="flex items-center bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg px-2 sm:px-3.5 py-1 sm:py-1.5 text-[10px] sm:text-[11px] font-semibold shadow-sm shadow-indigo-600/10 transition-all duration-200 cursor-pointer hover:-translate-y-0.5 active:translate-y-0 shrink-0"
               >
-                <Plus className="w-3.5 h-3.5 sm:mr-1.5 shrink-0" />
-                <span className="hidden sm:inline">Tambah Baru</span>
+                <Plus className="w-3 h-3 sm:w-3.5 sm:h-3.5 sm:mr-1 shrink-0" />
+                <span className="hidden sm:inline">Tambah Data</span>
                 <span className="inline sm:hidden">Tambah</span>
               </button>
             )}
@@ -2426,12 +2748,27 @@ export default function App() {
             <button
               onClick={() => syncDataFromCloudUrls()}
               disabled={isLoading}
-              title="Refresh / Sinkronkan Seluruh Data Aplikasi"
-              className="flex items-center gap-1.5 text-[11.5px] bg-indigo-50 hover:bg-indigo-100 text-indigo-700 hover:text-indigo-800 border border-indigo-200/50 px-3.5 py-1.5 rounded-xl font-bold transition-all duration-200 disabled:opacity-50 cursor-pointer shadow-xs whitespace-nowrap"
+              title="Muat Ulang / Perbarui Seluruh Data Aplikasi"
+              className="flex items-center gap-1 text-[10px] sm:text-[11px] bg-indigo-50 hover:bg-indigo-100 text-indigo-700 hover:text-indigo-800 border border-indigo-200/50 px-2 sm:px-3 py-1 sm:py-1.5 rounded-lg font-bold transition-all duration-200 disabled:opacity-50 cursor-pointer shadow-xs whitespace-nowrap"
             >
-              <RefreshCw className={`w-3.5 h-3.5 shrink-0 ${isLoading ? 'animate-spin' : ''}`} />
-              <span>{isLoading ? 'Menyinkronkan...' : 'Refresh'}</span>
+              <RefreshCw className={`w-3 h-3 sm:w-3.5 sm:h-3.5 shrink-0 ${isLoading ? 'animate-spin' : ''}`} />
+              <span>Refresh</span>
             </button>
+
+            {/* Theme toggle button - ONLY shown when activeTab is dashboard */}
+            {activeTab === 'dashboard' && (
+              <button
+                onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}
+                title={theme === 'light' ? 'Tema Gelap' : 'Tema Terang'}
+                className="flex items-center justify-center bg-indigo-50 hover:bg-indigo-100 text-indigo-700 hover:text-indigo-800 border border-indigo-200/50 p-1.5 sm:p-2 rounded-lg font-bold transition-all duration-200 cursor-pointer shadow-xs"
+              >
+                {theme === 'light' ? (
+                  <Moon className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-slate-700" />
+                ) : (
+                  <Sun className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-500 animate-pulse" />
+                )}
+              </button>
+            )}
 
             <div className="hidden xs:flex w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-slate-100 border border-slate-200/60 shrink-0 items-center justify-center text-[10px] sm:text-xs font-extrabold text-slate-700 font-mono shadow-xs select-none">
               SA
@@ -2445,595 +2782,686 @@ export default function App() {
           {activeTab === 'dashboard' && (
             <div className="space-y-6 animate-fade-in font-sans">
               
-              {/* Dashboard Headline Alert info */}
-              <div className="bg-slate-900 text-slate-100 rounded-2xl p-6 relative overflow-hidden flex items-center justify-between shadow-lg shadow-slate-900/10">
-                <div className="relative z-10 space-y-2">
-                  <span className="text-[10px] bg-indigo-505 text-white font-mono px-2.5 py-1 rounded-full uppercase tracking-wider font-semibold">Beranda Portal</span>
-                  <h3 className="text-xl md:text-2xl font-bold tracking-tight text-white">Sistem Layanan Anggota & Operasional</h3>
-                  <p className="text-xs text-slate-300 max-w-xl">
-                    Layanan dashboard untuk pengelolaan data secara cepat, efisien, dan terintegrasi penuh.
-                  </p>
-                </div>
-                <div className="hidden lg:block relative z-10 shrink-0">
-                  <DownloadCloud className="w-16 h-16 text-slate-700/60" />
-                </div>
-                {/* Decorative glowing gradient shapes */}
-                <div className="absolute -right-20 -top-20 w-80 h-80 rounded-full bg-indigo-600/20 blur-3xl"></div>
-                <div className="absolute -left-20 -bottom-20 w-80 h-80 rounded-full bg-pink-600/10 blur-3xl"></div>
-              </div>
+
 
               {/* CORE COUNTER CARDS (STATS) */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 
                 {/* CARD 1: TOTAL ANGGOTA */}
-                <div className="bg-white p-5 rounded-2xl border border-slate-150/80 shadow-[0_2px_8px_-3px_rgba(0,0,0,0.04)] hover:shadow-md flex flex-col gap-3 hover:border-indigo-200 transition duration-300 relative overflow-hidden group">
-                  <div className="absolute top-0 left-0 right-0 h-[3px] bg-indigo-500"></div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] text-[#64748b] uppercase tracking-wider font-bold">Total Anggota</span>
-                    <div className="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center text-indigo-600 group-hover:scale-110 transition duration-300">
-                      <Users className="w-4 h-4" />
-                    </div>
-                  </div>
-                  <div className="space-y-0.5">
-                    <span className="text-2xl font-extrabold text-slate-900 tracking-tight">{dashboardStats.totalAnggota}</span>
-                    <div className="text-[11px] font-medium text-indigo-600">
-                      <span>{dashboardStats.activeAnggota} aktif</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* CARD 2: JUMLAH LAKI-LAKI */}
-                <div className="bg-white p-5 rounded-2xl border border-slate-150/80 shadow-[0_2px_8px_-3px_rgba(0,0,0,0.04)] hover:shadow-md flex flex-col gap-3 hover:border-sky-200 transition duration-300 relative overflow-hidden group">
-                  <div className="absolute top-0 left-0 right-0 h-[3px] bg-sky-500"></div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] text-[#64748b] uppercase tracking-wider font-bold">Laki-Laki</span>
-                    <div className="w-8 h-8 rounded-lg bg-sky-50 flex items-center justify-center text-sky-600 group-hover:scale-110 transition duration-300">
-                      <Users className="w-4 h-4 text-sky-550" />
-                    </div>
-                  </div>
-                  <div className="space-y-0.5">
-                    <span className="text-2xl font-extrabold text-slate-900 tracking-tight">{dashboardStats.countLaki}</span>
-                    <div className="text-[11px] font-medium text-sky-650">
-                      Siswa putra
-                    </div>
-                  </div>
-                </div>
-
-                {/* CARD 3: JUMLAH PEREMPUAN */}
-                <div className="bg-white p-5 rounded-2xl border border-slate-150/80 shadow-[0_2px_8px_-3px_rgba(0,0,0,0.04)] hover:shadow-md flex flex-col gap-3 hover:border-rose-200 transition duration-300 relative overflow-hidden group">
-                  <div className="absolute top-0 left-0 right-0 h-[3px] bg-rose-500"></div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] text-[#64748b] uppercase tracking-wider font-bold">Perempuan</span>
-                    <div className="w-8 h-8 rounded-lg bg-rose-50 flex items-center justify-center text-rose-605 group-hover:scale-110 transition duration-300">
-                      <Users className="w-4 h-4 text-rose-550" />
-                    </div>
-                  </div>
-                  <div className="space-y-0.5">
-                    <span className="text-2xl font-extrabold text-slate-900 tracking-tight">{dashboardStats.countPerempuan}</span>
-                    <div className="text-[11px] font-medium text-rose-650">
-                      Siswa putri
-                    </div>
-                  </div>
-                </div>
-
-                {/* CARD 4: PRESTASI */}
-                <div className="bg-white p-5 rounded-2xl border border-slate-150/80 shadow-[0_2px_8px_-3px_rgba(0,0,0,0.04)] hover:shadow-md flex flex-col gap-3 hover:border-amber-200 transition duration-300 relative overflow-hidden group hover:cursor-pointer" onClick={() => handleTabSwitch('prestasi')}>
-                  <div className="absolute top-0 left-0 right-0 h-[3px] bg-amber-500"></div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] text-[#64748b] uppercase tracking-wider font-bold">Prestasi</span>
-                    <div className="w-8 h-8 rounded-lg bg-amber-50 flex items-center justify-center text-amber-600 group-hover:scale-110 transition duration-300">
-                      <Trophy className="w-4 h-4" />
-                    </div>
-                  </div>
-                  <div className="space-y-0.5">
-                    <span className="text-2xl font-extrabold text-slate-900 tracking-tight">{dashboardStats.totalPrestasi}</span>
-                    <div className="text-[11px] font-medium text-amber-600">
-                      Active season
-                    </div>
-                  </div>
-                </div>
-
-                {/* CARD 5: PERATURAN */}
-                <div className="bg-white p-5 rounded-2xl border border-slate-150/80 shadow-[0_2px_8px_-3px_rgba(0,0,0,0.04)] hover:shadow-md flex flex-col gap-3 hover:border-orange-200 transition duration-300 relative overflow-hidden group hover:cursor-pointer" onClick={() => handleTabSwitch('peraturan')}>
-                  <div className="absolute top-0 left-0 right-0 h-[3px] bg-orange-500"></div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] text-[#64748b] uppercase tracking-wider font-bold">Peraturan</span>
-                    <div className="w-8 h-8 rounded-lg bg-orange-50 flex items-center justify-center text-orange-650 group-hover:scale-110 transition duration-300">
-                      <Scale className="w-4 h-4" />
-                    </div>
-                  </div>
-                  <div className="space-y-0.5">
-                    <span className="text-2xl font-extrabold text-slate-900 tracking-tight">{dashboardStats.totalPeraturan}</span>
-                    <div className="text-[11px] font-medium text-orange-600">
-                      Kebijakan lembaga
-                    </div>
-                  </div>
-                </div>
-
-                {/* CARD 6: SURAT */}
-                <div className="bg-white p-5 rounded-2xl border border-slate-150/80 shadow-[0_2px_8px_-3px_rgba(0,0,0,0.04)] hover:shadow-md flex flex-col gap-3 hover:border-violet-200 transition duration-300 relative overflow-hidden group hover:cursor-pointer" onClick={() => handleTabSwitch('surat')}>
-                  <div className="absolute top-0 left-0 right-0 h-[3px] bg-violet-500"></div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] text-[#64748b] uppercase tracking-wider font-bold">Surat</span>
-                    <div className="w-8 h-8 rounded-lg bg-violet-50 flex items-center justify-center text-violet-600 group-hover:scale-110 transition duration-300">
-                      <MailOpen className="w-4 h-4" />
-                    </div>
-                  </div>
-                  <div className="space-y-0.5">
-                    <span className="text-2xl font-extrabold text-slate-900 tracking-tight">{dashboardStats.totalSurat}</span>
-                    <div className="text-[11px] font-medium text-violet-605">
-                      Arsip arsip resmi
-                    </div>
-                  </div>
-                </div>
-
-                {/* CARD 7: TOTAL PEMBAYARAN LUNAS */}
-                <div className="bg-white p-5 rounded-2xl border border-slate-150/80 shadow-[0_2px_8px_-3px_rgba(0,0,0,0.04)] hover:shadow-md flex flex-col gap-3 hover:border-emerald-200 transition duration-300 relative overflow-hidden group hover:cursor-pointer" onClick={() => handleTabSwitch('pembayaran')}>
-                  <div className="absolute top-0 left-0 right-0 h-[3px] bg-emerald-500"></div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] text-[#64748b] uppercase tracking-wider font-bold">TOTAL BAYAR</span>
-                    <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center text-emerald-600 group-hover:scale-110 transition duration-300">
-                      <DollarSign className="w-4 h-4 text-emerald-600" />
-                    </div>
-                  </div>
-                  <div className="space-y-0.5">
-                    <span className="text-lg font-black text-slate-900 tracking-tight block truncate" title={formatRupiah(dashboardStats.totalNominalPaid)}>
-                      {formatRupiah(dashboardStats.totalNominalPaid)}
-                    </span>
-                    <div className="text-[11px] font-medium text-emerald-600">
-                      {dashboardStats.countLunas} transaksi lunas
-                    </div>
-                  </div>
-                </div>
-
-              </div>
-
-              {/* STATISTIK DETAIL: PEMBAYARAN & KEHADIRAN (BENTO GRID ROW) */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-
-                {/* REKAP PEMBAYARAN (Persentase Lunas, Sebagian, Belum Lunas) */}
-                <div className="bg-white rounded-2xl p-6 border border-[#e2e8f0]/75 shadow-xs flex flex-col justify-between">
-                  <div>
-                    <div className="flex items-center justify-between mb-5 border-b border-slate-100 pb-3">
-                      <div>
-                        <h4 className="font-bold text-[#0f172a] text-sm tracking-tight flex items-center gap-2">
-                          <CreditCard className="w-4 h-4 text-indigo-500" />
-                          Statistik & Status Pembayaran
-                        </h4>
-                        <p className="text-[11px] text-[#64748b]">Persentase status rekam transaksi iuran/kas terdaftar</p>
+                {isMenuAllowed('anggota') && (
+                  <div className="bg-white p-5 rounded-2xl border border-slate-150/80 shadow-[0_2px_8px_-3px_rgba(0,0,0,0.04)] hover:shadow-md flex flex-col gap-3 hover:border-indigo-200 transition duration-300 relative overflow-hidden group">
+                    <div className="absolute top-0 left-0 right-0 h-[3px] bg-indigo-500"></div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] text-[#64748b] uppercase tracking-wider font-bold">Total Anggota</span>
+                      <div className="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center text-indigo-600 group-hover:scale-110 transition duration-300">
+                        <Users className="w-4 h-4" />
                       </div>
-                      <span className="text-xs bg-slate-50 border border-slate-100 px-2.5 py-1 rounded-lg font-mono text-slate-705 font-bold">
-                        {dashboardStats.totalPembayaranDocs} Catatan
-                      </span>
                     </div>
-
-                    <div className="flex flex-col items-center justify-center py-6">
-                      <div className="relative w-44 h-44 flex items-center justify-center">
-                        <svg width="176" height="176" viewBox="0 0 120 120" className="transform -rotate-90">
-                          {/* Outer track background */}
-                          <circle
-                            cx="60"
-                            cy="60"
-                            r="45"
-                            fill="transparent"
-                            stroke="#f1f5f9"
-                            strokeWidth="11"
-                          />
-                          {paymentPieData.totalVal > 0 ? (
-                            <>
-                              {/* Slice 1: Lunas (Emerald / Hijau) */}
-                              {paymentPieData.lunasDash > 0 && (
-                                <circle
-                                  cx="60"
-                                  cy="60"
-                                  r="45"
-                                  fill="transparent"
-                                  stroke="#10b981"
-                                  strokeWidth="12"
-                                  strokeDasharray={`${paymentPieData.lunasDash} ${paymentPieData.C}`}
-                                  strokeDashoffset={0}
-                                  className="transition-all duration-300 hover:stroke-emerald-600 cursor-pointer"
-                                />
-                              )}
-                              {/* Slice 2: Sebagian (Orange) */}
-                              {paymentPieData.sebagianDash > 0 && (
-                                <circle
-                                  cx="60"
-                                  cy="60"
-                                  r="45"
-                                  fill="transparent"
-                                  stroke="#f97316"
-                                  strokeWidth="12"
-                                  strokeDasharray={`${paymentPieData.sebagianDash} ${paymentPieData.C}`}
-                                  strokeDashoffset={-paymentPieData.lunasDash}
-                                  className="transition-all duration-300 hover:stroke-orange-600 cursor-pointer"
-                                />
-                              )}
-                              {/* Slice 3: Belum Bayar (Merah) */}
-                              {paymentPieData.belumDash > 0 && (
-                                <circle
-                                  cx="60"
-                                  cy="60"
-                                  r="45"
-                                  fill="transparent"
-                                  stroke="#ef4444"
-                                  strokeWidth="12"
-                                  strokeDasharray={`${paymentPieData.belumDash} ${paymentPieData.C}`}
-                                  strokeDashoffset={-(paymentPieData.lunasDash + paymentPieData.sebagianDash)}
-                                  className="transition-all duration-300 hover:stroke-red-600 cursor-pointer"
-                                />
-                              )}
-                            </>
-                          ) : null}
-                        </svg>
-
-                        {/* Inner Label for Donut */}
-                        <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
-                          <span className="text-[10px] uppercase font-bold text-[#64748b] tracking-wider leading-none mb-1">Total</span>
-                          <span className="text-2xl font-black text-slate-800 font-sans tracking-tight leading-none">
-                            {paymentPieData.totalVal}
-                          </span>
-                          <span className="text-[10px] text-slate-405 font-bold mt-1">Siswa</span>
-                        </div>
-                      </div>
-
-                      {/* Small Quick Centered Legend */}
-                      <div className="flex items-center gap-4 mt-6 text-[11px] font-semibold text-slate-600">
-                        <div className="flex items-center gap-1.5">
-                          <span className="w-2.5 h-2.5 rounded-full bg-[#10b981]" />
-                          <span>Lunas ({dashboardStats.percentLunas}%)</span>
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                          <span className="w-2.5 h-2.5 rounded-full bg-[#f97316]" />
-                          <span>Sebagian ({dashboardStats.percentSebagian}%)</span>
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                          <span className="w-2.5 h-2.5 rounded-full bg-[#ef4444]" />
-                          <span>Belum ({dashboardStats.percentBelum}%)</span>
-                        </div>
+                    <div className="space-y-0.5">
+                      <span className="text-2xl font-extrabold text-slate-900 tracking-tight">{dashboardStats.totalAnggota}</span>
+                      <div className="text-[11px] font-medium text-indigo-600">
+                        <span>{dashboardStats.activeAnggota} aktif</span>
                       </div>
                     </div>
                   </div>
-
-                  <div className="mt-5 pt-3 border-t border-slate-50 flex justify-between items-center text-[10.5px] text-[#64748b]">
-                    <span>Kas terhitung lunas: {formatRupiah(dashboardStats.totalNominalPaid)}</span>
-                    <button onClick={() => handleTabSwitch('pembayaran')} className="text-indigo-600 hover:underline font-bold transition">Kelola Iuran ↗</button>
-                  </div>
-                </div>
-
-                {/* REKAP KEHADIRAN: DIAGRAM GARIS */}
-                <div className="bg-white rounded-2xl p-6 border border-[#e2e8f0]/75 shadow-xs flex flex-col justify-between">
-                  <div>
-                    <div className="flex items-center justify-between mb-5 border-b border-slate-100 pb-3">
-                      <div>
-                        <h4 className="font-bold text-[#0f172a] text-sm tracking-tight flex items-center gap-2">
-                          <CheckSquare className="w-4 h-4 text-violet-500" />
-                          Statistik & Kehadiran Anggota
-                        </h4>
-                        <p className="text-[11px] text-[#64748b]">Tingkat kehadiran (%) berdasarkan rentetan tanggal perekaman</p>
-                      </div>
-                      <span className="text-xs bg-slate-50 border border-slate-100 px-2.5 py-1 rounded-lg font-mono text-slate-705 font-bold">
-                        {attendanceTrend.length} Hari Perekaman
-                      </span>
-                    </div>
-
-                    {/* SVG Line Chart Container */}
-                    <div className="relative w-full overflow-hidden py-1" style={{ minHeight: '230px' }}>
-                      {attendanceTrend.length === 0 ? (
-                        <div className="flex flex-col items-center justify-center py-12 text-center h-full">
-                          <p className="text-xs font-semibold text-slate-400">Belum ada data absensi yang tercatat untuk menampilkan diagram tren harian.</p>
-                        </div>
-                      ) : (
-                        <div className="w-full relative">
-                          <svg viewBox="0 0 500 240" className="w-full h-auto overflow-visible select-none">
-                            <defs>
-                              <linearGradient id="violetGrad" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="0%" stopColor="#8b5cf6" stopOpacity="0.25" />
-                                <stop offset="100%" stopColor="#8b5cf6" stopOpacity="0.00" />
-                              </linearGradient>
-                            </defs>
-
-                            {/* Grid Lines & Y-Axis Labels */}
-                            {[0, 25, 50, 75, 100].map((tick) => {
-                              const yPos = 30 + (180 - (tick * 1.8));
-                              return (
-                                <g key={tick} className="opacity-40">
-                                  <line
-                                    x1="45"
-                                    y1={yPos}
-                                    x2="465"
-                                    y2={yPos}
-                                    stroke="#cbd5e1"
-                                    strokeWidth="1"
-                                    strokeDasharray="4 4"
-                                  />
-                                  <text
-                                    x="15"
-                                    y={yPos + 3}
-                                    className="font-mono text-[9px] fill-slate-400 text-right leading-none"
-                                    textAnchor="start"
-                                  >
-                                    {tick}%
-                                  </text>
-                                </g>
-                              );
-                            })}
-
-                            {/* Path Drawing */}
-                            {attendanceTrend.length > 0 && (() => {
-                              const N = attendanceTrend.length;
-                              const paddingX = 45;
-                              const paddingY = 30;
-                              const drawW = 420; // 465 - 45
-                              const drawH = 180;
-
-                              const points = attendanceTrend.map((item, i) => {
-                                const x = N > 1 ? paddingX + (i * (drawW / (N - 1))) : paddingX + (drawW / 2);
-                                const y = paddingY + drawH - (item.percentage * (drawH / 100));
-                                return { x, y, ...item };
-                              });
-
-                              // Generate path line
-                              let pathD = "";
-                              if (N === 1) {
-                                pathD = `M ${points[0].x - 15} ${points[0].y} L ${points[0].x + 15} ${points[0].y}`;
-                              } else {
-                                pathD = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(" ");
-                              }
-
-                              // Generate area path for gradient
-                              let areaD = "";
-                              if (N === 1) {
-                                areaD = `M ${points[0].x - 15} ${points[0].y} L ${points[0].x + 15} ${points[0].y} L ${points[0].x + 15} ${paddingY + drawH} L ${points[0].x - 15} ${paddingY + drawH} Z`;
-                              } else {
-                                areaD = `${pathD} L ${points[N - 1].x} ${paddingY + drawH} L ${points[0].x} ${paddingY + drawH} Z`;
-                              }
-
-                              return (
-                                <>
-                                  {/* Fill Area with Gradient */}
-                                  <path d={areaD} fill="url(#violetGrad)" />
-
-                                  {/* Stroke Line */}
-                                  <path
-                                    d={pathD}
-                                    fill="none"
-                                    stroke="#7c3aed"
-                                    strokeWidth="2.5"
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                  />
-
-                                  {/* Interactive Circles & Hover Hotspots */}
-                                  {points.map((p, i) => {
-                                    const isHovered = hoveredTrendIndex === i;
-                                    return (
-                                      <g key={i}>
-                                        {/* Hover line guide to bottom */}
-                                        {isHovered && (
-                                          <line
-                                            x1={p.x}
-                                            y1={30}
-                                            x2={p.x}
-                                            y2={210}
-                                            stroke="#8b5cf6"
-                                            strokeWidth="1"
-                                            strokeDasharray="2 2"
-                                            className="opacity-60"
-                                          />
-                                        )}
-
-                                        {/* Outer pulsing circle on hover */}
-                                        <circle
-                                          cx={p.x}
-                                          cy={p.y}
-                                          r={isHovered ? 7 : 4}
-                                          fill={isHovered ? "#8b5cf6" : "#ffffff"}
-                                          stroke="#7c3aed"
-                                          strokeWidth={isHovered ? 2 : 2}
-                                          className="transition-all duration-150 cursor-pointer animate-fade-in"
-                                        />
-
-                                        {/* Hotspot anchor */}
-                                        <circle
-                                          cx={p.x}
-                                          cy={p.y}
-                                          r="14"
-                                          fill="transparent"
-                                          className="cursor-pointer"
-                                          onMouseEnter={() => setHoveredTrendIndex(i)}
-                                          onMouseLeave={() => setHoveredTrendIndex(null)}
-                                        />
-                                      </g>
-                                    );
-                                  })}
-
-                                  {/* Compact X-Axis Labels */}
-                                  {points.map((p, i) => {
-                                    const maxLabels = 6;
-                                    const step = Math.ceil(N / maxLabels);
-                                    const shouldDrawLabel = i === 0 || i === N - 1 || i % step === 0;
-
-                                    if (!shouldDrawLabel) return null;
-
-                                    let displayLabel = p.key;
-                                    try {
-                                      const d = new Date(p.key);
-                                      if (!isNaN(d.getTime())) {
-                                        displayLabel = d.toLocaleDateString('id-ID', { day: '2-digit', month: 'short' });
-                                      }
-                                    } catch (e) {}
-
-                                    return (
-                                      <text
-                                        key={i}
-                                        x={p.x}
-                                        y="230"
-                                        className="font-semibold font-mono text-[9px] fill-slate-500 text-center"
-                                        textAnchor="middle"
-                                      >
-                                        {displayLabel}
-                                      </text>
-                                    );
-                                  })}
-                                </>
-                              );
-                            })()}
-                          </svg>
-
-                          {/* Floating dynamic rich tooltip */}
-                          {hoveredTrendIndex !== null && attendanceTrend[hoveredTrendIndex] && (() => {
-                            const currentItem = attendanceTrend[hoveredTrendIndex];
-                            return (
-                              <div className="absolute top-1 left-1/2 transform -translate-x-1/2 bg-[#0f172a] text-white px-3 py-2 rounded-xl text-xs shadow-xl border border-slate-700/80 pointer-events-none animate-fade-in z-20 flex flex-col gap-1 w-44">
-                                <div className="font-bold border-b border-white/10 pb-1 text-[11px] text-slate-300">
-                                  {currentItem.formattedDate}
-                                </div>
-                                <div className="flex justify-between mt-0.5">
-                                  <span className="text-slate-400">Rasio Hadir:</span>
-                                  <span className="font-extrabold text-emerald-400">{currentItem.percentage}%</span>
-                                </div>
-                                <div className="flex justify-between">
-                                  <span className="text-slate-400">Siswa Hadir:</span>
-                                  <span className="font-bold text-white">{currentItem.hadir} / {currentItem.total}</span>
-                                </div>
-                              </div>
-                            );
-                          })()}
-                        </div>
-                      )}
-                    </div>
-                  </div>
+                )}
  
-                  <div className="mt-5 pt-3 border-t border-slate-50 flex justify-between items-center text-[10.5px] text-[#64748b]">
-                    <span>Rata Kehadiran Aktif: <strong className="text-indigo-600 font-bold">{dashboardStats.persentaseKehadiran}%</strong></span>
-                    <button onClick={() => handleTabSwitch('absensi')} className="text-indigo-600 hover:underline font-bold transition">Buka Absensi ↗</button>
-                  </div>
-                </div>
-
-              </div>
-
-              {/* ANNOUNCEMENT BOARD FOR TODAY & LATEST VIOLATIONS BOARD (ROW GID) */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                
-                {/* INFORMASI HARI INI */}
-                <div className="bg-white rounded-2xl p-6 border border-[#e2e8f0]/75 shadow-xs flex flex-col justify-between">
-                  <div>
-                    <div className="flex items-center justify-between mb-5 border-b border-[#f1f5f9] pb-4">
-                      <div>
-                        <h3 className="font-bold text-[#0f172a] text-sm tracking-tight flex items-center gap-2">
-                          <Info className="w-4 h-4 text-sky-500" />
-                          Informasi & Kegiatan Hari Ini
-                        </h3>
-                        <p className="text-xs text-[#64748b] mt-0.5">Informasi terbaru dan berita penting yang dirilis hari ini</p>
+                {/* CARD 2: JUMLAH LAKI-LAKI */}
+                {isMenuAllowed('anggota') && (
+                  <div className="bg-white p-5 rounded-2xl border border-slate-150/80 shadow-[0_2px_8px_-3px_rgba(0,0,0,0.04)] hover:shadow-md flex flex-col gap-3 hover:border-sky-200 transition duration-300 relative overflow-hidden group">
+                    <div className="absolute top-0 left-0 right-0 h-[3px] bg-sky-500"></div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] text-[#64748b] uppercase tracking-wider font-bold">Laki-Laki</span>
+                      <div className="w-8 h-8 rounded-lg bg-sky-50 flex items-center justify-center text-sky-600 group-hover:scale-110 transition duration-300">
+                        <Users className="w-4 h-4 text-sky-550" />
                       </div>
-                      <span className="text-[9px] bg-sky-50 text-sky-750 border border-sky-200 font-mono px-2 py-0.5 rounded-md font-bold uppercase">
-                        HARI INI
-                      </span>
                     </div>
+                    <div className="space-y-0.5">
+                      <span className="text-2xl font-extrabold text-slate-900 tracking-tight">{dashboardStats.countLaki}</span>
+                      <div className="text-[11px] font-medium text-sky-650">
+                        Siswa putra
+                      </div>
+                    </div>
+                  </div>
+                )}
+ 
+                {/* CARD 3: JUMLAH PEREMPUAN */}
+                {isMenuAllowed('anggota') && (
+                  <div className="bg-white p-5 rounded-2xl border border-slate-150/80 shadow-[0_2px_8px_-3px_rgba(0,0,0,0.04)] hover:shadow-md flex flex-col gap-3 hover:border-rose-200 transition duration-300 relative overflow-hidden group">
+                    <div className="absolute top-0 left-0 right-0 h-[3px] bg-rose-500"></div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] text-[#64748b] uppercase tracking-wider font-bold">Perempuan</span>
+                      <div className="w-8 h-8 rounded-lg bg-rose-50 flex items-center justify-center text-rose-605 group-hover:scale-110 transition duration-300">
+                        <Users className="w-4 h-4 text-rose-550" />
+                      </div>
+                    </div>
+                    <div className="space-y-0.5">
+                      <span className="text-2xl font-extrabold text-slate-900 tracking-tight">{dashboardStats.countPerempuan}</span>
+                      <div className="text-[11px] font-medium text-rose-650">
+                        Siswa putri
+                      </div>
+                    </div>
+                  </div>
+                )}
+ 
+                {/* CARD 4: PRESTASI */}
+                {isMenuAllowed('prestasi') && (
+                  <div className="bg-white p-5 rounded-2xl border border-slate-150/80 shadow-[0_2px_8px_-3px_rgba(0,0,0,0.04)] hover:shadow-md flex flex-col gap-3 hover:border-amber-200 transition duration-300 relative overflow-hidden group hover:cursor-pointer" onClick={() => handleTabSwitch('prestasi')}>
+                    <div className="absolute top-0 left-0 right-0 h-[3px] bg-amber-500"></div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] text-[#64748b] uppercase tracking-wider font-bold">Prestasi</span>
+                      <div className="w-8 h-8 rounded-lg bg-amber-50 flex items-center justify-center text-amber-600 group-hover:scale-110 transition duration-300">
+                        <Trophy className="w-4 h-4" />
+                      </div>
+                    </div>
+                    <div className="space-y-0.5">
+                      <span className="text-2xl font-extrabold text-slate-900 tracking-tight">{dashboardStats.totalPrestasi}</span>
+                      <div className="text-[11px] font-medium text-amber-600">
+                        Active season
+                      </div>
+                    </div>
+                  </div>
+                )}
+ 
+                {/* CARD 5: PERATURAN */}
+                {isMenuAllowed('peraturan') && (
+                  <div className="bg-white p-5 rounded-2xl border border-slate-150/80 shadow-[0_2px_8px_-3px_rgba(0,0,0,0.04)] hover:shadow-md flex flex-col gap-3 hover:border-orange-200 transition duration-300 relative overflow-hidden group hover:cursor-pointer" onClick={() => handleTabSwitch('peraturan')}>
+                    <div className="absolute top-0 left-0 right-0 h-[3px] bg-orange-500"></div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] text-[#64748b] uppercase tracking-wider font-bold">Peraturan</span>
+                      <div className="w-8 h-8 rounded-lg bg-orange-50 flex items-center justify-center text-orange-650 group-hover:scale-110 transition duration-300">
+                        <Scale className="w-4 h-4" />
+                      </div>
+                    </div>
+                    <div className="space-y-0.5">
+                      <span className="text-2xl font-extrabold text-slate-900 tracking-tight">{dashboardStats.totalPeraturan}</span>
+                      <div className="text-[11px] font-medium text-orange-600">
+                        Kebijakan lembaga
+                      </div>
+                    </div>
+                  </div>
+                )}
+ 
+                {/* CARD 6: SURAT */}
+                {isMenuAllowed('surat') && (
+                  <div className="bg-white p-5 rounded-2xl border border-slate-150/80 shadow-[0_2px_8px_-3px_rgba(0,0,0,0.04)] hover:shadow-md flex flex-col gap-3 hover:border-violet-200 transition duration-300 relative overflow-hidden group hover:cursor-pointer" onClick={() => handleTabSwitch('surat')}>
+                    <div className="absolute top-0 left-0 right-0 h-[3px] bg-violet-500"></div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] text-[#64748b] uppercase tracking-wider font-bold">Surat</span>
+                      <div className="w-8 h-8 rounded-lg bg-violet-50 flex items-center justify-center text-violet-600 group-hover:scale-110 transition duration-300">
+                        <MailOpen className="w-4 h-4" />
+                      </div>
+                    </div>
+                    <div className="space-y-0.5">
+                      <span className="text-2xl font-extrabold text-slate-900 tracking-tight">{dashboardStats.totalSurat}</span>
+                      <div className="text-[11px] font-medium text-violet-605">
+                        Arsip arsip resmi
+                      </div>
+                    </div>
+                  </div>
+                )}
+ 
+                {/* CARD 7: TOTAL PEMBAYARAN LUNAS */}
+                {isMenuAllowed('pembayaran') && (
+                  <div className="bg-white p-5 rounded-2xl border border-slate-150/80 shadow-[0_2px_8px_-3px_rgba(0,0,0,0.04)] hover:shadow-md flex flex-col gap-3 hover:border-emerald-200 transition duration-300 relative overflow-hidden group hover:cursor-pointer" onClick={() => handleTabSwitch('pembayaran')}>
+                    <div className="absolute top-0 left-0 right-0 h-[3px] bg-emerald-500"></div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] text-[#64748b] uppercase tracking-wider font-bold">TOTAL BAYAR</span>
+                      <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center text-emerald-600 group-hover:scale-110 transition duration-300">
+                        <DollarSign className="w-4 h-4 text-emerald-600" />
+                      </div>
+                    </div>
+                    <div className="space-y-0.5">
+                      <span className="text-lg font-black text-slate-900 tracking-tight block truncate" title={formatRupiah(dashboardStats.totalNominalPaid)}>
+                        {formatRupiah(dashboardStats.totalNominalPaid)}
+                      </span>
+                      <div className="text-[11px] font-medium text-emerald-600">
+                        {dashboardStats.countLunas} transaksi lunas
+                      </div>
+                    </div>
+                  </div>
+                )}
+ 
+                {/* CARD 8: TOTAL PELANGGARAN */}
+                {isMenuAllowed('pelanggaran') && (
+                  <div className="bg-white p-5 rounded-2xl border border-slate-150/80 shadow-[0_2px_8px_-3px_rgba(0,0,0,0.04)] hover:shadow-md flex flex-col gap-3 hover:border-red-200 transition duration-300 relative overflow-hidden group hover:cursor-pointer" onClick={() => handleTabSwitch('pelanggaran')}>
+                    <div className="absolute top-0 left-0 right-0 h-[3px] bg-red-500"></div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] text-[#64748b] uppercase tracking-wider font-bold">Pelanggaran</span>
+                      <div className="w-8 h-8 rounded-lg bg-red-50 flex items-center justify-center text-red-650 group-hover:scale-110 transition duration-300">
+                        <AlertTriangle className="w-4 h-4 text-red-650" />
+                      </div>
+                    </div>
+                    <div className="space-y-0.5">
+                      <span className="text-2xl font-extrabold text-slate-900 tracking-tight">{dashboardStats.totalPelanggaran}</span>
+                      <div className="text-[11px] font-medium text-red-600">
+                        Tindakan indisipliner
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+ 
+              {/* STATISTIK DETAIL: PEMBAYARAN & KEHADIRAN (BENTO GRID ROW) */}
+              {(isMenuAllowed('pembayaran') || isMenuAllowed('absensi')) && (
+                <div className={`grid grid-cols-1 ${isMenuAllowed('pembayaran') && isMenuAllowed('absensi') ? 'lg:grid-cols-2' : ''} gap-6`}>
 
-                    <div className="space-y-4">
-                      {todayInformasiList.length === 0 ? (
-                        <div className="bg-slate-50/70 border border-slate-150 rounded-2xl p-6 text-center">
-                          <p className="text-xs text-slate-500 italic">Tidak ada pengumuman / informasi resmi baru untuk hari ini.</p>
-                          <p className="text-[10px] text-slate-400 mt-1">Seluruh kegiatan dan agenda operasional berjalan lancar sesuai jadwal.</p>
-                          
-                          {/* Fallback to latest info */}
-                          {informasiList.length > 0 && (
-                            <div className="mt-5 pt-4 border-t border-slate-200/50 text-left">
-                              <span className="text-[10px] text-indigo-500 font-bold uppercase tracking-wider block mb-2 font-mono">Arsip Informasi Terakhir:</span>
-                              <div className="bg-white p-3.5 rounded-xl border border-slate-100 flex flex-col gap-1.5 shadow-3xs">
-                                <div className="flex justify-between items-start gap-1">
-                                  <h5 className="text-xs font-bold text-slate-800 line-clamp-1">{informasiList[informasiList.length - 1].judul}</h5>
-                                  <span className="text-[8px] bg-slate-100 border text-slate-600 px-1.5 py-0.5 rounded whitespace-nowrap font-mono">{formatDateString(informasiList[informasiList.length - 1].tanggal)}</span>
-                                </div>
-                                <p className="text-[10.5px] text-slate-500 line-clamp-2 leading-relaxed">{informasiList[informasiList.length - 1].isi}</p>
-                              </div>
+                  {/* REKAP PEMBAYARAN (Persentase Lunas, Sebagian, Belum Lunas) */}
+                  {isMenuAllowed('pembayaran') && (
+                    <div className="bg-white rounded-2xl p-6 border border-[#e2e8f0]/75 shadow-xs flex flex-col justify-between">
+                      <div>
+                        <div className="flex items-center justify-between mb-5 border-b border-slate-100 pb-3">
+                          <div>
+                            <h4 className="font-bold text-[#0f172a] text-sm tracking-tight flex items-center gap-2">
+                              <CreditCard className="w-4 h-4 text-indigo-500" />
+                              Statistik & Status Pembayaran
+                            </h4>
+                            <p className="text-[11px] text-[#64748b]">Persentase status rekam transaksi iuran/kas terdaftar</p>
+                          </div>
+                          <span className="text-xs bg-slate-50 border border-slate-100 px-2.5 py-1 rounded-lg font-mono text-slate-705 font-bold">
+                            {dashboardStats.totalPembayaranDocs} Catatan
+                          </span>
+                        </div>
+
+                        <div className="flex flex-col items-center justify-center py-6">
+                          <div className="relative w-44 h-44 flex items-center justify-center">
+                            <svg width="176" height="176" viewBox="0 0 120 120" className="transform -rotate-90">
+                              {/* Outer track background */}
+                              <circle
+                                cx="60"
+                                cy="60"
+                                r="45"
+                                fill="transparent"
+                                stroke="#f1f5f9"
+                                strokeWidth="11"
+                              />
+                              {paymentPieData.totalVal > 0 ? (
+                                <>
+                                  {/* Slice 1: Lunas (Emerald / Hijau) */}
+                                  {paymentPieData.lunasDash > 0 && (
+                                    <circle
+                                      cx="60"
+                                      cy="60"
+                                      r="45"
+                                      fill="transparent"
+                                      stroke="#10b981"
+                                      strokeWidth="12"
+                                      strokeDasharray={`${paymentPieData.lunasDash} ${paymentPieData.C}`}
+                                      strokeDashoffset={0}
+                                      className="transition-all duration-300 hover:stroke-emerald-600 cursor-pointer"
+                                    />
+                                  )}
+                                  {/* Slice 2: Sebagian (Orange) */}
+                                  {paymentPieData.sebagianDash > 0 && (
+                                    <circle
+                                      cx="60"
+                                      cy="60"
+                                      r="45"
+                                      fill="transparent"
+                                      stroke="#f97316"
+                                      strokeWidth="12"
+                                      strokeDasharray={`${paymentPieData.sebagianDash} ${paymentPieData.C}`}
+                                      strokeDashoffset={-paymentPieData.lunasDash}
+                                      className="transition-all duration-300 hover:stroke-orange-600 cursor-pointer"
+                                    />
+                                  )}
+                                  {/* Slice 3: Belum Bayar (Merah) */}
+                                  {paymentPieData.belumDash > 0 && (
+                                    <circle
+                                      cx="60"
+                                      cy="60"
+                                      r="45"
+                                      fill="transparent"
+                                      stroke="#ef4444"
+                                      strokeWidth="12"
+                                      strokeDasharray={`${paymentPieData.belumDash} ${paymentPieData.C}`}
+                                      strokeDashoffset={-(paymentPieData.lunasDash + paymentPieData.sebagianDash)}
+                                      className="transition-all duration-300 hover:stroke-red-600 cursor-pointer"
+                                    />
+                                  )}
+                                </>
+                              ) : null}
+                            </svg>
+
+                            {/* Inner Label for Donut */}
+                            <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
+                              <span className="text-[10px] uppercase font-bold text-[#64748b] tracking-wider leading-none mb-1">Total</span>
+                              <span className="text-2xl font-black text-slate-800 font-sans tracking-tight leading-none">
+                                {paymentPieData.totalVal}
+                              </span>
+                              <span className="text-[10px] text-slate-405 font-bold mt-1">Siswa</span>
+                            </div>
+                          </div>
+
+                          {/* Small Quick Centered Legend */}
+                          <div className="flex items-center gap-4 mt-6 text-[11px] font-semibold text-slate-600">
+                            <div className="flex items-center gap-1.5">
+                              <span className="w-2.5 h-2.5 rounded-full bg-[#10b981]" />
+                              <span>Lunas ({dashboardStats.percentLunas}%)</span>
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              <span className="w-2.5 h-2.5 rounded-full bg-[#f97316]" />
+                              <span>Sebagian ({dashboardStats.percentSebagian}%)</span>
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              <span className="w-2.5 h-2.5 rounded-full bg-[#ef4444]" />
+                              <span>Belum ({dashboardStats.percentBelum}%)</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="mt-5 pt-3 border-t border-slate-50 flex justify-between items-center text-[10.5px] text-[#64748b]">
+                        <span>Kas terhitung lunas: {formatRupiah(dashboardStats.totalNominalPaid)}</span>
+                        <button onClick={() => handleTabSwitch('pembayaran')} className="text-indigo-600 hover:underline font-bold transition">Kelola Iuran ↗</button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* REKAP KEHADIRAN: DIAGRAM GARIS */}
+                  {isMenuAllowed('absensi') && (
+                    <div className="bg-white rounded-2xl p-6 border border-[#e2e8f0]/75 shadow-xs flex flex-col justify-between">
+                      <div>
+                        <div className="flex items-center justify-between mb-5 border-b border-slate-100 pb-3">
+                          <div>
+                            <h4 className="font-bold text-[#0f172a] text-sm tracking-tight flex items-center gap-2">
+                              <CheckSquare className="w-4 h-4 text-violet-500" />
+                              Statistik & Kehadiran Anggota
+                            </h4>
+                            <p className="text-[11px] text-[#64748b]">Tingkat kehadiran (%) berdasarkan rentetan tanggal perekaman</p>
+                          </div>
+                          <span className="text-xs bg-slate-50 border border-slate-100 px-2.5 py-1 rounded-lg font-mono text-slate-705 font-bold">
+                            {attendanceTrend.length} Hari Perekaman
+                          </span>
+                        </div>
+
+                        {/* SVG Line Chart Container */}
+                        <div className="relative w-full overflow-hidden py-1" style={{ minHeight: '230px' }}>
+                          {attendanceTrend.length === 0 ? (
+                            <div className="flex flex-col items-center justify-center py-12 text-center h-full">
+                              <p className="text-xs font-semibold text-slate-400">Belum ada data absensi yang tercatat untuk menampilkan diagram tren harian.</p>
+                            </div>
+                          ) : (
+                            <div className="w-full relative">
+                              <svg viewBox="0 0 500 240" className="w-full h-auto overflow-visible select-none">
+                                <defs>
+                                  <linearGradient id="violetGrad" x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="0%" stopColor="#8b5cf6" stopOpacity="0.25" />
+                                    <stop offset="100%" stopColor="#8b5cf6" stopOpacity="0.00" />
+                                  </linearGradient>
+                                </defs>
+
+                                {/* Grid Lines & Y-Axis Labels */}
+                                {[0, 25, 50, 75, 100].map((tick) => {
+                                  const yPos = 30 + (180 - (tick * 1.8));
+                                  return (
+                                    <g key={tick} className="opacity-40">
+                                      <line
+                                        x1="45"
+                                        y1={yPos}
+                                        x2="465"
+                                        y2={yPos}
+                                        stroke="#cbd5e1"
+                                        strokeWidth="1"
+                                        strokeDasharray="4 4"
+                                      />
+                                      <text
+                                        x="15"
+                                        y={yPos + 3}
+                                        className="font-mono text-[9px] fill-slate-400 text-right leading-none"
+                                        textAnchor="start"
+                                      >
+                                        {tick}%
+                                      </text>
+                                    </g>
+                                  );
+                                })}
+
+                                {/* Path Drawing */}
+                                {attendanceTrend.length > 0 && (() => {
+                                  const N = attendanceTrend.length;
+                                  const paddingX = 45;
+                                  const paddingY = 30;
+                                  const drawW = 420; // 465 - 45
+                                  const drawH = 180;
+
+                                  const points = attendanceTrend.map((item, i) => {
+                                    const x = N > 1 ? paddingX + (i * (drawW / (N - 1))) : paddingX + (drawW / 2);
+                                    const y = paddingY + drawH - (item.percentage * (drawH / 100));
+                                    return { x, y, ...item };
+                                  });
+
+                                  // Generate path line
+                                  let pathD = "";
+                                  if (N === 1) {
+                                    pathD = `M ${points[0].x - 15} ${points[0].y} L ${points[0].x + 15} ${points[0].y}`;
+                                  } else {
+                                    pathD = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(" ");
+                                  }
+
+                                  // Generate area path for gradient
+                                  let areaD = "";
+                                  if (N === 1) {
+                                    areaD = `M ${points[0].x - 15} ${points[0].y} L ${points[0].x + 15} ${points[0].y} L ${points[0].x + 15} ${paddingY + drawH} L ${points[0].x - 15} ${paddingY + drawH} Z`;
+                                  } else {
+                                    areaD = `${pathD} L ${points[N - 1].x} ${paddingY + drawH} L ${points[0].x} ${paddingY + drawH} Z`;
+                                  }
+
+                                  return (
+                                    <>
+                                      {/* Fill Area with Gradient */}
+                                      <path d={areaD} fill="url(#violetGrad)" />
+
+                                      {/* Stroke Line */}
+                                      <path
+                                        d={pathD}
+                                        fill="none"
+                                        stroke="#7c3aed"
+                                        strokeWidth="2.5"
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                      />
+
+                                      {/* Interactive Circles & Hover Hotspots */}
+                                      {points.map((p, i) => {
+                                        const isHovered = hoveredTrendIndex === i;
+                                        return (
+                                          <g key={i}>
+                                            {/* Hover line guide to bottom */}
+                                            {isHovered && (
+                                              <line
+                                                x1={p.x}
+                                                y1={30}
+                                                x2={p.x}
+                                                y2={210}
+                                                stroke="#8b5cf6"
+                                                strokeWidth="1"
+                                                strokeDasharray="2 2"
+                                                className="opacity-60"
+                                              />
+                                            )}
+
+                                            {/* Outer pulsing circle on hover */}
+                                            <circle
+                                              cx={p.x}
+                                              cy={p.y}
+                                              r={isHovered ? 7 : 4}
+                                              fill={isHovered ? "#8b5cf6" : "#ffffff"}
+                                              stroke="#7c3aed"
+                                              strokeWidth={isHovered ? 2 : 2}
+                                              className="transition-all duration-150 cursor-pointer animate-fade-in"
+                                            />
+
+                                            {/* Hotspot anchor */}
+                                            <circle
+                                              cx={p.x}
+                                              cy={p.y}
+                                              r="14"
+                                              fill="transparent"
+                                              className="cursor-pointer"
+                                              onMouseEnter={() => setHoveredTrendIndex(i)}
+                                              onMouseLeave={() => setHoveredTrendIndex(null)}
+                                            />
+                                          </g>
+                                        );
+                                      })}
+
+                                      {/* Compact X-Axis Labels */}
+                                      {points.map((p, i) => {
+                                        const maxLabels = 6;
+                                        const step = Math.ceil(N / maxLabels);
+                                        const shouldDrawLabel = i === 0 || i === N - 1 || i % step === 0;
+
+                                        if (!shouldDrawLabel) return null;
+
+                                        let displayLabel = p.key;
+                                        try {
+                                          const d = new Date(p.key);
+                                          if (!isNaN(d.getTime())) {
+                                            displayLabel = d.toLocaleDateString('id-ID', { day: '2-digit', month: 'short' });
+                                          }
+                                        } catch (e) {}
+
+                                        return (
+                                          <text
+                                            key={i}
+                                            x={p.x}
+                                            y="230"
+                                            className="font-semibold font-mono text-[9px] fill-slate-500 text-center"
+                                            textAnchor="middle"
+                                          >
+                                            {displayLabel}
+                                          </text>
+                                        );
+                                      })}
+                                    </>
+                                  );
+                                })()}
+                              </svg>
+
+                              {/* Floating dynamic rich tooltip */}
+                              {hoveredTrendIndex !== null && attendanceTrend[hoveredTrendIndex] && (() => {
+                                const currentItem = attendanceTrend[hoveredTrendIndex];
+                                return (
+                                  <div className="absolute top-1 left-1/2 transform -translate-x-1/2 bg-[#0f172a] text-white px-3 py-2 rounded-xl text-xs shadow-xl border border-slate-700/80 pointer-events-none animate-fade-in z-20 flex flex-col gap-1 w-44">
+                                    <div className="font-bold border-b border-white/10 pb-1 text-[11px] text-slate-300">
+                                      {currentItem.formattedDate}
+                                    </div>
+                                    <div className="flex justify-between mt-0.5">
+                                      <span className="text-slate-400">Rasio Hadir:</span>
+                                      <span className="font-extrabold text-emerald-400">{currentItem.percentage}%</span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                      <span className="text-slate-400">Siswa Hadir:</span>
+                                      <span className="font-bold text-white">{currentItem.hadir} / {currentItem.total}</span>
+                                    </div>
+                                  </div>
+                                );
+                              })()}
                             </div>
                           )}
                         </div>
-                      ) : (
-                        todayInformasiList.map((info, idx) => (
-                          <div 
-                            key={info.idInformasi || idx}
-                            className="bg-indigo-50/40 border border-indigo-100/70 rounded-2xl p-5 relative overflow-hidden group shadow-3xs"
-                          >
-                            <span className="text-[9px] bg-indigo-500 text-white font-mono rounded px-2 py-0.5 font-bold uppercase tracking-wide">
-                              {info.jenisKegiatan || 'Penting'}
-                            </span>
-                            <h4 className="text-sm font-extrabold text-slate-900 mt-2.5 font-sans block">{info.judul}</h4>
-                            <p className="text-xs text-slate-600 mt-1.5 leading-relaxed font-sans whitespace-pre-wrap">{info.isi}</p>
-                            
-                            <div className="mt-4 flex items-center justify-between text-[10px] text-slate-500 font-mono pt-3 border-t border-indigo-100/50">
-                              <span>Waktu: {info.waktu || 'Tidak Ditentukan'}</span>
-                              <span>Tgl: {formatDateString(info.tanggal)}</span>
-                            </div>
-                          </div>
-                        ))
-                      )}
+                      </div>
+
+                      <div className="mt-5 pt-3 border-t border-slate-50 flex justify-between items-center text-[10.5px] text-[#64748b]">
+                        <span>Rata Kehadiran Aktif: <strong className="text-indigo-600 font-bold">{dashboardStats.persentaseKehadiran}%</strong></span>
+                        <button onClick={() => handleTabSwitch('absensi')} className="text-indigo-600 hover:underline font-bold transition">Buka Absensi ↗</button>
+                      </div>
                     </div>
-                  </div>
+                  )}
 
-                  <div className="mt-5 pt-3 border-t border-slate-50 flex justify-end">
-                    <button 
-                      onClick={() => handleTabSwitch('informasi')}
-                      className="text-xs font-bold text-[#6366f1] hover:text-[#4f46e5] flex items-center gap-0.5 cursor-pointer"
-                    >
-                      Buka Papan Informasi <ChevronRight className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
                 </div>
+              )}
 
-                {/* PELANGGARAN TERBARU */}
-                <div className="bg-white rounded-2xl p-6 border border-[#e2e8f0]/75 shadow-xs flex flex-col justify-between">
+              {/* ANNOUNCEMENT BOARD FOR TODAY & LATEST VIOLATIONS BOARD (ROW GID) */}
+              {(isMenuAllowed('informasi') || isMenuAllowed('pelanggaran')) && (
+                <div className={`grid grid-cols-1 ${isMenuAllowed('informasi') && isMenuAllowed('pelanggaran') ? 'lg:grid-cols-2' : ''} gap-6`}>
+                  
+                  {/* INFORMASI HARI INI */}
+                  {isMenuAllowed('informasi') && (
+                    <div className="bg-white rounded-2xl p-6 border border-[#e2e8f0]/75 shadow-xs flex flex-col justify-between">
+                      <div>
+                        <div className="flex items-center justify-between mb-5 border-b border-[#f1f5f9] pb-4">
+                          <div>
+                            <h3 className="font-bold text-[#0f172a] text-sm tracking-tight flex items-center gap-2">
+                              <Info className="w-4 h-4 text-sky-500" />
+                              Informasi & Kegiatan Hari Ini
+                            </h3>
+                            <p className="text-xs text-[#64748b] mt-0.5">Informasi terbaru dan berita penting yang dirilis hari ini</p>
+                          </div>
+                          <span className="text-[9px] bg-sky-50 text-sky-750 border border-sky-200 font-mono px-2 py-0.5 rounded-md font-bold uppercase">
+                            HARI INI
+                          </span>
+                        </div>
+
+                        <div className="space-y-4">
+                          {todayInformasiList.length === 0 ? (
+                            <div className="bg-slate-50/70 border border-slate-150 rounded-2xl p-6 text-center">
+                              <p className="text-xs text-slate-500 italic">Tidak ada pengumuman / informasi resmi baru untuk hari ini.</p>
+                              <p className="text-[10px] text-slate-405 mt-1">Seluruh kegiatan dan agenda operasional berjalan lancar sesuai jadwal.</p>
+                              
+                              {/* Fallback to latest info */}
+                              {informasiList.length > 0 && (
+                                <div className="mt-5 pt-4 border-t border-slate-200/50 text-left">
+                                  <span className="text-[10px] text-indigo-500 font-bold uppercase tracking-wider block mb-2 font-mono">Arsip Informasi Terakhir:</span>
+                                  <div className="bg-white p-3.5 rounded-xl border border-slate-100 flex flex-col gap-1.5 shadow-3xs">
+                                    <div className="flex justify-between items-start gap-1">
+                                      <h5 className="text-xs font-bold text-slate-800 line-clamp-1">{informasiList[informasiList.length - 1].judul}</h5>
+                                      <span className="text-[8px] bg-slate-100 border text-slate-600 px-1.5 py-0.5 rounded whitespace-nowrap font-mono">{formatDateString(informasiList[informasiList.length - 1].tanggal)}</span>
+                                    </div>
+                                    <p className="text-[10.5px] text-slate-500 line-clamp-2 leading-relaxed">{informasiList[informasiList.length - 1].isi}</p>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            todayInformasiList.map((info, idx) => (
+                              <div 
+                                key={info.idInformasi || idx}
+                                className="bg-indigo-50/40 border border-indigo-100/70 rounded-2xl p-5 relative overflow-hidden group shadow-3xs"
+                              >
+                                <span className="text-[9px] bg-indigo-505 text-white font-mono rounded px-2 py-0.5 font-bold uppercase tracking-wide">
+                                  {info.jenisKegiatan || 'Penting'}
+                                </span>
+                                <h4 className="text-sm font-extrabold text-slate-900 mt-2.5 font-sans block">{info.judul}</h4>
+                                <p className="text-xs text-slate-600 mt-1.5 leading-relaxed font-sans whitespace-pre-wrap">{info.isi}</p>
+                                
+                                <div className="mt-4 flex items-center justify-between text-[10px] text-slate-500 font-mono pt-3 border-t border-indigo-100/50">
+                                  <span>Waktu: {info.waktu || 'Tidak Ditentukan'}</span>
+                                  <span>Tgl: {formatDateString(info.tanggal)}</span>
+                                </div>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="mt-5 pt-3 border-t border-slate-50 flex justify-end">
+                        <button 
+                          onClick={() => handleTabSwitch('informasi')}
+                          className="text-xs font-bold text-[#6366f1] hover:text-[#4f46e5] flex items-center gap-0.5 cursor-pointer"
+                        >
+                          Buka Papan Informasi <ChevronRight className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* PELANGGARAN TERBARU */}
+                  {isMenuAllowed('pelanggaran') && (
+                    <div className="bg-white rounded-2xl p-6 border border-[#e2e8f0]/75 shadow-xs flex flex-col justify-between">
+                      <div>
+                        <div className="flex items-center justify-between mb-5 border-b border-[#f1f5f9] pb-4">
+                          <div>
+                            <h3 className="font-bold text-[#0f172a] text-sm tracking-tight flex items-center gap-2">
+                              <AlertTriangle className="w-4 h-4 text-rose-500" />
+                              Rekam Pelanggaran Terbaru
+                            </h3>
+                            <p className="text-xs text-[#64748b] mt-0.5">Catatan ketertiban dan kedisiplinan siswa terakhir</p>
+                          </div>
+                          <span className="text-[9px] bg-rose-50 text-rose-700 border border-rose-200 font-mono px-2 py-0.5 rounded-md font-bold uppercase">
+                            {pelanggaranList.length} TOTAL
+                          </span>
+                        </div>
+
+                        <div className="space-y-3">
+                          {latestPelanggaranList.length === 0 ? (
+                            <p className="text-xs text-[#64748b] text-center py-8">Belum ada rekam pelanggaran yang dicatat dalam sistem.</p>
+                          ) : (
+                            latestPelanggaranList.map((caseRow, idx) => (
+                              <div 
+                                key={caseRow.idPelanggaran || idx}
+                                className="p-3 rounded-xl border border-[#f1f5f9] hover:border-indigo-100 hover:bg-[#f8fafc]/50 transition duration-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2"
+                              >
+                                <div className="flex items-start space-x-3">
+                                  <div className="w-8 h-8 rounded-lg bg-rose-50 flex items-center justify-center text-rose-500 font-bold shrink-0 text-xs">
+                                    {caseRow.jenisPelanggaran ? caseRow.jenisPelanggaran[0].toUpperCase() : 'P'}
+                                  </div>
+                                  <div>
+                                    <h4 className="text-xs font-bold text-[#0f172a] leading-tight flex items-center gap-1.5">
+                                      {caseRow.nama}
+                                      <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded ${
+                                        caseRow.jenisPelanggaran === 'Berat' 
+                                          ? 'bg-rose-100 text-rose-700' 
+                                          : caseRow.jenisPelanggaran === 'Sedang'
+                                            ? 'bg-amber-100 text-amber-700'
+                                            : 'bg-slate-100 text-slate-700'
+                                      }`}>
+                                        {caseRow.jenisPelanggaran}
+                                      </span>
+                                    </h4>
+                                    <p className="text-[10px] text-slate-500 mt-1 line-clamp-1">{caseRow.namaPelanggaran}</p>
+                                  </div>
+                                </div>
+                                <div className="text-right shrink-0">
+                                  <span className="text-[9px] text-[#64748b] font-mono block">{formatDateString(caseRow.tanggal)}</span>
+                                  {caseRow.adaDenda === 'Ya' && (
+                                    <span className="text-[10px] font-bold text-rose-600 block mt-0.5">{formatRupiah(caseRow.nominalDenda)}</span>
+                                  )}
+                                </div>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="mt-5 pt-3 border-t border-slate-50 flex justify-end">
+                        <button 
+                          onClick={() => handleTabSwitch('pelanggaran')}
+                          className="text-xs font-bold text-[#6366f1] hover:text-[#4f46e5] flex items-center gap-0.5 cursor-pointer"
+                        >
+                          Buka Kelola Pelanggaran <ChevronRight className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                </div>
+              )}
+
+              {/* ANGGOTA BARU TERDAFTAR (ABSOLUTE BOTTOM) */}
+              {isMenuAllowed('anggota') && (
+                <div className="bg-white rounded-2xl p-6 border border-[#e2e8f0]/75 shadow-xs flex flex-col justify-between mt-6">
                   <div>
                     <div className="flex items-center justify-between mb-5 border-b border-[#f1f5f9] pb-4">
                       <div>
                         <h3 className="font-bold text-[#0f172a] text-sm tracking-tight flex items-center gap-2">
-                          <AlertTriangle className="w-4 h-4 text-rose-500" />
-                          Rekam Pelanggaran Terbaru
+                          <Users className="w-4 h-4 text-emerald-500" />
+                          Daftar Anggota / Siswa Baru
                         </h3>
-                        <p className="text-xs text-[#64748b] mt-0.5">Catatan ketertiban dan kedisiplinan siswa terakhir</p>
+                        <p className="text-xs text-[#64748b] mt-0.5">Anggota baru yang terdaftar semenjak 2 s.d 4 minggu terakhir</p>
                       </div>
-                      <span className="text-[9px] bg-rose-50 text-rose-700 border border-rose-200 font-mono px-2 py-0.5 rounded-md font-bold uppercase">
-                        {pelanggaranList.length} TOTAL
+                      <span className="text-[9px] bg-emerald-50 text-emerald-700 border border-emerald-200 font-mono px-2 py-0.5 rounded-md font-bold uppercase">
+                        {newMembersList.length} BARU
                       </span>
                     </div>
 
-                    <div className="space-y-3">
-                      {latestPelanggaranList.length === 0 ? (
-                        <p className="text-xs text-[#64748b] text-center py-8">Belum ada rekam pelanggaran yang dicatat dalam sistem.</p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                      {newMembersList.length === 0 ? (
+                        <div className="col-span-full py-8 text-center text-xs text-[#64748b]">
+                          Belum ada anggota baru yang masuk dalam jangka waktu 1 month.
+                        </div>
                       ) : (
-                        latestPelanggaranList.map((caseRow, idx) => (
+                        newMembersList.slice(0, 4).map((member, idx) => (
                           <div 
-                            key={caseRow.idPelanggaran || idx}
-                            className="p-3 rounded-xl border border-[#f1f5f9] hover:border-indigo-100 hover:bg-[#f8fafc]/50 transition duration-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2"
+                             key={member.nia || idx}
+                             onClick={() => setSelectedProfile(member)}
+                             className="flex items-center justify-between p-3 rounded-xl border border-[#f1f5f9] hover:border-indigo-100 hover:bg-slate-50/40 transition duration-200 cursor-pointer"
                           >
-                            <div className="flex items-start space-x-3">
-                              <div className="w-8 h-8 rounded-lg bg-rose-50 flex items-center justify-center text-rose-500 font-bold shrink-0 text-xs">
-                                {caseRow.jenisPelanggaran ? caseRow.jenisPelanggaran[0].toUpperCase() : 'P'}
+                            <div className="flex items-center space-x-3.5 animate-slide-in">
+                              <div className="w-10 h-10 rounded-full overflow-hidden border border-[#e2e8f0] shrink-0 bg-[#f1f5f9] flex items-center justify-center font-bold text-[#64748b] text-sm shadow-xs">
+                                <MemberAvatar linkProfile={member.linkProfile} namaLengkap={member.namaLengkap} />
                               </div>
                               <div>
-                                <h4 className="text-xs font-bold text-[#0f172a] leading-tight flex items-center gap-1.5">
-                                  {caseRow.nama}
-                                  <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded ${
-                                    caseRow.jenisPelanggaran === 'Berat' 
-                                      ? 'bg-rose-100 text-rose-700' 
-                                      : caseRow.jenisPelanggaran === 'Sedang'
-                                        ? 'bg-amber-100 text-amber-700'
-                                        : 'bg-slate-100 text-slate-700'
-                                  }`}>
-                                    {caseRow.jenisPelanggaran}
-                                  </span>
-                                </h4>
-                                <p className="text-[10px] text-slate-500 mt-1 line-clamp-1">{caseRow.namaPelanggaran}</p>
+                                <h4 className="text-xs font-bold text-[#0f172a] leading-tight line-clamp-1">{member.namaLengkap}</h4>
+                                <p className="text-[10px] text-[#64748b] font-mono mt-0.5">NIA: {member.nia}</p>
                               </div>
                             </div>
-                            <div className="text-right shrink-0">
-                              <span className="text-[9px] text-[#64748b] font-mono block">{formatDateString(caseRow.tanggal)}</span>
-                              {caseRow.adaDenda === 'Ya' && (
-                                <span className="text-[10px] font-bold text-rose-600 block mt-0.5">{formatRupiah(caseRow.nominalDenda)}</span>
-                              )}
+                            <div className="flex flex-col items-end gap-1 shrink-0">
+                              <span className="text-[9px] text-[#475569] bg-slate-100 px-1.5 py-0.5 rounded font-mono">{member.kelas || member.jenjangPendidikan || '-'}</span>
+                              <span className="bg-emerald-50 text-emerald-700 border border-emerald-200/50 text-[8px] px-1.5 py-0.2 rounded-full font-bold flex items-center gap-0.5">
+                                Baru
+                              </span>
                             </div>
                           </div>
                         ))
@@ -3043,74 +3471,14 @@ export default function App() {
 
                   <div className="mt-5 pt-3 border-t border-slate-50 flex justify-end">
                     <button 
-                      onClick={() => handleTabSwitch('pelanggaran')}
+                      onClick={() => handleTabSwitch('anggota')}
                       className="text-xs font-bold text-[#6366f1] hover:text-[#4f46e5] flex items-center gap-0.5 cursor-pointer"
                     >
-                      Buka Kelola Pelanggaran <ChevronRight className="w-3.5 h-3.5" />
+                      Buka Kelola Anggota <ChevronRight className="w-3.5 h-3.5" />
                     </button>
                   </div>
                 </div>
-
-              </div>
-
-              {/* ANGGOTA BARU TERDAFTAR (ABSOLUTE BOTTOM) */}
-              <div className="bg-white rounded-2xl p-6 border border-[#e2e8f0]/75 shadow-xs flex flex-col justify-between mt-6">
-                <div>
-                  <div className="flex items-center justify-between mb-5 border-b border-[#f1f5f9] pb-4">
-                    <div>
-                      <h3 className="font-bold text-[#0f172a] text-sm tracking-tight flex items-center gap-2">
-                        <Users className="w-4 h-4 text-emerald-500" />
-                        Daftar Anggota / Siswa Baru
-                      </h3>
-                      <p className="text-xs text-[#64748b] mt-0.5">Anggota baru yang terdaftar semenjak 2 s.d 4 minggu terakhir</p>
-                    </div>
-                    <span className="text-[9px] bg-emerald-50 text-emerald-700 border border-emerald-200 font-mono px-2 py-0.5 rounded-md font-bold uppercase">
-                      {newMembersList.length} BARU
-                    </span>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                    {newMembersList.length === 0 ? (
-                      <div className="col-span-full py-8 text-center text-xs text-[#64748b]">
-                        Belum ada anggota baru yang masuk dalam jangka waktu 1 bulan.
-                      </div>
-                    ) : (
-                      newMembersList.slice(0, 4).map((member, idx) => (
-                        <div 
-                           key={member.nia || idx}
-                           onClick={() => setSelectedProfile(member)}
-                           className="flex items-center justify-between p-3 rounded-xl border border-[#f1f5f9] hover:border-indigo-100 hover:bg-slate-50/40 transition duration-200 cursor-pointer"
-                        >
-                          <div className="flex items-center space-x-3.5 animate-slide-in">
-                            <div className="w-10 h-10 rounded-full overflow-hidden border border-[#e2e8f0] shrink-0 bg-[#f1f5f9] flex items-center justify-center font-bold text-[#64748b] text-sm shadow-xs">
-                              <MemberAvatar linkProfile={member.linkProfile} namaLengkap={member.namaLengkap} />
-                            </div>
-                            <div>
-                              <h4 className="text-xs font-bold text-[#0f172a] leading-tight line-clamp-1">{member.namaLengkap}</h4>
-                              <p className="text-[10px] text-[#64748b] font-mono mt-0.5">NIA: {member.nia}</p>
-                            </div>
-                          </div>
-                          <div className="flex flex-col items-end gap-1 shrink-0">
-                            <span className="text-[9px] text-[#475569] bg-slate-100 px-1.5 py-0.5 rounded font-mono">{member.kelas || member.jenjangPendidikan || '-'}</span>
-                            <span className="bg-emerald-50 text-emerald-700 border border-emerald-200/50 text-[8px] px-1.5 py-0.2 rounded-full font-bold flex items-center gap-0.5">
-                              Baru
-                            </span>
-                          </div>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
-
-                <div className="mt-5 pt-3 border-t border-slate-50 flex justify-end">
-                  <button 
-                    onClick={() => handleTabSwitch('anggota')}
-                    className="text-xs font-bold text-[#6366f1] hover:text-[#4f46e5] flex items-center gap-0.5 cursor-pointer"
-                  >
-                    Buka Kelola Anggota <ChevronRight className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
+              )}
             </div>
           )}
 
@@ -3119,7 +3487,7 @@ export default function App() {
             <div className="bg-white rounded-xl border border-[#e2e8f0] shadow-xs overflow-hidden animate-fade-in">
               <div className="p-5 border-b border-[#f1f5f9] bg-white flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
-                  <h3 className="font-bold text-[#0f172a] text-sm">Tabel Pengelolaan Anggota</h3>
+                  <h3 className="font-bold text-[#0f172a] text-sm">Tabel Data Anggota</h3>
                   <p className="text-xs text-[#64748b]">Total terhitung {filteredAnggota.length} anggota di dalam filter ini</p>
                 </div>
                 <div className="flex flex-wrap items-center gap-3">
@@ -3250,7 +3618,7 @@ export default function App() {
             <div className="bg-white rounded-xl border border-[#e2e8f0] shadow-xs overflow-hidden animate-fade-in">
               <div className="p-5 border-b border-[#f1f5f9] bg-white flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
-                  <h3 className="font-bold text-[#0f172a] text-sm">Transaksi Kas & Pembayaran Anggota</h3>
+                  <h3 className="font-bold text-[#0f172a] text-sm">Transaksi Pembayaran / Tagihan</h3>
                   <p className="text-xs text-[#64748b]">Ditemukan {filteredPembayaran.length} transaksi di dalam filter</p>
                 </div>
               </div>
@@ -3332,7 +3700,7 @@ export default function App() {
               <div className="bg-white p-5 rounded-xl border border-[#e2e8f0] flex items-center justify-between shadow-xs">
                 <div>
                   <h3 className="font-bold text-[#0f172a] text-sm">Pencapaian & Prestasi Anggota</h3>
-                  <p className="text-xs text-[#64748b]">Menyimpan database {filteredPrestasi.length} catatan prestasi piala emas</p>
+                  <p className="text-xs text-[#64748b]">Total {filteredPrestasi.length} catatan prestasi</p>
                 </div>
               </div>
 
@@ -3403,7 +3771,7 @@ export default function App() {
             <div className="bg-white rounded-xl border border-[#e2e8f0] shadow-xs overflow-hidden animate-fade-in">
               <div className="p-5 border-b border-[#f1f5f9] bg-white flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
-                  <h3 className="font-bold text-[#0f172a] text-sm">Catatan Ketertiban & Pelanggaran</h3>
+                  <h3 className="font-bold text-[#0f172a] text-sm">Catatan Pelanggaran</h3>
                   <p className="text-xs text-[#64748b]">Daftar {filteredPelanggaran.length} rekam indisipliner siswa</p>
                 </div>
               </div>
@@ -3420,13 +3788,14 @@ export default function App() {
                       <th className="py-4 px-6">Bentuk Pelanggaran</th>
                       <th className="py-4 px-6">Sanksi / Hukuman</th>
                       <th className="py-4 px-6">Denda</th>
+                      <th className="py-4 px-6">Status Tindak Lanjut</th>
                       <th className="py-4 px-6 text-right">Aksi</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[#f1f5f9] text-xs">
                     {filteredPelanggaran.length === 0 ? (
                       <tr>
-                        <td colSpan={9} className="py-10 text-center text-[#94a3b8]">
+                        <td colSpan={10} className="py-10 text-center text-[#94a3b8]">
                           Kejadian Pelanggaran nihil. Seluruh anggota tertib menjaga keamanan!
                         </td>
                       </tr>
@@ -3457,6 +3826,17 @@ export default function App() {
                           <td className="py-4 px-6 font-medium text-[#475569]">{caseRow.jenisHukuman}</td>
                           <td className="py-4 px-6 font-mono font-bold text-[#b91c1c]">
                             {caseRow.adaDenda === 'Ya' ? formatRupiah(caseRow.nominalDenda) : '-'}
+                          </td>
+                          <td className="py-4 px-6">
+                            <span className={`inline-block px-2.5 py-1 text-[10px] font-extrabold rounded-full border ${
+                              (caseRow.statusHukuman || '').toLowerCase() === 'selesai'
+                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200/50'
+                                : (caseRow.statusHukuman || '').toLowerCase() === 'proses'
+                                ? 'bg-indigo-50 text-indigo-700 border-indigo-200/50'
+                                : 'bg-rose-50 text-rose-700 border-rose-200/50'
+                            }`}>
+                              {caseRow.statusHukuman || 'Belum Ditindak'}
+                            </span>
                           </td>
                           <td className="py-4 px-6 text-right">
                             <div className="flex items-center justify-end space-x-2">
@@ -3494,7 +3874,7 @@ export default function App() {
               <div className="bg-white border border-[#e2e8f0] p-5 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
                   <h4 className="font-bold text-sm text-[#0f172a]">Rekap Absensi Anggota</h4>
-                  <p className="text-xs text-[#64748b]">Informasi rekap absensi dan catatan kehadiran aktif secara berkala.</p>
+                  <p className="text-xs text-[#64748b]">Informasi rekap absensi dan catatan kehadiran anggota</p>
                 </div>
               </div>
 
@@ -3511,7 +3891,7 @@ export default function App() {
                   <p className="text-2xl font-black text-[#0d9488] mt-2">{new Set(absensiList.map(a => a.nia).filter(Boolean)).size}</p>
                 </div>
                 <div className="bg-white p-5 rounded-xl border border-[#e2e8f0] text-center shadow-xs">
-                  <span className="text-[10px] text-[#64748b] font-mono uppercase font-bold tracking-wider">Kelas Berpartisipasi</span>
+                  <span className="text-[10px] text-[#64748b] font-mono uppercase font-bold tracking-wider">Jumlah Kelas</span>
                   <p className="text-2xl font-black text-[#b45309] mt-2">{new Set(absensiList.map(a => a.kelas).filter(Boolean)).size}</p>
                 </div>
                 <div className="bg-white p-5 rounded-xl border border-[#e2e8f0] text-center shadow-xs">
@@ -3891,7 +4271,7 @@ export default function App() {
               <div className="bg-white p-5 rounded-xl border border-[#e2e8f0] flex items-center justify-between shadow-sm">
                 <div>
                   <h3 className="font-bold text-[#0f172a] text-sm">Papan Informasi & Pengumuman</h3>
-                  <p className="text-xs text-[#64748b]">Menyimpan database {filteredInformasi.length} pengumuman dan agenda kegiatan aktif</p>
+                  <p className="text-xs text-[#64748b]">Total {filteredInformasi.length} informasi dan kegiatan aktif</p>
                 </div>
               </div>
 
@@ -3966,7 +4346,7 @@ export default function App() {
               <div className="bg-white p-6 rounded-2xl border border-slate-200/80 flex flex-col md:flex-row md:items-center md:justify-between gap-4 shadow-[0_1px_3px_0_rgba(0,0,0,0.02)]">
                 <div>
                   <h3 className="font-extrabold text-[#0f172a] text-base tracking-tight">Persuratan & Dokumen Resmi</h3>
-                  <p className="text-xs text-slate-500 mt-1">Mengelola pemanggilan orang tua, masalah internal siswa/anggota ke guru, dan link dokumen resmi.</p>
+                  <p className="text-xs text-slate-500 mt-1">Total {filteredSurat.length} surat</p>
                 </div>
                 <div className="flex items-center gap-2">
                   <button
@@ -3999,12 +4379,13 @@ export default function App() {
                         <th className="py-4 px-6">Perihal</th>
                         <th className="py-4 px-6">Link Dokumen</th>
                         <th className="py-4 px-6 text-center w-36">Tanggal</th>
+                        <th className="py-4 px-6 text-right w-28">Aksi</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 text-xs text-slate-600 font-medium">
                       {filteredSurat.length === 0 ? (
                         <tr>
-                          <td colSpan={6} className="py-12 text-center text-slate-400 font-sans">
+                          <td colSpan={7} className="py-12 text-center text-slate-400 font-sans">
                             <div className="flex flex-col items-center justify-center space-y-2">
                               <MailOpen className="w-8 h-8 text-slate-300 stroke-[1.5]" />
                               <p className="text-xs">Tidak ditemukan rekam data dokumen surat yang sesuai.</p>
@@ -4078,6 +4459,26 @@ export default function App() {
                               {/* Tanggal */}
                               <td className="py-4 px-6 text-center text-slate-500 font-mono text-[11px]">
                                 {formatDateString(row.tanggal)}
+                              </td>
+
+                              {/* Aksi */}
+                              <td className="py-4 px-6 text-right">
+                                <div className="flex items-center justify-end space-x-2" onClick={(e) => e.stopPropagation()}>
+                                  <button
+                                    onClick={() => handleOpenEditModal('surat', row)}
+                                    className="p-1.5 rounded bg-[#f1f5f9] text-[#475569] hover:bg-[#cbd5e1] hover:text-[#0f172a] transition cursor-pointer"
+                                    title="Edit Surat"
+                                  >
+                                    <Edit className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeleteRow('surat', row)}
+                                    className="p-1.5 rounded bg-[#fef2f2] text-[#b91c1c] hover:bg-[#fee2e2] transition cursor-pointer"
+                                    title="Hapus Surat"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
                               </td>
 
                             </tr>
@@ -4180,12 +4581,13 @@ export default function App() {
                         <th className="py-4 px-6">Judul Peraturan</th>
                         <th className="py-4 px-6">Sanksi / Konsekuensi</th>
                         <th className="py-4 px-6 text-center w-36">Status (Tingkat)</th>
+                        <th className="py-4 px-6 text-right w-28">Aksi</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 text-xs text-slate-600 font-medium">
                       {filteredPeraturan.length === 0 ? (
                         <tr>
-                          <td colSpan={4} className="py-12 text-center text-slate-400 font-sans">
+                          <td colSpan={5} className="py-12 text-center text-slate-400 font-sans">
                             <div className="flex flex-col items-center justify-center space-y-2">
                               <Scale className="w-8 h-8 text-slate-300 stroke-[1.5]" />
                               <p className="text-xs">Tidak ditemukan rekam data peraturan yang sesuai.</p>
@@ -4229,6 +4631,26 @@ export default function App() {
                                 </span>
                               </td>
 
+                              {/* Aksi */}
+                              <td className="py-4 px-6 text-right">
+                                <div className="flex items-center justify-end space-x-2" onClick={(e) => e.stopPropagation()}>
+                                  <button
+                                    onClick={() => handleOpenEditModal('peraturan', row)}
+                                    className="p-1.5 rounded bg-[#f1f5f9] text-[#475569] hover:bg-[#cbd5e1] hover:text-[#0f172a] transition cursor-pointer"
+                                    title="Edit Peraturan"
+                                  >
+                                    <Edit className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeleteRow('peraturan', row)}
+                                    className="p-1.5 rounded bg-[#fef2f2] text-[#b91c1c] hover:bg-[#fee2e2] transition cursor-pointer"
+                                    title="Hapus Peraturan"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              </td>
+
                             </tr>
                           );
                         })
@@ -4244,6 +4666,40 @@ export default function App() {
           {/* ======================= VIEW: PENGATURAN ======================= */}
           {activeTab === 'pengaturan' && (
             <div className="space-y-8 animate-fade-in">
+
+              {/* Theme Settings Card Panel */}
+              <div className="bg-white p-6 rounded-xl border border-[#e2e8f0] space-y-4">
+                <div>
+                  <h3 className="text-sm font-bold text-[#0f172a]">Pengaturan Tema & Tampilan</h3>
+                  <p className="text-[11px] text-[#64748b]">Ubah tema tampilan halaman utama (tidak termasuk menu sidebar).</p>
+                </div>
+                
+                <div className="grid grid-cols-2 gap-4 max-w-md">
+                  <button
+                    onClick={() => setTheme('light')}
+                    className={`flex items-center justify-center gap-2 p-3 rounded-lg border text-[11px] font-bold transition-all cursor-pointer ${
+                      theme === 'light'
+                        ? 'border-indigo-600 bg-indigo-50 text-indigo-700 shadow-sm shadow-indigo-600/5'
+                        : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                    }`}
+                  >
+                    <Sun className="w-3.5 h-3.5 text-amber-500" />
+                    <span>Terang (Light Theme)</span>
+                  </button>
+
+                  <button
+                    onClick={() => setTheme('dark')}
+                    className={`flex items-center justify-center gap-2 p-3 rounded-lg border text-[11px] font-bold transition-all cursor-pointer ${
+                      theme === 'dark'
+                        ? 'border-indigo-400 bg-slate-800 text-indigo-400 shadow-sm shadow-indigo-400/5'
+                        : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                    }`}
+                  >
+                    <Moon className="w-3.5 h-3.5 text-slate-400" />
+                    <span>Gelap (Dark Theme)</span>
+                  </button>
+                </div>
+              </div>
 
               {/* Developer Testing Payload Sandbox Grid */}
               <div className="bg-white p-6 rounded-xl border border-[#e2e8f0]">
@@ -4339,7 +4795,7 @@ export default function App() {
       {/* ================= UNIVERSAL FORM DATA MODAL ============== */}
       {/* ========================================================== */}
       {isModalOpen && (
-        <div className="fixed inset-0 bg-slate-950/60 z-50 flex items-center justify-center p-4 backdrop-blur-xs">
+        <div className={`fixed inset-0 bg-slate-950/60 z-50 flex items-center justify-center p-4 backdrop-blur-xs ${theme === 'dark' ? 'dark-theme-main' : ''}`}>
           <div className="bg-white rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto shadow-2xl flex flex-col justify-between border border-[#e2e8f0] animate-scale-up">
             
             {/* Modal Header */}
@@ -4669,7 +5125,7 @@ export default function App() {
       {/* =========== DETAIL PROFIL & LEDGER CARD MODAL ============ */}
       {/* ========================================================== */}
       {selectedProfile && (
-        <div className="fixed inset-0 bg-slate-950/60 z-50 flex items-center justify-center p-4 backdrop-blur-xs overflow-y-auto">
+        <div className={`fixed inset-0 bg-slate-950/60 z-50 flex items-center justify-center p-4 backdrop-blur-xs overflow-y-auto ${theme === 'dark' ? 'dark-theme-main' : ''}`}>
           <div className="bg-white rounded-2xl w-full max-w-4xl max-h-[92vh] overflow-y-auto shadow-2xl border border-[#e2e8f0] animate-scale-up flex flex-col justify-between">
             
             {/* Header profile Detail */}
@@ -4896,7 +5352,7 @@ export default function App() {
 
       {/* ======================= MODAL: CUSTOM DELETE CONFIRMATION ======================= */}
       {deleteConfirmTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs select-none animate-fade-in">
+        <div className={`fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs select-none animate-fade-in ${theme === 'dark' ? 'dark-theme-main' : ''}`}>
           <div className="bg-white rounded-2xl w-full max-w-md p-6 border border-[#e2e8f0] shadow-2xl flex flex-col gap-4">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-full bg-[#fef2f2] flex items-center justify-center text-[#ef4444] shrink-0">
@@ -4909,7 +5365,7 @@ export default function App() {
             </div>
 
             <p className="text-xs text-[#475569] leading-relaxed">
-              Apakah Anda yakin ingin menghapus data ini secara permanen? Perintah penghapusan juga akan dikirimkan untuk disinkronisasikan ke database cloud Anda.
+              Apakah Anda yakin ingin menghapus data ini secara permanen? Perintah penghapusan juga akan dikirimkan untuk diselaraskan ke database pusat Anda.
             </p>
 
             <div className="flex items-center justify-end gap-2 border-t border-[#f1f5f9] pt-4 mt-1">
@@ -4936,20 +5392,20 @@ export default function App() {
 
       {/* ======================= MODAL: CUSTOM SHEETS CLEANUP CONFIRMATION ======================= */}
       {cleanConfirmOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs select-none animate-fade-in">
+        <div className={`fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs select-none animate-fade-in ${theme === 'dark' ? 'dark-theme-main' : ''}`}>
           <div className="bg-white rounded-2xl w-full max-w-md p-6 border border-[#e2e8f0] shadow-2xl flex flex-col gap-4">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-full bg-[#fffbeb] flex items-center justify-center text-[#d97706] shrink-0">
                 <AlertTriangle className="w-5 h-5" />
               </div>
               <div>
-                <h3 className="font-bold text-[#d97706] text-sm">Hapus Anggota Non-Cloud</h3>
-                <p className="text-xs text-[#64748b]">Sinkronisasi & Penghapusan Lokal</p>
+                <h3 className="font-bold text-[#d97706] text-sm">Bersihkan Anggota Non-Aktif</h3>
+                <p className="text-xs text-[#64748b]">Pemutakhiran & Pembersihan Lokal</p>
               </div>
             </div>
 
             <p className="text-xs text-[#475569] leading-relaxed">
-              Sistem akan mencocokkan data lokal Anda dengan data keanggotaan aktif dari akun cloud Anda. Seluruh data anggota lokal yang tidak terdaftar di cloud akan dihapus secara permanen. Apakah Anda yakin ingin melanjutkan tindakan ini?
+              Sistem akan mencocokkan data lokal Anda dengan data keanggotaan aktif dari akun pusat. Seluruh data anggota lokal yang tidak terdaftar di server utama akan dihapus secara permanen. Apakah Anda yakin ingin melanjutkan tindakan ini?
             </p>
 
             <div className="flex items-center justify-end gap-2 border-t border-[#f1f5f9] pt-4 mt-1">
@@ -4967,7 +5423,7 @@ export default function App() {
                 }}
                 className="px-4 py-2 bg-[#b91c1c] hover:bg-[#991b1b] text-white rounded-lg text-xs font-bold transition cursor-pointer"
               >
-                Ya, Bersihkan & Sinkronkan
+                Ya, Bersihkan & Perbarui
               </button>
             </div>
           </div>
@@ -4976,7 +5432,7 @@ export default function App() {
 
       {/* ======================= MODAL: CUSTOM DELETE ALL CONFIRMATION ======================= */}
       {deleteAllConfirmOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs select-none animate-fade-in">
+        <div className={`fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs select-none animate-fade-in ${theme === 'dark' ? 'dark-theme-main' : ''}`}>
           <div className="bg-white rounded-2xl w-full max-w-md p-6 border border-[#e2e8f0] shadow-2xl flex flex-col gap-4">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-full bg-[#fef2f2] flex items-center justify-center text-[#ef4444] shrink-0">
@@ -4989,7 +5445,7 @@ export default function App() {
             </div>
 
             <p className="text-xs text-[#475569] leading-relaxed">
-              Apakah Anda yakin ingin menghapus seluruh data anggota di dalam database lokal? Tindakan ini akan mengosongkan semua data anggota yang saat ini tersimpan di browser Anda agar Anda dapat melakukan sinkronisasi ulang secara bersih dari server cloud.
+              Apakah Anda yakin ingin menghapus seluruh data anggota di dalam database lokal? Tindakan ini akan mengosongkan semua data anggota yang saat ini tersimpan di browser Anda agar Anda dapat memuat ulang seluruh berkas secara bersih dari server utama.
             </p>
 
             <div className="flex items-center justify-end gap-2 border-t border-[#f1f5f9] pt-4 mt-1">

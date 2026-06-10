@@ -1308,6 +1308,10 @@ export default function App() {
   const [cleanConfirmOpen, setCleanConfirmOpen] = useState<boolean>(false);
   const [deleteAllConfirmOpen, setDeleteAllConfirmOpen] = useState<boolean>(false);
 
+  // Official transaction receipt (struk) modal states
+  const [receiptData, setReceiptData] = useState<any | null>(null);
+  const [isReceiptModalOpen, setIsReceiptModalOpen] = useState<boolean>(false);
+
   // Load and initialize data
   const refreshAllData = () => {
     initializeDatabase();
@@ -1951,6 +1955,12 @@ export default function App() {
     // 3. UI RESPONSE AND REFRESH DEFERRAL
     setIsModalOpen(false);
     addToast('Data Diproses!', 'success');
+
+    // Check if payment transaction is official and completed (Lunas) to display physical/digital receipt popup
+    if (modalTargetTab === 'pembayaran' && submissionData.status === 'Lunas') {
+      setReceiptData(submissionData);
+      setIsReceiptModalOpen(true);
+    }
     
     // Delay refresh to provide seamless transition and let Apps script network run slightly
     setTimeout(() => {
@@ -7080,6 +7090,145 @@ export default function App() {
                 Ya, Hapus Semua
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ======================= MODAL: STRUK PEMBAYARAN RESMI (RECEIPT) ======================= */}
+      {isReceiptModalOpen && receiptData && (
+        <div className={`fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs select-none animate-fade-in ${theme === 'dark' ? 'dark-theme-main' : ''}`}>
+          <div className="bg-slate-100 rounded-2xl w-full max-w-sm p-5 border border-[#e2e8f0] shadow-2xl flex flex-col gap-4 max-h-[95vh] overflow-y-auto">
+            
+            {/* Printable Receipt Area */}
+            <div
+              id="area-struk-pembayaran"
+              className={`bg-white rounded-xl border border-slate-200 p-6 shadow-sm mx-auto w-full relative ${
+                printElementId === 'area-struk-pembayaran' ? 'print-now text-black' : 'text-slate-850'
+              }`}
+              style={{ fontFamily: 'monospace' }}
+            >
+              {/* Receipt Serrated Border Decor at Top */}
+              <div className="absolute top-0 left-0 right-0 h-1.5 bg-repeat-x overflow-hidden rounded-t-xl" 
+                style={{
+                  backgroundImage: `linear-gradient(-45deg, transparent 4px, white 4px), linear-gradient(45deg, transparent 4px, white 4px)`,
+                  backgroundSize: '8px 8px',
+                  transform: 'translateY(-4px)'
+                }}
+              />
+
+              {/* Letterhead / Header */}
+              <div className="text-center pb-4 mb-4 border-b border-dashed border-slate-350">
+                <h4 className="text-xs font-black tracking-wide uppercase text-slate-900 leading-tight">
+                  {lembagaLogin || "PORTAL SEKTOR BERSAMA"}
+                </h4>
+                <p className="text-[9px] text-slate-500 font-bold tracking-wider pt-0.5 uppercase">
+                  Bukti Pembayaran Resmi (Lunas)
+                </p>
+                <p className="text-[8px] text-slate-400 mt-0.5 lowercase font-mono">
+                  {gmailLogin || 'info@sapta-portal.id'}
+                </p>
+              </div>
+
+              {/* Receipt Details */}
+              <div className="space-y-2 text-[10.5px] leading-relaxed">
+                <div className="flex justify-between gap-1">
+                  <span className="text-slate-400 uppercase font-bold text-[9px] shrink-0">No. Transaksi</span>
+                  <span className="font-extrabold text-slate-900 truncate font-mono text-[10px]">{receiptData.idTransaksi || '-'}</span>
+                </div>
+                <div className="flex justify-between gap-1">
+                  <span className="text-slate-400 uppercase font-bold text-[9px] shrink-0">Tanggal</span>
+                  <span className="font-bold text-slate-800">{formatDateString(receiptData.tanggal)}</span>
+                </div>
+                
+                <div className="border-b border-dashed border-slate-200 my-1.5" />
+
+                <div className="flex justify-between gap-2">
+                  <span className="text-slate-400 uppercase font-bold text-[9px] shrink-0">Anggota</span>
+                  <span className="font-black text-slate-900 uppercase text-right max-w-[180px] break-words">
+                    {receiptData.namaLengkap || 'Semua Anggota'}
+                  </span>
+                </div>
+                <div className="flex justify-between gap-1">
+                  <span className="text-slate-400 uppercase font-bold text-[9px] shrink-0">NIA</span>
+                  <span className="font-bold text-slate-800 font-mono">{receiptData.nia === 'ALL_MEMBERS' ? 'Semua Anggota' : receiptData.nia}</span>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <span className="text-slate-400 uppercase font-bold text-[9px] shrink-0">Keperluan</span>
+                  <span className="font-bold text-slate-800 text-right max-w-[180px] break-words">{receiptData.namaTagihan}</span>
+                </div>
+                {receiptData.keterangan && (
+                  <div className="flex justify-between gap-2">
+                    <span className="text-slate-400 uppercase font-bold text-[9px] shrink-0">Keterangan</span>
+                    <span className="font-medium text-slate-600 text-right max-w-[180px] break-words">{receiptData.keterangan}</span>
+                  </div>
+                )}
+
+                <div className="border-b border-dashed border-slate-350 my-2.5" />
+
+                {/* Total Section */}
+                <div className="flex justify-between items-center bg-slate-50 p-2 rounded border border-slate-100">
+                  <span className="text-[10px] font-extrabold text-slate-700 uppercase">SUB-TOTAL</span>
+                  <span className="text-sm font-black text-emerald-600 font-mono">
+                    {formatRupiah(Number(receiptData.nominal) || 0)}
+                  </span>
+                </div>
+
+                {/* Terbilang block */}
+                <div className="text-[8.5px] text-slate-500 italic mt-2 text-left leading-relaxed bg-[#f8fafc] p-2 rounded border border-slate-100 uppercase tracking-tight font-bold">
+                  Terbilang: {terbilang(Number(receiptData.nominal) || 0)} rupiah
+                </div>
+
+                <div className="flex justify-between items-center pt-2">
+                  <span className="text-slate-400 uppercase font-bold text-[9px]">Status</span>
+                  <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded font-black text-[9px] uppercase border border-emerald-200">
+                    {receiptData.status || 'Lunas'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Thank you foot decoration */}
+              <div className="text-center pt-5 mt-5 border-t border-dashed border-slate-300">
+                <p className="text-[9px] text-slate-400 leading-normal font-black">
+                  TERIMA KASIH ATAS KOPERASI & PEMBAYARAN ANDA
+                </p>
+                <p className="text-[7.5px] text-slate-400 mt-1 font-normal lowercase italic">
+                  *struk resmi yang diakui secara digital oleh bendahara lembaga.
+                </p>
+              </div>
+
+              {/* Receipt Serrated Border Decor at Bottom */}
+              <div className="absolute bottom-0 left-0 right-0 h-1.5 bg-repeat-x overflow-hidden rounded-b-xl" 
+                style={{
+                  backgroundImage: `linear-gradient(45deg, transparent 4px, white 4px), linear-gradient(-45deg, transparent 4px, white 4px)`,
+                  backgroundSize: '8px 8px',
+                  transform: 'translateY(4px)'
+                }}
+              />
+            </div>
+
+            {/* Print and Close controls */}
+            <div className="flex gap-2 w-full mt-1 print-exclude">
+              <button
+                type="button"
+                onClick={() => executeDevicePrint('area-struk-pembayaran')}
+                className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition flex items-center justify-center space-x-1.5 cursor-pointer shadow-md hover:-translate-y-0.5 active:translate-y-0"
+              >
+                <Printer className="w-4 h-4 text-white" />
+                <span>Cetak Struk</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsReceiptModalOpen(false);
+                  setReceiptData(null);
+                }}
+                className="flex-1 py-2.5 bg-white border border-[#e2e8f0] text-slate-700 rounded-xl text-xs font-bold transition flex items-center justify-center space-x-1.5 hover:bg-slate-50 cursor-pointer shadow-sm hover:-translate-y-0.5 active:translate-y-0"
+              >
+                <X className="w-4 h-4 text-slate-500" />
+                <span>Tutup</span>
+              </button>
+            </div>
+
           </div>
         </div>
       )}

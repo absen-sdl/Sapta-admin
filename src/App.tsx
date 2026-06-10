@@ -5414,6 +5414,8 @@ export default function App() {
                     color: black !important;
                     margin: 0 !important;
                     padding: 0 !important;
+                    -webkit-print-color-adjust: exact !important;
+                    print-color-adjust: exact !important;
                   }
                   .print-exclude, aside, header, nav, button {
                     display: none !important;
@@ -5431,9 +5433,31 @@ export default function App() {
                     visibility: visible !important;
                     z-index: 9999 !important;
                     padding: 20px !important;
+                    -webkit-print-color-adjust: exact !important;
+                    print-color-adjust: exact !important;
                   }
+                  
+                  /* Dedicated thermal layout for the printed physical / digital receipt */
+                  #area-struk-pembayaran.print-now {
+                    position: relative !important;
+                    margin: 30px auto !important;
+                    width: 360px !important;
+                    max-width: 360px !important;
+                    background: white !important;
+                    border: 1px solid #cbd5e1 !important;
+                    border-radius: 12px !important;
+                    box-shadow: 0 4px 10px rgba(0,0,0,0.06) !important;
+                    padding: 24px !important;
+                    visibility: visible !important;
+                    z-index: 10000 !important;
+                    -webkit-print-color-adjust: exact !important;
+                    print-color-adjust: exact !important;
+                  }
+
                   .print-now * {
                     visibility: visible !important;
+                    -webkit-print-color-adjust: exact !important;
+                    print-color-adjust: exact !important;
                   }
                 }
               `}</style>
@@ -7096,8 +7120,8 @@ export default function App() {
 
       {/* ======================= MODAL: STRUK PEMBAYARAN RESMI (RECEIPT) ======================= */}
       {isReceiptModalOpen && receiptData && (
-        <div className={`fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs select-none animate-fade-in ${theme === 'dark' ? 'dark-theme-main' : ''}`}>
-          <div className="bg-slate-100 rounded-2xl w-full max-w-sm p-5 border border-[#e2e8f0] shadow-2xl flex flex-col gap-4 max-h-[95vh] overflow-y-auto">
+        <div className={`fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs select-none animate-fade-in ${theme === 'dark' ? 'dark-theme-main' : ''} ${printElementId === 'area-struk-pembayaran' ? 'print:bg-transparent print:p-0 print:backdrop-blur-none print:shadow-none' : ''}`}>
+          <div className={`bg-slate-100 rounded-2xl w-full max-w-sm p-4 border border-[#e2e8f0] shadow-2xl flex flex-col gap-4 max-h-[95vh] overflow-y-auto ${printElementId === 'area-struk-pembayaran' ? 'print:bg-transparent print:border-none print:shadow-none print:p-0 print:max-h-none print:w-auto print:gap-0' : ''}`}>
             
             {/* Printable Receipt Area */}
             <div

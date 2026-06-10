@@ -5818,14 +5818,25 @@ export default function App() {
 
                               {/* Card Body */}
                               <div className={`p-4 flex ${cetakCardOrientation === 'horizontal' ? 'flex-row' : 'flex-col items-center text-center'} gap-3 z-10 flex-1 justify-center`}>
-                                {/* Profile image photo frame */}
-                                <div className="shrink-0">
+                                {/* Profile image photo frame with Barcode */}
+                                <div className="shrink-0 flex flex-col items-center justify-center space-y-1 bg-black/5 p-1 rounded border border-white/10">
                                   <img
                                     src={selectedAnggota.linkProfile || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&fit=crop"}
                                     alt="Foto"
                                     referrerPolicy="no-referrer"
                                     className="w-14 h-18 bg-slate-300 object-cover rounded border border-white/40 shadow shadow-black/30"
                                   />
+                                  {/* Front Barcode */}
+                                  <div className="flex flex-col items-center justify-center p-0.5 bg-white rounded border border-slate-200 shadow-xs leading-none">
+                                    <div className="flex h-3 items-stretch space-x-[1px] w-12 justify-center">
+                                      {[1, 2, 1, 1, 2, 1, 2, 1, 1, 1, 2, 1, 1, 1].map((w, idx) => (
+                                        <div key={idx} className="bg-slate-950" style={{ width: `${w}px` }} />
+                                      ))}
+                                    </div>
+                                    <span className="text-[5px] font-mono tracking-wider text-slate-800 font-extrabold mt-0.5 leading-none block">
+                                      {selectedAnggota.nia}
+                                    </span>
+                                  </div>
                                 </div>
 
                                 {/* Text data credentials */}
@@ -5947,21 +5958,24 @@ export default function App() {
                                 <p>4. Jika menemukan kartu ini, harap hubungi pengelola sekretariat.</p>
                               </div>
 
-                              {/* Barcode representation zone */}
+                              {/* QR Code representation zone */}
                               <div className={`p-2 flex flex-col items-center justify-center space-y-1 z-10 leading-none ${
                                 cetakCardBgBack 
                                   ? (cetakCardTextColorBack === 'white' ? 'bg-black/35 border-t border-white/10' : 'bg-white/95 border-t border-slate-100') 
                                   : 'bg-white border-t border-slate-100'
                               }`}>
-                                <div className="flex h-7 items-stretch space-x-[2px] w-40 justify-center bg-white border p-0.5 rounded shadow-sm">
-                                  {[1, 2, 1, 3, 2, 1, 4, 1, 1, 3, 2, 1, 4, 1, 2, 1].map((w, idx) => (
-                                    <div key={idx} className="bg-slate-900" style={{ width: `${w}px` }} />
-                                  ))}
+                                <div className="p-0.5 bg-white rounded border border-slate-200 inline-block shadow-xs">
+                                  <img 
+                                    src={`https://api.qrserver.com/v1/create-qr-code/?size=48x48&data=${encodeURIComponent(selectedAnggota.nia || '')}`}
+                                    alt="QR Code"
+                                    referrerPolicy="no-referrer"
+                                    className="w-10 h-10 block"
+                                  />
                                 </div>
-                                <span className={`text-[7px] font-mono tracking-widest font-bold leading-none ${
+                                <span className={`text-[6px] font-mono tracking-wider font-extrabold leading-none ${
                                   cetakCardBgBack && cetakCardTextColorBack === 'white' ? 'text-slate-300' : 'text-slate-500'
                                 }`}>
-                                  {selectedAnggota.nia}
+                                  SCAN ABSENSI: {selectedAnggota.nia}
                                 </span>
                               </div>
                             </div>
@@ -6109,73 +6123,6 @@ export default function App() {
                           <span className="block text-slate-400 font-normal">TOTAL ENTRI DICETAK</span>
                           <span className="text-indigo-600 leading-normal font-mono block">{targetAbsensi.length} Baris Data</span>
                         </div>
-                      </div>
-
-                      {/* Cumulative stats counters */}
-                      <div className="grid grid-cols-4 gap-4 mb-6 select-none">
-                        <button
-                          type="button"
-                          onClick={() => setCetakSelectedStatus(cetakSelectedStatus === 'Hadir' ? 'Semua' : 'Hadir')}
-                          className={`p-3 p-y-4 rounded-xl text-center leading-tight transition cursor-pointer text-left border ${
-                            cetakSelectedStatus === 'Hadir'
-                              ? 'bg-emerald-100 border-emerald-500 ring-2 ring-emerald-500/20'
-                              : 'bg-emerald-50 hover:bg-emerald-100/50 border-emerald-100'
-                          }`}
-                        >
-                          <span className="block text-[8px] font-black text-emerald-800 tracking-wider">HADIR</span>
-                          <span className="text-lg font-black text-emerald-600 font-mono block mt-1">{hadirCount}</span>
-                          <span className="text-[7.5px] text-emerald-700 block mt-0.5 tracking-tight print-exclude">
-                            {cetakSelectedStatus === 'Hadir' ? '✓ Sedang Difilter' : 'Klik untuk filter'}
-                          </span>
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => setCetakSelectedStatus(cetakSelectedStatus === 'Izin' ? 'Semua' : 'Izin')}
-                          className={`p-3 p-y-4 rounded-xl text-center leading-tight transition cursor-pointer text-left border ${
-                            cetakSelectedStatus === 'Izin'
-                              ? 'bg-amber-100 border-amber-500 ring-2 ring-amber-500/20'
-                              : 'bg-amber-50 hover:bg-amber-100/50 border-amber-100'
-                          }`}
-                        >
-                          <span className="block text-[8px] font-black text-amber-800 tracking-wider">IZIN</span>
-                          <span className="text-lg font-black text-amber-600 font-mono block mt-1">{izinCount}</span>
-                          <span className="text-[7.5px] text-amber-700 block mt-0.5 tracking-tight print-exclude">
-                            {cetakSelectedStatus === 'Izin' ? '✓ Sedang Difilter' : 'Klik untuk filter'}
-                          </span>
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => setCetakSelectedStatus(cetakSelectedStatus === 'Sakit' ? 'Semua' : 'Sakit')}
-                          className={`p-3 p-y-4 rounded-xl text-center leading-tight transition cursor-pointer text-left border ${
-                            cetakSelectedStatus === 'Sakit'
-                              ? 'bg-blue-100 border-blue-500 ring-2 ring-blue-500/20'
-                              : 'bg-blue-50 hover:bg-blue-100/50 border-blue-100'
-                          }`}
-                        >
-                          <span className="block text-[8px] font-black text-blue-800 tracking-wider">SAKIT</span>
-                          <span className="text-lg font-black text-blue-600 font-mono block mt-1">{sakitCount}</span>
-                          <span className="text-[7.5px] text-blue-700 block mt-0.5 tracking-tight print-exclude">
-                            {cetakSelectedStatus === 'Sakit' ? '✓ Sedang Difilter' : 'Klik untuk filter'}
-                          </span>
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => setCetakSelectedStatus(cetakSelectedStatus === 'Alpha' ? 'Semua' : 'Alpha')}
-                          className={`p-3 p-y-4 rounded-xl text-center leading-tight transition cursor-pointer text-left border ${
-                            cetakSelectedStatus === 'Alpha'
-                              ? 'bg-rose-100 border-rose-500 ring-2 ring-rose-500/20'
-                              : 'bg-rose-50 hover:bg-rose-100/50 border-rose-100'
-                          }`}
-                        >
-                          <span className="block text-[8px] font-black text-rose-800 tracking-wider">ALPHA</span>
-                          <span className="text-lg font-black text-rose-600 font-mono block mt-1">{alfaCount}</span>
-                          <span className="text-[7.5px] text-rose-700 block mt-0.5 tracking-tight print-exclude">
-                            {cetakSelectedStatus === 'Alpha' ? '✓ Sedang Difilter' : 'Klik untuk filter'}
-                          </span>
-                        </button>
                       </div>
 
                       {/* Table detail list */}

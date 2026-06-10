@@ -5828,11 +5828,16 @@ export default function App() {
                                   />
                                   {/* Front Barcode */}
                                   <div className="flex flex-col items-center justify-center p-0.5 bg-white rounded border border-slate-200 shadow-xs leading-none">
-                                    <div className="flex h-3 items-stretch space-x-[1px] w-12 justify-center">
-                                      {[1, 2, 1, 1, 2, 1, 2, 1, 1, 1, 2, 1, 1, 1].map((w, idx) => (
-                                        <div key={idx} className="bg-slate-950" style={{ width: `${w}px` }} />
-                                      ))}
-                                    </div>
+                                    <img
+                                      src={`https://bwipjs-api.metafloor.com/?bcid=code128&text=${encodeURIComponent(selectedAnggota.nia || '')}&scale=2&height=8&includetext=false`}
+                                      alt="Barcode"
+                                      referrerPolicy="no-referrer"
+                                      className="h-3 w-12 object-contain block"
+                                      onError={(e) => {
+                                        // fallback to tec-it if bwipjs returns error
+                                        e.currentTarget.src = `https://barcode.tec-it.com/barcode.ashx?data=${encodeURIComponent(selectedAnggota.nia || '')}&code=Code128&translate-esc=true&dpi=96`;
+                                      }}
+                                    />
                                     <span className="text-[5px] font-mono tracking-wider text-slate-800 font-extrabold mt-0.5 leading-none block">
                                       {selectedAnggota.nia}
                                     </span>

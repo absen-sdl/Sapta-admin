@@ -289,6 +289,12 @@ export default function App() {
   const [cetakCardTheme, setCetakCardTheme] = useState<'blue' | 'gold' | 'red' | 'emerald'>('blue');
   const [cetakCardOrientation, setCetakCardOrientation] = useState<'horizontal' | 'vertical'>('horizontal');
   const [cetakSelectedMonth, setCetakSelectedMonth] = useState<string>('Semua');
+  const [cetakCardBgFront, setCetakCardBgFront] = useState<string | null>(null);
+  const [cetakCardBgBack, setCetakCardBgBack] = useState<string | null>(null);
+  const [cetakCardTextColorFront, setCetakCardTextColorFront] = useState<'white' | 'black'>('white');
+  const [cetakCardTextColorBack, setCetakCardTextColorBack] = useState<'white' | 'black'>('black');
+  const [cetakCardHideHeader, setCetakCardHideHeader] = useState<boolean>(false);
+  const [cetakCardHideFooter, setCetakCardHideFooter] = useState<boolean>(false);
   const [printElementId, setPrintElementId] = useState<string | null>(null);
 
   const isMenuAllowed = (tab: ActiveTab): boolean => {
@@ -5495,17 +5501,17 @@ export default function App() {
                 return (
                   <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
                     {/* Controls Side Panel */}
-                    <div className="bg-white p-5 rounded-xl border border-[#e2e8f0] space-y-5 print-exclude shadow-sm">
+                    <div className="bg-white p-5 rounded-xl border border-[#e2e8f0] space-y-5 print-exclude shadow-sm text-left">
                       <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider border-b pb-2">
                         Konfigurasi Kartu
                       </h4>
 
                       <div className="space-y-1.5">
-                        <label className="text-[11px] font-bold text-slate-600">Pilih Anggota</label>
+                        <label className="text-[11px] font-bold text-slate-600 block">Pilih Anggota</label>
                         <select
                           value={currentNia}
                           onChange={(e) => setCetakSelectedNia(e.target.value)}
-                          className="w-full text-xs font-semibold p-2 border border-slate-200 rounded-lg outline-none focus:border-indigo-500 cursor-pointer"
+                          className="w-full text-xs font-semibold p-2 border border-slate-200 rounded-lg outline-none focus:border-indigo-500 cursor-pointer bg-white"
                         >
                           {anggotaList.map((a) => (
                             <option key={a.nia} value={a.nia}>
@@ -5516,7 +5522,7 @@ export default function App() {
                       </div>
 
                       <div className="space-y-1.5">
-                        <label className="text-[11px] font-bold text-slate-600">Template Warna</label>
+                        <label className="text-[11px] font-bold text-slate-600 block">Template Warna</label>
                         <div className="grid grid-cols-4 gap-2">
                           {(['blue', 'gold', 'red', 'emerald'] as const).map((col) => (
                             <button
@@ -5535,7 +5541,7 @@ export default function App() {
                       </div>
 
                       <div className="space-y-1.5">
-                        <label className="text-[11px] font-bold text-slate-600">Orientasi Kartu</label>
+                        <label className="text-[11px] font-bold text-slate-600 block">Orientasi Kartu</label>
                         <div className="grid grid-cols-2 gap-2">
                           {(['horizontal', 'vertical'] as const).map((orient) => (
                             <button
@@ -5553,7 +5559,181 @@ export default function App() {
                         </div>
                       </div>
 
-                      <div className="pt-2">
+                      {/* --- CUSTOM BACKGOUND UPLOADER FOR CARD DESIGN --- */}
+                      <div className="space-y-3.5 border-t pt-4">
+                        <div className="flex items-center justify-between">
+                          <h5 className="text-[11px] font-extrabold text-indigo-950 uppercase tracking-wider">
+                            🎨 Desain Background Kustom
+                          </h5>
+                          {(cetakCardBgFront || cetakCardBgBack) && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setCetakCardBgFront(null);
+                                setCetakCardBgBack(null);
+                                setCetakCardTextColorFront('white');
+                                setCetakCardTextColorBack('black');
+                                setCetakCardHideHeader(false);
+                                setCetakCardHideFooter(false);
+                              }}
+                              className="text-[9px] text-rose-600 hover:underline font-bold cursor-pointer"
+                            >
+                              Reset Semua
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Front background design */}
+                        <div className="space-y-1.5">
+                          <label className="text-[10px] font-bold text-slate-600 block">Desain Sisi Depan (Front)</label>
+                          <div className="flex items-center space-x-2">
+                            {cetakCardBgFront ? (
+                              <div className="relative group shrink-0 w-11 h-11 border border-slate-300 rounded-lg overflow-hidden bg-slate-100">
+                                <img src={cetakCardBgFront} className="w-full h-full object-cover animate-fade-in" />
+                                <button
+                                  type="button"
+                                  onClick={() => setCetakCardBgFront(null)}
+                                  className="absolute inset-0 bg-black/70 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white text-[8px] font-bold cursor-pointer"
+                                >
+                                  Hapus
+                                </button>
+                              </div>
+                            ) : null}
+                            <label className="flex-1 border border-dashed border-slate-300 hover:border-indigo-500 bg-slate-50 hover:bg-indigo-50/20 p-2.5 rounded-lg text-center cursor-pointer transition text-[10px] font-bold text-slate-600 block leading-none">
+                              <span>📁 Pilih File Gambar</span>
+                              <input
+                                type="file"
+                                accept="image/*"
+                                className="hidden"
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0];
+                                  if (file) {
+                                    const reader = new FileReader();
+                                    reader.onload = (reEv) => {
+                                      setCetakCardBgFront(reEv.target?.result as string);
+                                    };
+                                    reader.readAsDataURL(file);
+                                  }
+                                }}
+                              />
+                            </label>
+                          </div>
+                        </div>
+
+                        {/* Back background design */}
+                        <div className="space-y-1.5">
+                          <label className="text-[10px] font-bold text-slate-600 block">Desain Sisi Belakang (Back)</label>
+                          <div className="flex items-center space-x-2">
+                            {cetakCardBgBack ? (
+                              <div className="relative group shrink-0 w-11 h-11 border border-slate-300 rounded-lg overflow-hidden bg-slate-100">
+                                <img src={cetakCardBgBack} className="w-full h-full object-cover animate-fade-in" />
+                                <button
+                                  type="button"
+                                  onClick={() => setCetakCardBgBack(null)}
+                                  className="absolute inset-0 bg-black/70 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white text-[8px] font-bold cursor-pointer"
+                                >
+                                  Hapus
+                                </button>
+                              </div>
+                            ) : null}
+                            <label className="flex-1 border border-dashed border-slate-300 hover:border-indigo-500 bg-slate-50 hover:bg-indigo-50/20 p-2.5 rounded-lg text-center cursor-pointer transition text-[10px] font-bold text-slate-600 block leading-none">
+                              <span>📁 Pilih File Gambar</span>
+                              <input
+                                type="file"
+                                accept="image/*"
+                                className="hidden"
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0];
+                                  if (file) {
+                                    const reader = new FileReader();
+                                    reader.onload = (reEv) => {
+                                      setCetakCardBgBack(reEv.target?.result as string);
+                                    };
+                                    reader.readAsDataURL(file);
+                                  }
+                                }}
+                              />
+                            </label>
+                          </div>
+                        </div>
+
+                        {/* Extra controls if either bg is uploaded */}
+                        {(cetakCardBgFront || cetakCardBgBack) && (
+                          <div className="space-y-3 bg-slate-50 p-3 rounded-lg border border-slate-200 text-left">
+                            <span className="text-[9px] font-extrabold text-slate-600 uppercase block tracking-wider pb-1 border-b">
+                              Pengaturan Tampilan
+                            </span>
+
+                            {cetakCardBgFront && (
+                              <div className="flex items-center justify-between">
+                                <span className="text-[10px] font-semibold text-slate-700">Warna Teks Depan</span>
+                                <div className="flex space-x-1">
+                                  {(['white', 'black'] as const).map((color) => (
+                                    <button
+                                      key={color}
+                                      type="button"
+                                      onClick={() => setCetakCardTextColorFront(color)}
+                                      className={`px-2 py-0.5 rounded text-[9px] font-bold border transition cursor-pointer ${
+                                        cetakCardTextColorFront === color
+                                          ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                                          : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                                      }`}
+                                    >
+                                      {color === 'white' ? 'Terang' : 'Gelap'}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            {cetakCardBgBack && (
+                              <div className="flex items-center justify-between">
+                                <span className="text-[10px] font-semibold text-slate-700">Warna Teks Belakang</span>
+                                <div className="flex space-x-1">
+                                  {(['white', 'black'] as const).map((color) => (
+                                    <button
+                                      key={color}
+                                      type="button"
+                                      onClick={() => setCetakCardTextColorBack(color)}
+                                      className={`px-2 py-0.5 rounded text-[9px] font-bold border transition cursor-pointer ${
+                                        cetakCardTextColorBack === color
+                                          ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                                          : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                                      }`}
+                                    >
+                                      {color === 'white' ? 'Terang' : 'Gelap'}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            <div className="space-y-1.5 pt-1.5 border-t border-slate-200/60 font-medium">
+                              <label className="flex items-center space-x-2 text-[10px] text-slate-700 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={cetakCardHideHeader}
+                                  onChange={(e) => setCetakCardHideHeader(e.target.checked)}
+                                  className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer w-3.5 h-3.5"
+                                />
+                                <span>Sembunyikan Header KTA/KTS</span>
+                              </label>
+
+                              <label className="flex items-center space-x-2 text-[10px] text-slate-700 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={cetakCardHideFooter}
+                                  onChange={(e) => setCetakCardHideFooter(e.target.checked)}
+                                  className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer w-3.5 h-3.5"
+                                />
+                                <span>Sembunyikan Label validasi bawah</span>
+                              </label>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="pt-2 border-t">
                         <button
                           onClick={() => executeDevicePrint('area-kartu-identitas')}
                           disabled={!selectedAnggota}
@@ -5584,28 +5764,57 @@ export default function App() {
                             
                             {/* FRONT OF THE CARD */}
                             <div
-                              className={`relative overflow-hidden rounded-xl border-2 ${themeClasses.border} shadow-lg shrink-0 bg-gradient-to-br ${themeClasses.gradient} text-white flex flex-col justify-between`}
+                              className={`relative overflow-hidden rounded-xl border-2 ${themeClasses.border} shadow-lg shrink-0 flex flex-col justify-between ${
+                                cetakCardBgFront 
+                                  ? (cetakCardTextColorFront === 'white' ? 'text-white' : 'text-slate-900') 
+                                  : 'text-white bg-gradient-to-br ' + themeClasses.gradient
+                              }`}
                               style={{
                                 width: cetakCardOrientation === 'horizontal' ? '340px' : '240px',
                                 height: cetakCardOrientation === 'horizontal' ? '216px' : '340px',
+                                ...(cetakCardBgFront ? {
+                                  backgroundImage: `url(${cetakCardBgFront})`,
+                                  backgroundSize: 'cover',
+                                  backgroundPosition: 'center',
+                                } : {})
                               }}
                             >
                               {/* Background Overlays */}
-                              <div className="absolute inset-0 opacity-10 bg-[radial-gradient(circle_at_bottom_left,_var(--tw-gradient-stops))] from-yellow-300 via-rose-300 to-indigo-800" />
-                              <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full blur-2xl -mr-10 -mt-10" />
+                              {!cetakCardBgFront && (
+                                <>
+                                  <div className="absolute inset-0 opacity-10 bg-[radial-gradient(circle_at_bottom_left,_var(--tw-gradient-stops))] from-yellow-300 via-rose-300 to-indigo-800" />
+                                  <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full blur-2xl -mr-10 -mt-10" />
+                                </>
+                              )}
 
                               {/* Card Header */}
-                              <div className="p-3 border-b border-white/20 flex items-center space-x-2 bg-black/10 z-10">
-                                <div className="p-1 bg-white/10 rounded">
-                                  <School className="w-4 h-4 text-yellow-300" />
+                              {!cetakCardHideHeader && (
+                                <div className={`p-3 border-b flex items-center space-x-2 z-10 ${
+                                  cetakCardBgFront 
+                                    ? (cetakCardTextColorFront === 'white' ? 'border-white/10 bg-black/20' : 'border-slate-200 bg-slate-100/60') 
+                                    : 'border-white/20 bg-black/10'
+                                }`}>
+                                  <div className={`p-1 rounded ${cetakCardBgFront && cetakCardTextColorFront === 'black' ? 'bg-slate-200' : 'bg-white/10'}`}>
+                                    <School className={`w-4 h-4 ${cetakCardBgFront && cetakCardTextColorFront === 'black' ? 'text-indigo-600' : 'text-yellow-300'}`} />
+                                  </div>
+                                  <div className="leading-tight text-left">
+                                    <h3 className={`text-[9px] font-black tracking-wider uppercase truncate max-w-[200px] ${
+                                      cetakCardBgFront 
+                                        ? (cetakCardTextColorFront === 'white' ? 'text-yellow-300' : 'text-indigo-950')
+                                        : 'text-yellow-300'
+                                    }`}>
+                                      {lembagaLogin || "Lembaga Sapta"}
+                                    </h3>
+                                    <p className={`text-[7px] uppercase tracking-widest font-mono ${
+                                      cetakCardBgFront 
+                                        ? (cetakCardTextColorFront === 'white' ? 'text-white/80' : 'text-slate-500')
+                                        : 'text-white/80'
+                                    }`}>
+                                      KARTU TANDA ANGGOTA
+                                    </p>
+                                  </div>
                                 </div>
-                                <div className="leading-tight text-left">
-                                  <h3 className="text-[9px] font-black tracking-wider uppercase text-yellow-300 truncate max-w-[200px]">
-                                    {lembagaLogin || "Lembaga Sapta"}
-                                  </h3>
-                                  <p className="text-[7px] text-white/80 uppercase tracking-widest font-mono">KARTU TANDA ANGGOTA</p>
-                                </div>
-                              </div>
+                              )}
 
                               {/* Card Body */}
                               <div className={`p-4 flex ${cetakCardOrientation === 'horizontal' ? 'flex-row' : 'flex-col items-center text-center'} gap-3 z-10 flex-1 justify-center`}>
@@ -5620,53 +5829,118 @@ export default function App() {
                                 </div>
 
                                 {/* Text data credentials */}
-                                <div className="space-y-1.5 text-left text-white leading-tight flex-1 min-w-0">
+                                <div className="space-y-1.5 text-left leading-tight flex-1 min-w-0">
                                   <div>
-                                    <span className="text-[6px] tracking-wider uppercase text-white/70 block">NOMOR INDUK ANGGOTA</span>
-                                    <span className="text-[11px] font-mono font-black tracking-widest text-yellow-200">{selectedAnggota.nia}</span>
+                                    <span className={`text-[6px] tracking-wider uppercase block ${
+                                      cetakCardBgFront && cetakCardTextColorFront === 'black' ? 'text-slate-500' : 'text-white/70'
+                                    }`}>
+                                      NOMOR INDUK ANGGOTA
+                                    </span>
+                                    <span className={`text-[11px] font-mono font-black tracking-widest ${
+                                      cetakCardBgFront && cetakCardTextColorFront === 'black' ? 'text-indigo-600' : 'text-yellow-200'
+                                    }`}>
+                                      {selectedAnggota.nia}
+                                    </span>
                                   </div>
                                   <div>
-                                    <span className="text-[6px] tracking-wider uppercase text-white/70 block">NAMA LENGKAP</span>
-                                    <h4 className="text-[10px] font-black uppercase text-white tracking-wide border-b border-white/15 pb-0.5 truncate">{selectedAnggota.namaLengkap}</h4>
+                                    <span className={`text-[6px] tracking-wider uppercase block ${
+                                      cetakCardBgFront && cetakCardTextColorFront === 'black' ? 'text-slate-500' : 'text-white/70'
+                                    }`}>
+                                      NAMA LENGKAP
+                                    </span>
+                                    <h4 className={`text-[10px] font-black uppercase tracking-wide border-b pb-0.5 truncate ${
+                                      cetakCardBgFront 
+                                        ? (cetakCardTextColorFront === 'white' ? 'text-white border-white/15' : 'text-slate-900 border-slate-200')
+                                        : 'text-white border-white/15'
+                                    }`}>
+                                      {selectedAnggota.namaLengkap}
+                                    </h4>
                                   </div>
                                   <div className="grid grid-cols-2 gap-1 pt-0.5">
                                     <div>
-                                      <span className="text-[5px] tracking-wider text-white/60 block">KELAS / TINGKAT</span>
-                                      <span className="text-[8px] font-bold uppercase truncate block">{selectedAnggota.kelas || 'N/A'}</span>
+                                      <span className={`text-[5px] tracking-wider block ${
+                                        cetakCardBgFront && cetakCardTextColorFront === 'black' ? 'text-slate-400' : 'text-white/60'
+                                      }`}>
+                                        KELAS / TINGKAT
+                                      </span>
+                                      <span className={`text-[8px] font-bold uppercase truncate block ${
+                                        cetakCardBgFront && cetakCardTextColorFront === 'black' ? 'text-slate-800' : 'text-white'
+                                      }`}>{selectedAnggota.kelas || 'N/A'}</span>
                                     </div>
                                     <div>
-                                      <span className="text-[5px] tracking-wider text-white/60 block">JABATAN</span>
-                                      <span className="text-[8px] font-bold uppercase truncate block">{selectedAnggota.status || 'N/A'}</span>
+                                      <span className={`text-[5px] tracking-wider block ${
+                                        cetakCardBgFront && cetakCardTextColorFront === 'black' ? 'text-slate-400' : 'text-white/60'
+                                      }`}>
+                                        JABATAN
+                                      </span>
+                                      <span className={`text-[8px] font-bold uppercase truncate block ${
+                                        cetakCardBgFront && cetakCardTextColorFront === 'black' ? 'text-slate-800' : 'text-white'
+                                      }`}>{selectedAnggota.status || 'N/A'}</span>
                                     </div>
                                   </div>
                                 </div>
                               </div>
 
                               {/* Card Footer */}
-                              <div className="p-2 border-t border-white/10 bg-black/20 text-center z-10 flex items-center justify-between">
-                                <span className="text-[6px] opacity-70 tracking-widest font-mono">SAPTA DIGITAL CARD</span>
-                                <span className="text-[6px] font-bold text-yellow-300">VALID PERMANEN</span>
-                              </div>
+                              {!cetakCardHideFooter && (
+                                <div className={`p-2 border-t text-center z-10 flex items-center justify-between ${
+                                  cetakCardBgFront 
+                                    ? (cetakCardTextColorFront === 'white' ? 'border-white/10 bg-black/30' : 'border-slate-200 bg-slate-100/50') 
+                                    : 'border-white/10 bg-black/20'
+                                }`}>
+                                  <span className={`text-[6px] tracking-widest font-mono ${
+                                    cetakCardBgFront && cetakCardTextColorFront === 'black' ? 'text-slate-500' : 'opacity-70'
+                                  }`}>
+                                    SAPTA DIGITAL CARD
+                                  </span>
+                                  <span className={`text-[6px] font-bold ${
+                                    cetakCardBgFront && cetakCardTextColorFront === 'black' ? 'text-indigo-600' : 'text-yellow-300'
+                                  }`}>
+                                    VALID PERMANEN
+                                  </span>
+                                </div>
+                              )}
                             </div>
 
                             {/* BACK OF THE CARD */}
                             <div
-                              className="relative overflow-hidden rounded-xl border border-slate-300 shadow-lg shrink-0 bg-white text-slate-800 flex flex-col justify-between"
+                              className={`relative overflow-hidden rounded-xl border border-slate-300 shadow-lg shrink-0 flex flex-col justify-between ${
+                                cetakCardBgBack 
+                                  ? (cetakCardTextColorBack === 'white' ? 'text-white bg-slate-900' : 'text-slate-800 bg-white') 
+                                  : 'bg-white text-slate-800'
+                              }`}
                               style={{
                                 width: cetakCardOrientation === 'horizontal' ? '340px' : '240px',
                                 height: cetakCardOrientation === 'horizontal' ? '216px' : '340px',
+                                ...(cetakCardBgBack ? {
+                                  backgroundImage: `url(${cetakCardBgBack})`,
+                                  backgroundSize: 'cover',
+                                  backgroundPosition: 'center',
+                                } : {}),
                               }}
                             >
                               {/* Overlay pattern background */}
-                              <div className="absolute inset-x-0 bottom-0 top-1/2 bg-slate-50 border-t border-slate-100" />
+                              {!cetakCardBgBack && (
+                                <div className="absolute inset-x-0 bottom-0 top-1/2 bg-slate-50 border-t border-slate-100" />
+                              )}
                               
                               {/* Rules guidelines heading */}
-                              <div className="p-2 bg-slate-100 border-b border-slate-200 text-center z-10">
-                                <h4 className="text-[8px] font-bold tracking-wider text-slate-700 uppercase">Ketentuan Pemegang Kartu</h4>
-                              </div>
+                              {!cetakCardHideHeader && (
+                                <div className={`p-2 text-center z-10 ${
+                                  cetakCardBgBack 
+                                    ? (cetakCardTextColorBack === 'white' ? 'bg-black/30 border-b border-white/10' : 'bg-slate-100/80 border-b border-slate-200') 
+                                    : 'bg-slate-100 border-b border-slate-200'
+                                }`}>
+                                  <h4 className={`text-[8px] font-bold tracking-wider uppercase ${
+                                    cetakCardBgBack && cetakCardTextColorBack === 'white' ? 'text-yellow-400' : 'text-slate-700'
+                                  }`}>Ketentuan Pemegang Kartu</h4>
+                                </div>
+                              )}
 
                               {/* Rules list body */}
-                              <div className="p-3.5 space-y-1 text-left text-slate-600 text-[7px] leading-relaxed z-10 font-bold flex-1">
+                              <div className={`p-3.5 space-y-1 text-left text-[7px] leading-relaxed z-10 font-bold flex-1 ${
+                                cetakCardBgBack && cetakCardTextColorBack === 'white' ? 'text-slate-100' : 'text-slate-600'
+                              }`}>
                                 <p>1. Kartu ini milik sah lembaga {lembagaLogin || "Portal Sapta"}.</p>
                                 <p>2. Kartu wajib dibawa dan ditunjukkan pada setiap jenis kegiatan formal.</p>
                                 <p>3. Dilarang keras menyalahgunakan atau merusak fisik kartu ini.</p>
@@ -5674,13 +5948,19 @@ export default function App() {
                               </div>
 
                               {/* Barcode representation zone */}
-                              <div className="p-2 bg-white border-t border-slate-100 flex flex-col items-center justify-center space-y-1 z-10 leading-none">
+                              <div className={`p-2 flex flex-col items-center justify-center space-y-1 z-10 leading-none ${
+                                cetakCardBgBack 
+                                  ? (cetakCardTextColorBack === 'white' ? 'bg-black/35 border-t border-white/10' : 'bg-white/95 border-t border-slate-100') 
+                                  : 'bg-white border-t border-slate-100'
+                              }`}>
                                 <div className="flex h-7 items-stretch space-x-[2px] w-40 justify-center bg-white border p-0.5 rounded shadow-sm">
                                   {[1, 2, 1, 3, 2, 1, 4, 1, 1, 3, 2, 1, 4, 1, 2, 1].map((w, idx) => (
                                     <div key={idx} className="bg-slate-900" style={{ width: `${w}px` }} />
                                   ))}
                                 </div>
-                                <span className="text-[7px] font-mono tracking-widest text-slate-500 font-bold leading-none">
+                                <span className={`text-[7px] font-mono tracking-widest font-bold leading-none ${
+                                  cetakCardBgBack && cetakCardTextColorBack === 'white' ? 'text-slate-300' : 'text-slate-500'
+                                }`}>
                                   {selectedAnggota.nia}
                                 </span>
                               </div>
@@ -5707,20 +5987,17 @@ export default function App() {
                   return matchNia && matchClass;
                 });
 
-                // Compute counters using the base selection
-                const hadirCount = baseAbsensi.filter(a => (a.status || '').toLowerCase() === 'hadir').length;
-                const izinCount = baseAbsensi.filter(a => (a.status || '').toLowerCase() === 'izin').length;
-                const sakitCount = baseAbsensi.filter(a => (a.status || '').toLowerCase() === 'sakit').length;
-                const alfaCount = baseAbsensi.filter(a => (a.status || '').toLowerCase() === 'alpha' || (a.status || '').toLowerCase() === 'alfa').length;
+                // Compute counters using the base selection and correct helper
+                const hadirCount = baseAbsensi.filter(a => getAbsensiStatus(a.keterangan) === 'Hadir').length;
+                const izinCount = baseAbsensi.filter(a => getAbsensiStatus(a.keterangan) === 'Izin').length;
+                const sakitCount = baseAbsensi.filter(a => getAbsensiStatus(a.keterangan) === 'Sakit').length;
+                const alfaCount = baseAbsensi.filter(a => getAbsensiStatus(a.keterangan) === 'Alpha').length;
 
                 // Get final printed/displayed target filtered by status selection
                 const targetAbsensi = baseAbsensi.filter(item => {
                   if (cetakSelectedStatus === 'Semua') return true;
-                  const statusVal = (item.status || '').toLowerCase();
-                  if (cetakSelectedStatus === 'Alpha') {
-                    return statusVal === 'alpha' || statusVal === 'alfa';
-                  }
-                  return statusVal === cetakSelectedStatus.toLowerCase();
+                  const statusVal = getAbsensiStatus(item.keterangan);
+                  return statusVal === cetakSelectedStatus;
                 });
 
                 // Unique Class options list
@@ -5728,8 +6005,22 @@ export default function App() {
 
                 return (
                   <div className="space-y-6">
-                    {/* Controls Header Row view */}
+                    {/* Controls Header Row view - Ordered: Kelas, Anggota, Status */}
                     <div className="bg-white p-4 rounded-xl border border-[#e2e8f0] grid grid-cols-1 md:grid-cols-4 gap-4 items-end print-exclude shadow-sm">
+                      <div className="space-y-1">
+                        <label className="text-[11px] font-bold text-slate-600">Filter Kelas</label>
+                        <select
+                          value={cetakSelectedClass}
+                          onChange={(e) => setCetakSelectedClass(e.target.value)}
+                          className="w-full text-xs font-semibold p-2 border border-slate-200 rounded-lg outline-none cursor-pointer bg-white"
+                        >
+                          <option value="Semua">-- Semua Kelas --</option>
+                          {kelasList.map((k) => (
+                            <option key={k} value={k}>{k}</option>
+                          ))}
+                        </select>
+                      </div>
+
                       <div className="space-y-1">
                         <label className="text-[11px] font-bold text-slate-600">Filter Anggota</label>
                         <select
@@ -5742,20 +6033,6 @@ export default function App() {
                             <option key={a.nia} value={a.nia}>
                               {a.namaLengkap} ({a.nia})
                             </option>
-                          ))}
-                        </select>
-                      </div>
-
-                      <div className="space-y-1">
-                        <label className="text-[11px] font-bold text-slate-600">Filter Kelas</label>
-                        <select
-                          value={cetakSelectedClass}
-                          onChange={(e) => setCetakSelectedClass(e.target.value)}
-                          className="w-full text-xs font-semibold p-2 border border-slate-200 rounded-lg outline-none cursor-pointer bg-white"
-                        >
-                          <option value="Semua">-- Semua Kelas --</option>
-                          {kelasList.map((k) => (
-                            <option key={k} value={k}>{k}</option>
                           ))}
                         </select>
                       </div>
@@ -5780,7 +6057,7 @@ export default function App() {
                           onClick={() => executeDevicePrint('area-rekap-absensi')}
                           className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition flex items-center justify-center space-x-1.5 cursor-pointer shadow-md hover:-translate-y-0.5 active:translate-y-0"
                         >
-                          <Printer className="w-4 h-4" />
+                          <Printer className="w-4 h-4 text-white" />
                           <span>Cetak Rekap Absensi</span>
                         </button>
                       </div>
@@ -5923,25 +6200,28 @@ export default function App() {
                                 </td>
                               </tr>
                             ) : (
-                              targetAbsensi.map((a, idx) => (
-                                <tr key={idx} className="hover:bg-slate-50/50">
-                                  <td className="px-4 py-2 font-mono font-bold text-slate-800">{a.nia}</td>
-                                  <td className="px-4 py-2 uppercase font-black">{a.namaLengkap}</td>
-                                  <td className="px-4 py-2">{a.kelas || '-'}</td>
-                                  <td className="px-4 py-2">{formatDateString(a.tanggal)}</td>
-                                  <td className="px-3 py-2 font-mono">{a.waktu || '-'}</td>
-                                  <td className="px-3 py-2">
-                                    <span className={`px-1.5 py-0.5 rounded font-bold text-[8px] ${
-                                      (a.status || '').toLowerCase() === 'hadir' ? 'text-emerald-600 bg-emerald-50' :
-                                      (a.status || '').toLowerCase() === 'izin' ? 'text-amber-600 bg-amber-50' :
-                                      (a.status || '').toLowerCase() === 'sakit' ? 'text-blue-600 bg-blue-50' : 'text-rose-600 bg-rose-50'
-                                    }`}>
-                                      {a.status}
-                                    </span>
-                                  </td>
-                                  <td className="px-4 py-2 text-slate-500 italic font-medium">{a.keterangan || '-'}</td>
-                                </tr>
-                              ))
+                              targetAbsensi.map((a, idx) => {
+                                const statusValue = getAbsensiStatus(a.keterangan);
+                                return (
+                                  <tr key={idx} className="hover:bg-slate-50/50">
+                                    <td className="px-4 py-2 font-mono font-bold text-slate-800">{a.nia}</td>
+                                    <td className="px-4 py-2 uppercase font-black">{a.namaLengkap}</td>
+                                    <td className="px-4 py-2">{a.kelas || '-'}</td>
+                                    <td className="px-4 py-2">{formatDateString(a.tanggalAbsen)}</td>
+                                    <td className="px-3 py-2 font-mono">{a.waktuAbsen || '-'}</td>
+                                    <td className="px-3 py-2">
+                                      <span className={`px-1.5 py-0.5 rounded font-bold text-[8px] ${
+                                        statusValue === 'Hadir' ? 'text-emerald-600 bg-emerald-50' :
+                                        statusValue === 'Izin' ? 'text-amber-600 bg-amber-50' :
+                                        statusValue === 'Sakit' ? 'text-blue-600 bg-blue-50' : 'text-rose-600 bg-rose-50'
+                                      }`}>
+                                        {statusValue}
+                                      </span>
+                                    </td>
+                                    <td className="px-4 py-2 text-slate-500 italic font-medium">{a.keterangan || '-'}</td>
+                                  </tr>
+                                );
+                              })
                             )}
                           </tbody>
                         </table>

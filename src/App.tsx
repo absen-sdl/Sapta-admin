@@ -138,6 +138,28 @@ const getCSVUrlForGid = (url: string, targetGid: string = '0'): string => {
   return trimmed;
 };
 
+const isSameDay = (d1Str: string, d2Str: string): boolean => {
+  if (!d1Str || !d2Str) return false;
+  try {
+    const d1 = new Date(d1Str);
+    const d2 = new Date(d2Str);
+    if (!isNaN(d1.getTime()) && !isNaN(d2.getTime())) {
+      return (
+        d1.getFullYear() === d2.getFullYear() &&
+        d1.getMonth() === d2.getMonth() &&
+        d1.getDate() === d2.getDate()
+      );
+    }
+  } catch (e) {
+    // ignore
+  }
+  
+  const getCleanDate = (s: string) => {
+    return s.split('T')[0].trim();
+  };
+  return getCleanDate(d1Str) === getCleanDate(d2Str);
+};
+
 export default function App() {
   // --- STATE ---
   const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
@@ -286,15 +308,15 @@ export default function App() {
   const [cetakSelectedNia, setCetakSelectedNia] = useState<string>('');
   const [cetakSelectedClass, setCetakSelectedClass] = useState<string>('Semua');
   const [cetakSelectedStatus, setCetakSelectedStatus] = useState<string>('Semua');
-  const [cetakCardTheme, setCetakCardTheme] = useState<'blue' | 'gold' | 'red' | 'emerald'>('blue');
-  const [cetakCardOrientation, setCetakCardOrientation] = useState<'horizontal' | 'vertical'>('horizontal');
+  const [cetakCardTheme, setCetakCardTheme] = useState<'blue' | 'gold' | 'red' | 'emerald'>(() => (localStorage.getItem('CETAK_CARD_THEME') as any) || 'blue');
+  const [cetakCardOrientation, setCetakCardOrientation] = useState<'horizontal' | 'vertical'>(() => (localStorage.getItem('CETAK_CARD_ORIENTATION') as any) || 'horizontal');
   const [cetakSelectedMonth, setCetakSelectedMonth] = useState<string>('Semua');
-  const [cetakCardBgFront, setCetakCardBgFront] = useState<string | null>(null);
-  const [cetakCardBgBack, setCetakCardBgBack] = useState<string | null>(null);
-  const [cetakCardTextColorFront, setCetakCardTextColorFront] = useState<'white' | 'black'>('white');
-  const [cetakCardTextColorBack, setCetakCardTextColorBack] = useState<'white' | 'black'>('black');
-  const [cetakCardHideHeader, setCetakCardHideHeader] = useState<boolean>(false);
-  const [cetakCardHideFooter, setCetakCardHideFooter] = useState<boolean>(false);
+  const [cetakCardBgFront, setCetakCardBgFront] = useState<string | null>(() => localStorage.getItem('CETAK_CARD_BG_FRONT') || null);
+  const [cetakCardBgBack, setCetakCardBgBack] = useState<string | null>(() => localStorage.getItem('CETAK_CARD_BG_BACK') || null);
+  const [cetakCardTextColorFront, setCetakCardTextColorFront] = useState<'white' | 'black'>(() => (localStorage.getItem('CETAK_CARD_TEXT_COLOR_FRONT') as any) || 'white');
+  const [cetakCardTextColorBack, setCetakCardTextColorBack] = useState<'white' | 'black'>(() => (localStorage.getItem('CETAK_CARD_TEXT_COLOR_BACK') as any) || 'black');
+  const [cetakCardHideHeader, setCetakCardHideHeader] = useState<boolean>(() => localStorage.getItem('CETAK_CARD_HIDE_HEADER') === 'true');
+  const [cetakCardHideFooter, setCetakCardHideFooter] = useState<boolean>(() => localStorage.getItem('CETAK_CARD_HIDE_FOOTER') === 'true');
   const [printElementId, setPrintElementId] = useState<string | null>(null);
 
   const isMenuAllowed = (tab: ActiveTab): boolean => {
@@ -1296,6 +1318,33 @@ export default function App() {
   // Dynamic Form Fields state
   const [formValues, setFormValues] = useState<Record<string, any>>({});
   
+  // Custom states for multi payments
+  const [paymentItems, setPaymentItems] = useState<{ namaTagihan: string; nominal: number; keterangan: string }[]>([
+    { namaTagihan: '', nominal: 0, keterangan: '' }
+  ]);
+
+  const handleUpdatePaymentItem = (index: number, key: string, value: any) => {
+    setPaymentItems(prev => {
+      const updated = prev.map((item, idx) => {
+        if (idx === index) {
+          return { ...item, [key]: value };
+        }
+        return item;
+      });
+
+      // Auto-create next row if the current last row has some text
+      const lastItem = updated[updated.length - 1];
+      const hasContent = (lastItem.namaTagihan && String(lastItem.namaTagihan).trim() !== '') || 
+                         (lastItem.nominal !== null && lastItem.nominal !== undefined && Number(lastItem.nominal) > 0);
+
+      if (hasContent && index === prev.length - 1) {
+        updated.push({ namaTagihan: '', nominal: 0, keterangan: '' });
+      }
+
+      return updated;
+    });
+  };
+  
   // Custom Dropdown Seach State inside forms
   const [memberSearchQuery, setMemberSearchQuery] = useState<string>('');
   const [isDropdownSearchOpen, setIsDropdownSearchOpen] = useState<boolean>(false);
@@ -1311,6 +1360,47 @@ export default function App() {
   // Official transaction receipt (struk) modal states
   const [receiptData, setReceiptData] = useState<any | null>(null);
   const [isReceiptModalOpen, setIsReceiptModalOpen] = useState<boolean>(false);
+
+  // Official transaction receipt (struk) customization states loaded from localStorage or default
+  const [receiptHeaderTitle, setReceiptHeaderTitle] = useState<string>(() => localStorage.getItem('RECEIPT_HEADER_TITLE') || '');
+  const [receiptHeaderSub, setReceiptHeaderSub] = useState<string>(() => localStorage.getItem('RECEIPT_HEADER_SUB') || 'Bukti Pembayaran Resmi (Lunas)');
+  const [receiptHeaderEmail, setReceiptHeaderEmail] = useState<string>(() => localStorage.getItem('RECEIPT_HEADER_EMAIL') || '');
+  const [receiptHeaderAddress, setReceiptHeaderAddress] = useState<string>(() => localStorage.getItem('RECEIPT_HEADER_ADDRESS') || 'Jl. Raya Sektor Bersama No. 10, Jakarta');
+  const [receiptShowTrxDetails, setReceiptShowTrxDetails] = useState<boolean>(() => localStorage.getItem('RECEIPT_SHOW_TRX_DETAILS') !== 'false');
+  const [receiptDiscountPercent, setReceiptDiscountPercent] = useState<number>(() => Number(localStorage.getItem('RECEIPT_DISCOUNT_PERCENT') || '0'));
+  const [receiptPpnPercent, setReceiptPpnPercent] = useState<number>(() => Number(localStorage.getItem('RECEIPT_PPN_PERCENT') || '0'));
+  const [receiptFooterThankYou, setReceiptFooterThankYou] = useState<string>(() => localStorage.getItem('RECEIPT_FOOTER_THANK_Y') || 'TERIMA KASIH ATAS KOPERASI & PEMBAYARAN ANDA');
+  const [receiptFooterSub, setReceiptFooterSub] = useState<string>(() => localStorage.getItem('RECEIPT_FOOTER_SUB') || '*struk resmi yang diakui secara digital oleh bendahara lembaga.');
+  const [receiptMediaSosial, setReceiptMediaSosial] = useState<string>(() => localStorage.getItem('RECEIPT_MEDIA_SOSIAL') || '@sapta.official • www.saptaweb.id');
+  const [receiptCashPaid, setReceiptCashPaid] = useState<number>(0);
+
+  // Effect to persist receipt customization settings
+  useEffect(() => {
+    localStorage.setItem('RECEIPT_HEADER_TITLE', receiptHeaderTitle);
+    localStorage.setItem('RECEIPT_HEADER_SUB', receiptHeaderSub);
+    localStorage.setItem('RECEIPT_HEADER_EMAIL', receiptHeaderEmail);
+    localStorage.setItem('RECEIPT_HEADER_ADDRESS', receiptHeaderAddress);
+    localStorage.setItem('RECEIPT_SHOW_TRX_DETAILS', String(receiptShowTrxDetails));
+    localStorage.setItem('RECEIPT_DISCOUNT_PERCENT', String(receiptDiscountPercent));
+    localStorage.setItem('RECEIPT_PPN_PERCENT', String(receiptPpnPercent));
+    localStorage.setItem('RECEIPT_FOOTER_THANK_Y', receiptFooterThankYou);
+    localStorage.setItem('RECEIPT_FOOTER_SUB', receiptFooterSub);
+    localStorage.setItem('RECEIPT_MEDIA_SOSIAL', receiptMediaSosial);
+  }, [receiptHeaderTitle, receiptHeaderSub, receiptHeaderEmail, receiptHeaderAddress, receiptShowTrxDetails, receiptDiscountPercent, receiptPpnPercent, receiptFooterThankYou, receiptFooterSub, receiptMediaSosial]);
+
+  // Effect to persist ID Card design settings
+  useEffect(() => {
+    localStorage.setItem('CETAK_CARD_THEME', cetakCardTheme);
+    localStorage.setItem('CETAK_CARD_ORIENTATION', cetakCardOrientation);
+    if (cetakCardBgFront) localStorage.setItem('CETAK_CARD_BG_FRONT', cetakCardBgFront);
+    else localStorage.removeItem('CETAK_CARD_BG_FRONT');
+    if (cetakCardBgBack) localStorage.setItem('CETAK_CARD_BG_BACK', cetakCardBgBack);
+    else localStorage.removeItem('CETAK_CARD_BG_BACK');
+    localStorage.setItem('CETAK_CARD_TEXT_COLOR_FRONT', cetakCardTextColorFront);
+    localStorage.setItem('CETAK_CARD_TEXT_COLOR_BACK', cetakCardTextColorBack);
+    localStorage.setItem('CETAK_CARD_HIDE_HEADER', String(cetakCardHideHeader));
+    localStorage.setItem('CETAK_CARD_HIDE_FOOTER', String(cetakCardHideFooter));
+  }, [cetakCardTheme, cetakCardOrientation, cetakCardBgFront, cetakCardBgBack, cetakCardTextColorFront, cetakCardTextColorBack, cetakCardHideHeader, cetakCardHideFooter]);
 
   // Load and initialize data
   const refreshAllData = () => {
@@ -1729,6 +1819,7 @@ export default function App() {
       initialVals.tanggal = today;
       initialVals.nominal = 0;
       initialVals.status = 'Lunas';
+      setPaymentItems([{ namaTagihan: '', nominal: 0, keterangan: '' }]);
     } else if (tab === 'prestasi') {
       initialVals.tanggal = today;
       initialVals.jenisPrestasi = 'Akademik';
@@ -1793,6 +1884,9 @@ export default function App() {
 
     // Programmatic verification of all required fields
     for (const field of config.fields) {
+      if (modalTargetTab === 'pembayaran' && modalType === 'add' && ['namaTagihan', 'nominal'].includes(field.name)) {
+        continue;
+      }
       if (field.required) {
         const val = formValues[field.name];
         if (val === undefined || val === null || String(val).trim() === '') {
@@ -1800,6 +1894,17 @@ export default function App() {
           setIsSubmitting(false);
           return;
         }
+      }
+    }
+    
+    // Validate custom multi-payment items if adding payment
+    let validItems = [...paymentItems];
+    if (modalTargetTab === 'pembayaran' && modalType === 'add') {
+      validItems = paymentItems.filter(item => item.namaTagihan && item.namaTagihan.trim() !== '');
+      if (validItems.length === 0) {
+        addToast('Harap isi minimal 1 item pembayaran!', 'error');
+        setIsSubmitting(false);
+        return;
       }
     }
     
@@ -1868,25 +1973,54 @@ export default function App() {
     // 1. LOCAL TRANSACTION SAVE (Encased in try-catch to avoid blocking SPA)
     try {
       if (modalType === 'add') {
-        if (isBulk) {
-          // Bulk Insert - create transaction for every single member in database
-          recordsToSync = anggotaList.map((member) => {
-            const trxId = generateId('TRX');
-            const bulkRecord = {
-              ...submissionData,
-              idTransaksi: trxId,
-              nia: member.nia,
-              namaLengkap: member.namaLengkap
-            };
-            return {
-              data: bulkRecord,
-              targetId: trxId
-            };
-          });
+        if (modalTargetTab === 'pembayaran') {
+          if (isBulk) {
+            // Bulk Insert - create transaction for every single member in database for each paid item
+            recordsToSync = [];
+            anggotaList.forEach((member) => {
+              validItems.forEach((item) => {
+                const trxId = generateId('TRX');
+                const bulkRecord = {
+                  ...submissionData,
+                  idTransaksi: trxId,
+                  nia: member.nia,
+                  namaLengkap: member.namaLengkap,
+                  namaTagihan: item.namaTagihan,
+                  nominal: Number(item.nominal) || 0,
+                  keterangan: item.keterangan || ''
+                };
+                recordsToSync.push({
+                  data: bulkRecord,
+                  targetId: trxId
+                });
+              });
+            });
 
-          recordsToSync.forEach((rec) => {
-            window.dataSdk.create(sheetName, rec.data);
-          });
+            recordsToSync.forEach((rec) => {
+              window.dataSdk.create(sheetName, rec.data);
+            });
+          } else {
+            // Personal Insert - dynamic multi items for single member
+            recordsToSync = [];
+            validItems.forEach((item) => {
+              const trxId = generateId('TRX');
+              const singleRecord = {
+                ...submissionData,
+                idTransaksi: trxId,
+                namaTagihan: item.namaTagihan,
+                nominal: Number(item.nominal) || 0,
+                keterangan: item.keterangan || ''
+              };
+              recordsToSync.push({
+                data: singleRecord,
+                targetId: trxId
+              });
+            });
+
+            recordsToSync.forEach((rec) => {
+              window.dataSdk.create(sheetName, rec.data);
+            });
+          }
         } else {
           window.dataSdk.create(sheetName, submissionData);
           recordsToSync.push({ data: submissionData, targetId: primaryKey });
@@ -1898,21 +2032,55 @@ export default function App() {
     } catch (localErr) {
       console.warn("Fungsi database lokal (window.dataSdk) mengalami kendala, error diabaikan:", localErr);
       if (recordsToSync.length === 0) {
-        if (isBulk) {
-          recordsToSync = anggotaList.map((member) => {
-            const trxId = generateId('TRX');
-            return {
-              data: {
+        if (modalTargetTab === 'pembayaran' && modalType === 'add') {
+          if (isBulk) {
+            recordsToSync = [];
+            anggotaList.forEach((member) => {
+              validItems.forEach((item) => {
+                const trxId = generateId('TRX');
+                const bulkRecord = {
+                  ...submissionData,
+                  idTransaksi: trxId,
+                  nia: member.nia,
+                  namaLengkap: member.namaLengkap,
+                  namaTagihan: item.namaTagihan,
+                  nominal: Number(item.nominal) || 0,
+                  keterangan: item.keterangan || ''
+                };
+                recordsToSync.push({ data: bulkRecord, targetId: trxId });
+              });
+            });
+          } else {
+            recordsToSync = [];
+            validItems.forEach((item) => {
+              const trxId = generateId('TRX');
+              const singleRecord = {
                 ...submissionData,
                 idTransaksi: trxId,
-                nia: member.nia,
-                namaLengkap: member.namaLengkap
-              },
-              targetId: trxId
-            };
-          });
+                namaTagihan: item.namaTagihan,
+                nominal: Number(item.nominal) || 0,
+                keterangan: item.keterangan || ''
+              };
+              recordsToSync.push({ data: singleRecord, targetId: trxId });
+            });
+          }
         } else {
-          recordsToSync.push({ data: submissionData, targetId: primaryKey });
+          if (isBulk) {
+            recordsToSync = anggotaList.map((member) => {
+              const trxId = generateId('TRX');
+              return {
+                data: {
+                  ...submissionData,
+                  idTransaksi: trxId,
+                  nia: member.nia,
+                  namaLengkap: member.namaLengkap
+                },
+                targetId: trxId
+              };
+            });
+          } else {
+            recordsToSync.push({ data: submissionData, targetId: primaryKey });
+          }
         }
       }
     }
@@ -4090,6 +4258,18 @@ export default function App() {
                           </td>
                           <td className="py-4 px-6 text-right">
                             <div className="flex items-center justify-end space-x-2">
+                              {payment.status === 'Lunas' && (
+                                <button
+                                  onClick={() => {
+                                    setReceiptData(payment);
+                                    setIsReceiptModalOpen(true);
+                                  }}
+                                  className="p-1.5 rounded bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition cursor-pointer"
+                                  title="Cetak Struk Resmi"
+                                >
+                                  <Printer className="w-3.5 h-3.5" />
+                                </button>
+                              )}
                               <button
                                 onClick={() => handleOpenEditModal('pembayaran', payment)}
                                 className="p-1.5 rounded bg-[#f1f5f9] text-[#475569] hover:bg-[#cbd5e1] hover:text-[#0f172a] transition cursor-pointer"
@@ -5129,6 +5309,634 @@ export default function App() {
                     <Moon className="w-3.5 h-3.5 text-slate-400" />
                     <span>Gelap (Dark Theme)</span>
                   </button>
+                </div>
+              </div>
+
+              {/* ========================================================================= */}
+              {/* =========== PENGATURAN BUKTI PEMBAYARAN (STRUK THERMAL) ================ */}
+              {/* ========================================================================= */}
+              <div className="bg-white p-6 rounded-xl border border-[#e2e8f0] space-y-6">
+                <div>
+                  <h3 className="text-sm font-bold text-[#0f172a] flex items-center gap-2">
+                    <FileText className="w-4 h-4 text-indigo-600" />
+                    <span>Pengaturan Bukti Pembayaran (Struk Thermal)</span>
+                  </h3>
+                  <p className="text-[11px] text-[#64748b]">
+                    Sesuaikan rincian tata letak, teks header kop, email, diskon, dan catatan kaki untuk struk bukti pembayaran resmi.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+                  {/* Left Column: Form Controls */}
+                  <div className="lg:col-span-7 space-y-4 text-left">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      {/* Kop Utama */}
+                      <div className="space-y-1.5">
+                        <label className="text-[11px] font-bold text-slate-700 block">Nama Kop Utama (Header)</label>
+                        <input
+                          type="text"
+                          value={receiptHeaderTitle}
+                          onChange={(e) => setReceiptHeaderTitle(e.target.value)}
+                          placeholder={lembagaLogin || "PORTAL SEKTOR BERSAMA"}
+                          className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs outline-none focus:border-indigo-500 bg-slate-50/50"
+                        />
+                        <span className="text-[9px] text-slate-400 font-medium block mt-0.5">Bila kosong, menggunakan nama lembaga aktif ({lembagaLogin || 'Default'}).</span>
+                      </div>
+
+                      {/* Judul Sub Kop */}
+                      <div className="space-y-1.5">
+                        <label className="text-[11px] font-bold text-slate-700 block">Sub-Judul Kwitansi</label>
+                        <input
+                          type="text"
+                          value={receiptHeaderSub}
+                          onChange={(e) => setReceiptHeaderSub(e.target.value)}
+                          placeholder="Bukti Pembayaran Resmi (Lunas)"
+                          className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs outline-none focus:border-indigo-500 bg-slate-50/50 font-medium text-slate-700"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="text-[11px] font-bold text-slate-700 block">Alamat Lembaga (Header Kop)</label>
+                      <input
+                        type="text"
+                        value={receiptHeaderAddress}
+                        onChange={(e) => setReceiptHeaderAddress(e.target.value)}
+                        placeholder="Jl. Raya Sektor Bersama No. 10, Jakarta"
+                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs outline-none focus:border-indigo-500 bg-slate-50/50 text-slate-750"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      {/* Kop Kontak / Email */}
+                      <div className="space-y-1.5">
+                        <label className="text-[11px] font-bold text-slate-700 block">Kontak / Email Informasi</label>
+                        <input
+                          type="text"
+                          value={receiptHeaderEmail}
+                          onChange={(e) => setReceiptHeaderEmail(e.target.value)}
+                          placeholder={gmailLogin || 'info@sapta-portal.id'}
+                          className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs outline-none focus:border-indigo-500 bg-slate-50/50"
+                        />
+                        <span className="text-[9px] text-slate-400 font-medium block mt-0.5">Bila kosong, menggunakan email aktif ({gmailLogin || 'Default'}).</span>
+                      </div>
+
+                      {/* Default Discount Percent */}
+                      <div className="space-y-1.5">
+                        <label className="text-[11px] font-bold text-slate-700 block">Potongan Diskon (%)</label>
+                        <div className="flex items-center space-x-2">
+                          <input
+                            type="number"
+                            min="0"
+                            max="100"
+                            value={receiptDiscountPercent}
+                            onChange={(e) => {
+                              const v = Math.min(100, Math.max(0, Number(e.target.value) || 0));
+                              setReceiptDiscountPercent(v);
+                            }}
+                            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs outline-none focus:border-indigo-500 bg-slate-50/50 font-bold text-slate-850"
+                          />
+                          <span className="text-xs text-slate-500 shrink-0 font-bold">%</span>
+                        </div>
+                        <span className="text-[9px] text-slate-400 font-medium block mt-0.5">Diskon standar yang dipotong dari sub-total pembayaran.</span>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      {/* PPN (%) */}
+                      <div className="space-y-1.5">
+                        <label className="text-[11px] font-bold text-slate-700 block">Pajak PPN (%)</label>
+                        <div className="flex items-center space-x-2">
+                          <input
+                            type="number"
+                            min="0"
+                            max="100"
+                            value={receiptPpnPercent}
+                            onChange={(e) => {
+                              const v = Math.min(100, Math.max(0, Number(e.target.value) || 0));
+                              setReceiptPpnPercent(v);
+                            }}
+                            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs outline-none focus:border-indigo-500 bg-slate-50/50 font-bold text-slate-850"
+                          />
+                          <span className="text-xs text-slate-500 shrink-0 font-bold">%</span>
+                        </div>
+                        <span className="text-[9px] text-slate-400 font-medium block mt-0.5">Pajak PPN standar ditambahkan ke total.</span>
+                      </div>
+
+                      {/* Media Sosial */}
+                      <div className="space-y-1.5">
+                        <label className="text-[11px] font-bold text-slate-700 block">Informasi Media Sosial (Footer)</label>
+                        <input
+                          type="text"
+                          value={receiptMediaSosial}
+                          onChange={(e) => setReceiptMediaSosial(e.target.value)}
+                          placeholder="@sapta.official • www.saptaweb.id"
+                          className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs outline-none focus:border-indigo-500 bg-slate-50/50 font-mono text-slate-705"
+                        />
+                        <span className="text-[9px] text-slate-400 font-medium block mt-0.5">Akun social media yang tercantum di paling bawah.</span>
+                      </div>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="text-[11px] font-bold text-slate-700 block">Ucapan Terima Kasih (Footer)</label>
+                      <input
+                        type="text"
+                        value={receiptFooterThankYou}
+                        onChange={(e) => setReceiptFooterThankYou(e.target.value)}
+                        placeholder="TERIMA KASIH ATAS KOPERASI & PEMBAYARAN ANDA"
+                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs outline-none focus:border-indigo-500 bg-slate-50/50 text-slate-700"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="text-[11px] font-bold text-slate-700 block">Keterangan Catatan Kaki Akhir (Undertitle)</label>
+                      <textarea
+                        rows={2}
+                        value={receiptFooterSub}
+                        onChange={(e) => setReceiptFooterSub(e.target.value)}
+                        placeholder="*struk resmi yang diakui secara digital oleh bendahara lembaga."
+                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs outline-none focus:border-indigo-500 bg-slate-50/50 text-slate-600 text-[11px] leading-relaxed"
+                      />
+                    </div>
+
+                    <div className="pt-2.5 flex items-center justify-between border-t border-slate-100">
+                      <div className="flex flex-col">
+                        <span className="text-[11px] font-bold text-slate-800">Visibilitas Detail Transaksi</span>
+                        <span className="text-[9px] text-slate-400">Tampilkan No. Transaksi, Tanggal, dan Admin pada struk cetak.</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setReceiptShowTrxDetails(!receiptShowTrxDetails)}
+                        className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase transition cursor-pointer border ${
+                          receiptShowTrxDetails
+                            ? 'bg-indigo-50 border-indigo-200 text-indigo-700'
+                            : 'bg-slate-50 border-slate-200 text-slate-500'
+                        }`}
+                      >
+                        {receiptShowTrxDetails ? 'TAMPILKAN (ON)' : 'SEMBUNYIKAN (OFF)'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Right Column: Instant Miniature Live Preview of Receipt */}
+                  <div className="lg:col-span-5 flex flex-col items-center justify-center bg-slate-50 p-4 rounded-xl border border-dashed border-slate-250 min-h-[350px]">
+                    <span className="text-[9px] tracking-widest text-[#94a3b8] font-black block mb-3 uppercase leading-none">
+                      🔍 PREVIEW STRUK THERMAL SEKARANG
+                    </span>
+
+                    <div className="bg-white rounded-lg border border-slate-200 p-5 shadow-sm max-w-[280px] w-full text-slate-800 text-[9px] relative overflow-hidden font-mono select-none pointer-events-none">
+                      {/* Receipt Serrated Border Decor at Top */}
+                      <div className="absolute top-0 left-0 right-0 h-1 bg-repeat-x overflow-hidden" 
+                        style={{
+                          backgroundImage: `linear-gradient(-45deg, transparent 3px, white 3px), linear-gradient(45deg, transparent 3px, white 3px)`,
+                          backgroundSize: '6px 6px'
+                        }}
+                      />
+
+                      <div className="text-center pb-3 mb-3 border-b border-dashed border-slate-300">
+                        <h4 className="text-[10px] font-black tracking-wide uppercase text-slate-900 leading-tight">
+                          {receiptHeaderTitle || lembagaLogin || "PORTAL SEKTOR BERSAMA"}
+                        </h4>
+                        {receiptHeaderSub && (
+                          <p className="text-[8px] text-slate-500 font-bold tracking-wider pt-0.5 uppercase">
+                            {receiptHeaderSub}
+                          </p>
+                        )}
+                        {receiptHeaderAddress && (
+                          <p className="text-[7.5px] text-[#475569] mt-0.5 uppercase font-medium leading-tight select-none">
+                            {receiptHeaderAddress}
+                          </p>
+                        )}
+                        <p className="text-[7.5px] text-slate-400 mt-0.5 lowercase font-mono">
+                          {receiptHeaderEmail || gmailLogin || 'info@sapta-portal.id'}
+                        </p>
+                      </div>
+
+                      <div className="space-y-1.5 text-[8.5px]">
+                        {receiptShowTrxDetails && (
+                          <>
+                            <div className="flex justify-between">
+                              <span className="text-slate-400 font-bold text-[8px] uppercase">Kode Struk</span>
+                              <span className="font-extrabold text-slate-900 font-mono">TRX-SAMPLE001</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-slate-400 font-bold text-[8px] uppercase">Tanggal</span>
+                              <span className="font-bold text-slate-800">10 Juni 2026</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-slate-400 font-bold text-[8px] uppercase">Admin</span>
+                              <span className="font-bold text-slate-850 font-mono">@{userUsername || 'admin'}</span>
+                            </div>
+                            <div className="border-b border-dashed border-slate-150 my-1" />
+                          </>
+                        )}
+
+                        <div className="flex justify-between">
+                          <span className="text-slate-400 font-bold text-[8px] uppercase">Nama Anggota</span>
+                          <span className="font-black text-slate-900 uppercase">Ahmad Fauzi (Contoh)</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-slate-400 font-bold text-[8px] uppercase">NIA</span>
+                          <span className="font-bold text-slate-800">20260001</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-slate-400 font-bold text-[8px] uppercase">Isi Struk</span>
+                          <span className="font-bold text-slate-800 text-right max-w-[120px] truncate">Iuran Bulanan Anggota</span>
+                        </div>
+
+                        <div className="border-b border-dashed border-slate-300 my-2" />
+
+                        {/* Calculations */}
+                        {(() => {
+                          const originalNominal = 150000;
+                          const discountAmount = (originalNominal * receiptDiscountPercent) / 100;
+                          const taxableTotal = originalNominal - discountAmount;
+                          const ppnAmount = (taxableTotal * receiptPpnPercent) / 100;
+                          const finalTotal = taxableTotal + ppnAmount;
+                          const dummyCash = finalTotal + 10000;
+                          const dummyChange = 10000;
+                          return (
+                            <>
+                              <div className="flex justify-between text-slate-600 font-bold">
+                                <span className="uppercase text-[8px]">Subtotal</span>
+                                <span className="font-mono">{formatRupiah(originalNominal)}</span>
+                              </div>
+
+                              {receiptDiscountPercent > 0 && (
+                                <div className="flex justify-between text-rose-600 font-bold mt-0.5">
+                                  <span className="uppercase text-[8px]">Diskon ({receiptDiscountPercent}%)</span>
+                                  <span className="font-mono">-{formatRupiah(discountAmount)}</span>
+                                </div>
+                              )}
+
+                              {receiptPpnPercent > 0 && (
+                                <div className="flex justify-between text-indigo-600 font-bold mt-0.5">
+                                  <span className="uppercase text-[8px]">PPN ({receiptPpnPercent}%)</span>
+                                  <span className="font-mono">+{formatRupiah(ppnAmount)}</span>
+                                </div>
+                              )}
+
+                              <div className="flex justify-between items-center bg-slate-50 p-1.5 rounded border border-slate-100 mt-1.5">
+                                <span className="text-[8.5px] font-black text-slate-700 uppercase">TOTAL</span>
+                                <span className="text-[10px] font-black text-emerald-600 font-mono">
+                                  {formatRupiah(finalTotal)}
+                                </span>
+                              </div>
+
+                              <div className="flex justify-between text-[8px] mt-1.5">
+                                <span className="text-slate-400 font-bold uppercase">Tunai</span>
+                                <span className="font-bold text-slate-800 font-mono">{formatRupiah(dummyCash)}</span>
+                              </div>
+
+                              <div className="flex justify-between text-[8px]">
+                                <span className="text-slate-400 font-bold uppercase">Kembali</span>
+                                <span className="font-bold text-indigo-650 font-mono">{formatRupiah(dummyChange)}</span>
+                              </div>
+
+                              <div className="text-[7.5px] text-slate-500 italic mt-1 bg-slate-50/50 p-1 rounded uppercase tracking-tight font-bold">
+                                Terbilang: {terbilang(finalTotal)} rupiah
+                              </div>
+                            </>
+                          );
+                        })()}
+
+                        <div className="flex justify-between items-center pt-1.5">
+                          <span className="text-slate-400 uppercase font-bold text-[8px]">Status</span>
+                          <span className="px-1.5 py-0.2 bg-emerald-100 text-emerald-800 rounded font-black text-[8px] uppercase border border-emerald-200 font-mono">
+                            Lunas
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="text-center pt-4 mt-4 border-t border-dashed border-slate-300 space-y-1">
+                        <p className="text-[8px] text-slate-400 font-black uppercase">
+                          {receiptFooterThankYou}
+                        </p>
+                        {receiptFooterSub && (
+                          <p className="text-[7px] text-slate-405 font-normal lowercase italic tracking-tight">
+                            {receiptFooterSub}
+                          </p>
+                        )}
+                        {receiptMediaSosial && (
+                          <p className="text-[7.5px] text-[#475569] font-bold lowercase italic tracking-tight pt-1 border-t border-slate-150 font-mono">
+                            {receiptMediaSosial}
+                          </p>
+                        )}
+                      </div>
+
+                      {/* Receipt Serrated Border Decor at Bottom */}
+                      <div className="absolute bottom-0 left-0 right-0 h-1 bg-repeat-x overflow-hidden" 
+                        style={{
+                          backgroundImage: `linear-gradient(45deg, transparent 3px, white 3px), linear-gradient(-45deg, transparent 3px, white 3px)`,
+                          backgroundSize: '6px 6px',
+                          transform: 'translateY(1.5px)'
+                        }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* ========================================================================= */}
+              {/* ============== PENGATURAN DESAIN KARTU TANDA ANGGOTA =================== */}
+              {/* ========================================================================= */}
+              <div className="bg-white p-6 rounded-xl border border-[#e2e8f0] space-y-6">
+                <div>
+                  <h3 className="text-sm font-bold text-[#0f172a] flex items-center gap-2">
+                    <CreditCard className="w-4 h-4 text-indigo-600" />
+                    <span>Desain Kartu Tanda Anggota (KTA)</span>
+                  </h3>
+                  <p className="text-[11px] text-[#64748b]">
+                    Kelola warna tema, orientasi cetak kartu, background grafis kustom depan & belakang, serta visibilitas informasi kop.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+                  {/* Left controls */}
+                  <div className="lg:col-span-7 space-y-5 text-left">
+                    {/* Template Warna */}
+                    <div className="space-y-1.5">
+                      <label className="text-[11px] font-bold text-slate-700 block">Warna Utama Tema Kartu</label>
+                      <div className="grid grid-cols-4 gap-2">
+                        {(['blue', 'gold', 'red', 'emerald'] as const).map((col) => (
+                          <button
+                            key={col}
+                            type="button"
+                            onClick={() => setCetakCardTheme(col)}
+                            className={`p-2 rounded-lg border text-[10px] font-bold capitalize transition cursor-pointer text-center ${
+                              cetakCardTheme === col
+                                ? 'border-indigo-600 bg-indigo-50 text-indigo-700 shadow-sm'
+                                : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                            }`}
+                          >
+                            {col}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Orientasi Kartu */}
+                    <div className="space-y-1.5">
+                      <label className="text-[11px] font-bold text-slate-700 block">Orientasi Cetak</label>
+                      <div className="grid grid-cols-2 gap-2">
+                        {(['horizontal', 'vertical'] as const).map((orient) => (
+                          <button
+                            key={orient}
+                            type="button"
+                            onClick={() => setCetakCardOrientation(orient)}
+                            className={`p-2 rounded-lg border text-[10px] font-bold capitalize transition cursor-pointer text-center ${
+                              cetakCardOrientation === orient
+                                ? 'border-indigo-600 bg-indigo-50 text-indigo-700 shadow-sm'
+                                : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                            }`}
+                          >
+                            {orient === 'horizontal' ? 'Horizontal (Landscape)' : 'Vertical (Portrait)'}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Background Images */}
+                    <div className="space-y-4 border-t pt-4">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-extrabold text-[#0f172a] uppercase tracking-wider">
+                          🌄 Gambar Background Kustom
+                        </span>
+                        {(cetakCardBgFront || cetakCardBgBack) && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setCetakCardBgFront(null);
+                              setCetakCardBgBack(null);
+                              setCetakCardTextColorFront('white');
+                              setCetakCardTextColorBack('black');
+                            }}
+                            className="text-[9px] text-rose-600 hover:underline font-bold cursor-pointer"
+                          >
+                            Reset Background
+                          </button>
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        {/* Front file */}
+                        <div className="space-y-1.5">
+                          <label className="text-[10px] font-bold text-slate-600 block">Sisi Depan (Front BG)</label>
+                          <div className="flex items-center space-x-2">
+                            {cetakCardBgFront && (
+                              <div className="relative group shrink-0 w-11 h-11 border border-slate-300 rounded-lg overflow-hidden bg-slate-100">
+                                <img src={cetakCardBgFront} className="w-full h-full object-cover" />
+                                <button
+                                  type="button"
+                                  onClick={() => setCetakCardBgFront(null)}
+                                  className="absolute inset-0 bg-black/70 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white text-[8px] font-bold cursor-pointer"
+                                >
+                                  Hapus
+                                </button>
+                              </div>
+                            )}
+                            <label className="flex-1 border border-dashed border-slate-300 hover:border-indigo-500 bg-slate-50 hover:bg-indigo-50/20 p-2.5 rounded-lg text-center cursor-pointer transition text-[10px] font-bold text-slate-600 block leading-none">
+                              <span>📁 Unggah Gambar</span>
+                              <input
+                                type="file"
+                                accept="image/*"
+                                className="hidden"
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0];
+                                  if (file) {
+                                    const r = new FileReader();
+                                    r.onload = (ev) => {
+                                      if (ev.target?.result) {
+                                        setCetakCardBgFront(ev.target.result as string);
+                                      }
+                                    };
+                                    r.readAsDataURL(file);
+                                  }
+                                }}
+                              />
+                            </label>
+                          </div>
+                        </div>
+
+                        {/* Back file */}
+                        <div className="space-y-1.5">
+                          <label className="text-[10px] font-bold text-slate-600 block">Sisi Belakang (Back BG)</label>
+                          <div className="flex items-center space-x-2">
+                            {cetakCardBgBack && (
+                              <div className="relative group shrink-0 w-11 h-11 border border-slate-300 rounded-lg overflow-hidden bg-slate-100">
+                                <img src={cetakCardBgBack} className="w-full h-full object-cover" />
+                                <button
+                                  type="button"
+                                  onClick={() => setCetakCardBgBack(null)}
+                                  className="absolute inset-0 bg-black/70 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white text-[8px] font-bold cursor-pointer"
+                                >
+                                  Hapus
+                                </button>
+                              </div>
+                            )}
+                            <label className="flex-1 border border-dashed border-slate-300 hover:border-indigo-500 bg-slate-50 hover:bg-indigo-50/20 p-2.5 rounded-lg text-center cursor-pointer transition text-[10px] font-bold text-slate-600 block leading-none">
+                              <span>📁 Unggah Gambar</span>
+                              <input
+                                type="file"
+                                accept="image/*"
+                                className="hidden"
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0];
+                                  if (file) {
+                                    const r = new FileReader();
+                                    r.onload = (ev) => {
+                                      if (ev.target?.result) {
+                                        setCetakCardBgBack(ev.target.result as string);
+                                      }
+                                    };
+                                    r.readAsDataURL(file);
+                                  }
+                                }}
+                              />
+                            </label>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Text color and visibility */}
+                      <div className="space-y-3 bg-slate-50 p-3.5 rounded-xl border border-slate-200">
+                        <span className="text-[9px] font-extrabold text-slate-600 uppercase block tracking-wider pb-1 border-b border-slate-200">
+                          Pengaturan Lanjutan Tampilan
+                        </span>
+
+                        {/* Text colors controls */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          {cetakCardBgFront && (
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10.5px] font-bold text-slate-700">Teks Depan</span>
+                              <div className="flex space-x-1.5">
+                                {(['white', 'black'] as const).map((color) => (
+                                  <button
+                                    key={color}
+                                    type="button"
+                                    onClick={() => setCetakCardTextColorFront(color)}
+                                    className={`px-2 py-0.5 rounded text-[9px] font-bold border transition cursor-pointer ${
+                                      cetakCardTextColorFront === color
+                                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                                    }`}
+                                  >
+                                    {color === 'white' ? 'Terang' : 'Gelap'}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {cetakCardBgBack && (
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10.5px] font-bold text-slate-700">Teks Belakang</span>
+                              <div className="flex space-x-1.5">
+                                {(['white', 'black'] as const).map((color) => (
+                                  <button
+                                    key={color}
+                                    type="button"
+                                    onClick={() => setCetakCardTextColorBack(color)}
+                                    className={`px-2 py-0.5 rounded text-[9px] font-bold border transition cursor-pointer ${
+                                      cetakCardTextColorBack === color
+                                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                                    }`}
+                                  >
+                                    {color === 'white' ? 'Terang' : 'Gelap'}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Visibilities checkboxes/switches */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-slate-200/50">
+                          <button
+                            type="button"
+                            onClick={() => setCetakCardHideHeader(!cetakCardHideHeader)}
+                            className={`flex items-center justify-center space-x-1 bg-white p-2 rounded-lg border text-[10px] font-bold transition cursor-pointer ${
+                              cetakCardHideHeader ? 'border-rose-300 text-rose-700 bg-rose-50/50' : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                            }`}
+                          >
+                            <span>{cetakCardHideHeader ? '❌ Sembunyikan Kop Atas' : '👁️ Tampilkan Kop Atas'}</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setCetakCardHideFooter(!cetakCardHideFooter)}
+                            className={`flex items-center justify-center space-x-1 bg-white p-2 rounded-lg border text-[10px] font-bold transition cursor-pointer ${
+                              cetakCardHideFooter ? 'border-rose-300 text-rose-700 bg-rose-50/50' : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                            }`}
+                          >
+                            <span>{cetakCardHideFooter ? '❌ Sembunyikan Kontak Bawah' : '👁️ Tampilkan Kontak Bawah'}</span>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Right side preview of ID Card */}
+                  <div className="lg:col-span-5 flex flex-col items-center justify-center bg-slate-50 p-4 rounded-xl border border-dashed border-slate-250 min-h-[350px]">
+                    <span className="text-[9px] tracking-widest text-[#94a3b8] font-black block mb-3 uppercase leading-none">
+                      🔍 MINIATUR PREVIEW KARTU DESAIN
+                    </span>
+
+                    {/* Simulating card rendering inside settings */}
+                    {(() => {
+                      // Color schemes
+                      const themeColors = {
+                        blue: { bg: 'from-blue-650 to-indigo-850', border: 'border-blue-400', banner: 'bg-blue-900/30', text: 'text-blue-200' },
+                        gold: { bg: 'from-amber-500 to-yellow-700', border: 'border-amber-300', banner: 'bg-amber-950/30', text: 'text-amber-100' },
+                        red: { bg: 'from-rose-600 to-red-800', border: 'border-rose-400', banner: 'bg-rose-900/30', text: 'text-rose-200' },
+                        emerald: { bg: 'from-emerald-600 to-teal-800', border: 'border-emerald-400', banner: 'bg-emerald-900/30', text: 'text-emerald-200' }
+                      };
+                      const sTheme = themeColors[cetakCardTheme] || themeColors.blue;
+                      return (
+                        <div 
+                          className={`relative overflow-hidden rounded-xl border shadow-md flex flex-col justify-between p-3 select-none ${
+                            cetakCardBgFront ? (cetakCardTextColorFront === 'white' ? 'text-white' : 'text-slate-900 bg-white') : 'text-white bg-gradient-to-br ' + sTheme.bg
+                          } ${sTheme.border}`}
+                          style={{
+                            width: '230px',
+                            height: '146px',
+                            backgroundImage: cetakCardBgFront ? `url(${cetakCardBgFront})` : undefined,
+                            backgroundSize: 'cover',
+                            backgroundPosition: 'center'
+                          }}
+                        >
+                          {/* Inner content simulator */}
+                          {!cetakCardHideHeader && (
+                            <div className="flex items-center space-x-1 pb-1 border-b border-white/20 select-none">
+                              <School className="w-3.5 h-3.5 shrink-0" />
+                              <div className="leading-tight">
+                                <p className="text-[7px] font-black uppercase tracking-wide truncate max-w-[170px]">{lembagaLogin || "PORTAL SAPTA INDONESIA"}</p>
+                                <p className="text-[5px] opacity-70 tracking-tighter truncate max-w-[170px]">KARTU TANDA REGISTRASI ANGGOTA RESMI</p>
+                              </div>
+                            </div>
+                          )}
+
+                          <div className="flex items-center gap-2 flex-grow py-1 select-none">
+                            <div className="w-10 h-12 bg-slate-300/40 rounded border border-white/25 flex items-center justify-center shrink-0">
+                              <User className="w-5 h-5 opacity-40 shrink-0" />
+                            </div>
+                            <div className="leading-none space-y-0.5">
+                              <p className="text-[7.5px] font-black uppercase text-ellipsis overflow-hidden whitespace-nowrap max-w-[150px]">Achmad Fauzi</p>
+                              <p className="text-[6.5px] font-bold opacity-80">NIA: 20260001</p>
+                              <p className="text-[5.5px] opacity-75">Kelas: Utama</p>
+                              <p className="text-[5px] bg-black/25 px-1 py-0.2 rounded font-black uppercase text-white tracking-widest max-w-max">AKTIF</p>
+                            </div>
+                          </div>
+
+                          {!cetakCardHideFooter && (
+                            <div className="text-[5px] text-center opacity-60 border-t border-white/10 pt-1 leading-none select-none">
+                              Email: {gmailLogin || "info@sapta-portal.id"} • Sistem Valid terdaftar otomatis
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+                  </div>
                 </div>
               </div>
 
@@ -6470,6 +7278,10 @@ export default function App() {
                   // Check if field isDisabled in Edit state
                   const isFieldDisabled = field.disabled || false;
 
+                  if (modalTargetTab === 'pembayaran' && modalType === 'add' && ['namaTagihan', 'nominal', 'keterangan'].includes(field.name)) {
+                    return null;
+                  }
+
                   return (
                     <div 
                       key={field.name} 
@@ -6737,6 +7549,92 @@ export default function App() {
                   );
                 })}
               </div>
+
+              {/* Integration for multiple item payment entry */}
+              {modalTargetTab === 'pembayaran' && modalType === 'add' && (
+                <div className="space-y-4 pt-4 border-t border-dashed border-slate-200">
+                  <div className="flex justify-between items-center bg-indigo-50/50 p-3 rounded-xl border border-indigo-100">
+                    <div className="text-left">
+                      <h5 className="text-xs font-black text-indigo-700 uppercase tracking-widest flex items-center gap-1.5">
+                        <span>💰 RINCIAN ITEM PEMBAYARAN</span>
+                      </h5>
+                      <p className="text-[10px] text-indigo-500 font-medium mt-0.5 leading-snug">
+                        Isi baris pembayaran ke-1, maka otomatis baris pembayaran berikutnya akan terbuka.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setPaymentItems(prev => [...prev, { namaTagihan: '', nominal: 0, keterangan: '' }])}
+                      className="px-2.5 py-1.5 text-[10px] font-black bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition"
+                    >
+                      + Baris Baru
+                    </button>
+                  </div>
+
+                  <div className="space-y-3 max-h-[300px] overflow-y-auto pr-1">
+                    {paymentItems.map((item, index) => (
+                      <div key={index} className="p-4 bg-slate-50 rounded-xl border border-[#cbd5e1]/60 space-y-3 relative group">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] bg-slate-200/85 text-slate-700 px-2 py-0.5 rounded-md font-extrabold uppercase tracking-wide animate-pulse">
+                            Pembayaran {index + 1}
+                          </span>
+                          {paymentItems.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setPaymentItems(prev => prev.filter((_, idx) => idx !== index));
+                              }}
+                              className="text-rose-600 hover:text-rose-800 text-xs font-bold font-sans transition"
+                            >
+                              Hapus
+                              </button>
+                            )}
+                          </div>
+                          
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pb-1">
+                            {/* Nama Tagihan */}
+                            <div className="space-y-1">
+                              <label className="text-[10px] font-bold text-[#475569] uppercase tracking-wider">Nama Tagihan / Keperluan *</label>
+                              <input
+                                type="text"
+                                required={index === 0}
+                                placeholder="Contoh: SPP Bulanan, Seragam, dsb."
+                                value={item.namaTagihan}
+                                onChange={(e) => handleUpdatePaymentItem(index, 'namaTagihan', e.target.value)}
+                                className="w-full px-3 py-2 text-xs rounded-xl border border-[#cbd5e1] bg-white text-[#0f172a] focus:outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all font-sans"
+                              />
+                            </div>
+
+                            {/* Nominal */}
+                            <div className="space-y-1">
+                              <label className="text-[10px] font-bold text-[#475569] uppercase tracking-wider">Nominal (Rupiah) *</label>
+                              <input
+                                type="number"
+                                required={index === 0}
+                                placeholder="Masukkan nominal, contoh: 150000"
+                                value={item.nominal || ''}
+                                onChange={(e) => handleUpdatePaymentItem(index, 'nominal', e.target.value === '' ? '' : Number(e.target.value))}
+                                className="w-full px-3 py-2 text-xs rounded-xl border border-[#cbd5e1] bg-white text-[#0f172a] focus:outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all font-sans"
+                              />
+                            </div>
+
+                            {/* Keterangan */}
+                            <div className="sm:col-span-2 space-y-1">
+                              <label className="text-[10px] font-bold text-[#475569] uppercase tracking-wider">Keterangan Tambahan / Detail Catatan</label>
+                              <input
+                                type="text"
+                                placeholder="Keterangan opsional seperti cicilan, nama bulan, dsb."
+                                value={item.keterangan}
+                                onChange={(e) => handleUpdatePaymentItem(index, 'keterangan', e.target.value)}
+                                className="w-full px-3 py-2 text-xs rounded-xl border border-[#cbd5e1] bg-white text-[#0f172a] focus:outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all font-sans"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
               {/* Action buttons with Double Click Shielding constraint */}
               <footer className="pt-5 border-t border-[#f1f5f9] flex items-center justify-end space-x-3 shrink-0">
@@ -7119,143 +8017,295 @@ export default function App() {
       )}
 
       {/* ======================= MODAL: STRUK PEMBAYARAN RESMI (RECEIPT) ======================= */}
-      {isReceiptModalOpen && receiptData && (
-        <div className={`fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs select-none animate-fade-in ${theme === 'dark' ? 'dark-theme-main' : ''} ${printElementId === 'area-struk-pembayaran' ? 'print:bg-transparent print:p-0 print:backdrop-blur-none print:shadow-none' : ''}`}>
-          <div className={`bg-slate-100 rounded-2xl w-full max-w-sm p-4 border border-[#e2e8f0] shadow-2xl flex flex-col gap-4 max-h-[95vh] overflow-y-auto ${printElementId === 'area-struk-pembayaran' ? 'print:bg-transparent print:border-none print:shadow-none print:p-0 print:max-h-none print:w-auto print:gap-0' : ''}`}>
-            
-            {/* Printable Receipt Area */}
-            <div
-              id="area-struk-pembayaran"
-              className={`bg-white rounded-xl border border-slate-200 p-6 shadow-sm mx-auto w-full relative ${
-                printElementId === 'area-struk-pembayaran' ? 'print-now text-black' : 'text-slate-850'
-              }`}
-              style={{ fontFamily: 'monospace' }}
-            >
-              {/* Receipt Serrated Border Decor at Top */}
-              <div className="absolute top-0 left-0 right-0 h-1.5 bg-repeat-x overflow-hidden rounded-t-xl" 
-                style={{
-                  backgroundImage: `linear-gradient(-45deg, transparent 4px, white 4px), linear-gradient(45deg, transparent 4px, white 4px)`,
-                  backgroundSize: '8px 8px',
-                  transform: 'translateY(-4px)'
-                }}
-              />
+      {isReceiptModalOpen && receiptData && (() => {
+        // Collect all paid transactions for the same member on the same calendar day
+        const matchedPayments = pembayaranList.filter(p => {
+          if (p.status !== 'Lunas') return false;
+          if (!p.tanggal || !receiptData.tanggal) return false;
+          if (!isSameDay(p.tanggal, receiptData.tanggal)) return false;
+          
+          if (receiptData.nia && receiptData.nia !== 'ALL_MEMBERS') {
+            return p.nia === receiptData.nia;
+          }
+          return p.namaLengkap && receiptData.namaLengkap && p.namaLengkap.toLowerCase() === receiptData.namaLengkap.toLowerCase();
+        });
 
-              {/* Letterhead / Header */}
-              <div className="text-center pb-4 mb-4 border-b border-dashed border-slate-350">
-                <h4 className="text-xs font-black tracking-wide uppercase text-slate-900 leading-tight">
-                  {lembagaLogin || "PORTAL SEKTOR BERSAMA"}
-                </h4>
-                <p className="text-[9px] text-slate-500 font-bold tracking-wider pt-0.5 uppercase">
-                  Bukti Pembayaran Resmi (Lunas)
-                </p>
-                <p className="text-[8px] text-slate-400 mt-0.5 lowercase font-mono">
-                  {gmailLogin || 'info@sapta-portal.id'}
-                </p>
+        // Use gathered payments; fallback to receiptData if empty or not found in state
+        const finalPaymentsForReceipt = matchedPayments.length > 0 ? matchedPayments : [receiptData];
+        
+        // Dynamic aggregations
+        const totalOriginalNominal = finalPaymentsForReceipt.reduce((acc, curr) => acc + (Number(curr.nominal) || 0), 0);
+        const discountAmount = (totalOriginalNominal * receiptDiscountPercent) / 100;
+        const taxableTotal = totalOriginalNominal - discountAmount;
+        const ppnAmount = (taxableTotal * receiptPpnPercent) / 100;
+        const grandTotal = Math.ceil(taxableTotal + ppnAmount);
+        
+        const actualTunai = receiptCashPaid > 0 ? receiptCashPaid : grandTotal;
+        const kembalian = Math.max(0, actualTunai - grandTotal);
+
+        return (
+          <div className={`fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs select-none animate-fade-in ${theme === 'dark' ? 'dark-theme-main' : ''} ${printElementId === 'area-struk-pembayaran' ? 'print:bg-transparent print:p-0 print:backdrop-blur-none print:shadow-none' : ''}`}>
+            <div className={`bg-slate-100 rounded-2xl w-full max-w-sm p-4 border border-[#e2e8f0] shadow-2xl flex flex-col gap-4 max-h-[95vh] overflow-y-auto ${printElementId === 'area-struk-pembayaran' ? 'print:bg-transparent print:border-none print:shadow-none print:p-0 print:max-h-none print:w-auto print:gap-0' : ''}`}>
+              
+              {/* Printable Receipt Area */}
+              <div
+                id="area-struk-pembayaran"
+                className={`bg-white rounded-xl border border-slate-200 p-6 shadow-sm mx-auto w-full relative ${
+                  printElementId === 'area-struk-pembayaran' ? 'print-now text-black' : 'text-slate-850'
+                }`}
+                style={{ fontFamily: 'monospace' }}
+              >
+                {/* Receipt Serrated Border Decor at Top */}
+                <div className="absolute top-0 left-0 right-0 h-1.5 bg-repeat-x overflow-hidden rounded-t-xl" 
+                  style={{
+                    backgroundImage: `linear-gradient(-45deg, transparent 4px, white 4px), linear-gradient(45deg, transparent 4px, white 4px)`,
+                    backgroundSize: '8px 8px',
+                    transform: 'translateY(-4px)'
+                  }}
+                />
+
+                {/* Letterhead / Header */}
+                <div className="text-center pb-4 mb-4 border-b border-dashed border-slate-350">
+                  <h4 className="text-xs font-black tracking-wide uppercase text-slate-900 leading-tight">
+                    {receiptHeaderTitle || lembagaLogin || "PORTAL SEKTOR BERSAMA"}
+                  </h4>
+                  {receiptHeaderSub && (
+                    <p className="text-[9px] text-slate-500 font-bold tracking-wider pt-0.5 uppercase">
+                      {receiptHeaderSub}
+                    </p>
+                  )}
+                  {receiptHeaderAddress && (
+                    <p className="text-[8px] text-slate-400 mt-0.5 uppercase leading-snug font-serif font-black">
+                      {receiptHeaderAddress}
+                    </p>
+                  )}
+                  <p className="text-[8px] text-slate-400 mt-0.5 lowercase font-mono">
+                    {receiptHeaderEmail || gmailLogin || 'info@sapta-portal.id'}
+                  </p>
+                </div>
+
+                {/* Receipt Details */}
+                <div className="space-y-2 text-[10.5px] leading-relaxed">
+                  {receiptShowTrxDetails && (
+                    <>
+                      <div className="flex justify-between gap-1">
+                        <span className="text-slate-400 uppercase font-bold text-[9px] shrink-0">Kode Struk</span>
+                        <span className="font-extrabold text-slate-900 truncate font-mono text-[10px]">{receiptData.idTransaksi || receiptData.id || '-'}</span>
+                      </div>
+                      <div className="flex justify-between gap-1">
+                        <span className="text-slate-400 uppercase font-bold text-[9px] shrink-0">Tanggal</span>
+                        <span className="font-bold text-slate-800">{formatDateString(receiptData.tanggal)}</span>
+                      </div>
+                      <div className="flex justify-between gap-1">
+                        <span className="text-slate-400 uppercase font-bold text-[9px] shrink-0">Admin</span>
+                        <span className="font-semibold text-slate-800 font-mono text-[9px]">@{userUsername || 'admin'} (Otomatis)</span>
+                      </div>
+                      <div className="border-b border-dashed border-slate-200 my-1.5" />
+                    </>
+                  )}
+
+                  <div className="flex justify-between gap-2">
+                    <span className="text-slate-400 uppercase font-bold text-[9px] shrink-0">Anggota</span>
+                    <span className="font-black text-slate-900 uppercase text-right max-w-[180px] break-words">
+                      {receiptData.namaLengkap || 'Semua Anggota'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between gap-1">
+                    <span className="text-slate-400 uppercase font-bold text-[9px] shrink-0">NIA</span>
+                    <span className="font-bold text-slate-800 font-mono">{receiptData.nia === 'ALL_MEMBERS' ? 'Semua Anggota' : receiptData.nia}</span>
+                  </div>
+
+                  {/* Rincian Item Pembayaran (Grouped) */}
+                  <div className="border-t border-b border-dashed border-slate-200 py-2 my-2 space-y-1.5">
+                    <div className="text-[8px] font-black text-slate-450 uppercase tracking-wider mb-1">Rincian Keperluan ({finalPaymentsForReceipt.length} Item):</div>
+                    {finalPaymentsForReceipt.map((p, idx) => (
+                      <div key={p.idTransaksi || idx} className="flex justify-between items-start gap-2 text-[10px] leading-snug">
+                        <div className="flex flex-col text-left">
+                          <span className="font-bold text-slate-800">
+                            {idx + 1}. {p.namaTagihan || 'Tanpa Kategori'}
+                          </span>
+                          {p.keterangan && (
+                            <span className="text-[8px] text-slate-500 font-mono pl-3">
+                              ({p.keterangan})
+                            </span>
+                          )}
+                          <span className="text-[7.5px] text-slate-400 font-mono pl-3">
+                            ID: {p.idTransaksi}
+                          </span>
+                        </div>
+                        <span className="font-bold text-slate-700 font-mono text-[10.5px] shrink-0">
+                          {formatRupiah(Number(p.nominal) || 0)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="border-b border-dashed border-slate-355 my-2" />
+
+                  {/* Sub-total */}
+                  <div className="flex justify-between items-center text-[10.5px]">
+                    <span className="text-slate-400 font-bold uppercase text-[9px]">Sub-Total</span>
+                    <span className="font-bold text-slate-800 font-mono">
+                      {formatRupiah(totalOriginalNominal)}
+                    </span>
+                  </div>
+
+                  {receiptDiscountPercent > 0 && (
+                    <div className="flex justify-between items-center text-[10.5px] mt-1 text-rose-600 font-bold">
+                      <span className="text-rose-400 font-bold uppercase text-[9px]">Diskon ({receiptDiscountPercent}%)</span>
+                      <span className="font-mono">
+                        -{formatRupiah(discountAmount)}
+                      </span>
+                    </div>
+                  )}
+
+                  {receiptPpnPercent > 0 && (
+                    <div className="flex justify-between items-center text-[10.5px] mt-1 text-[#4f46e5] font-bold">
+                      <span className="text-indigo-400 font-bold uppercase text-[9px]">PPN ({receiptPpnPercent}%)</span>
+                      <span className="font-mono">
+                        +{formatRupiah(ppnAmount)}
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Total Section */}
+                  <div className="flex justify-between items-center bg-slate-50 p-2 rounded border border-slate-100 mt-2">
+                    <span className="text-[10px] font-extrabold text-[#334155] uppercase">TOTAL</span>
+                    <span className="text-sm font-black text-emerald-600 font-mono">
+                      {formatRupiah(grandTotal)}
+                    </span>
+                  </div>
+
+                  {/* Cash Paid and Change */}
+                  <div className="flex justify-between items-center text-[10.5px] mt-2">
+                    <span className="text-slate-400 font-bold uppercase text-[9px]">Tunai</span>
+                    <span className="font-bold text-slate-850 font-mono">
+                      {formatRupiah(actualTunai)}
+                    </span>
+                  </div>
+
+                  <div className="flex justify-between items-center text-[10.5px] mt-1">
+                    <span className="text-slate-400 font-bold uppercase text-[9px]">Kembali</span>
+                    <span className="font-black text-indigo-600 font-mono">
+                      {formatRupiah(kembalian)}
+                    </span>
+                  </div>
+
+                  {/* Terbilang block */}
+                  <div className="text-[8.5px] text-slate-500 italic mt-2 text-left leading-relaxed bg-[#f8fafc] p-2 rounded border border-slate-100 uppercase tracking-tight font-bold">
+                    Terbilang: {terbilang(grandTotal)} rupiah
+                  </div>
+
+                  <div className="flex justify-between items-center pt-2">
+                    <span className="text-slate-400 uppercase font-bold text-[9px]">Status</span>
+                    <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded font-black text-[9px] uppercase border border-emerald-200">
+                      {receiptData.status || 'Lunas'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Thank you foot decoration */}
+                <div className="text-center pt-5 mt-5 border-t border-dashed border-slate-300 space-y-1.5">
+                  <p className="text-[9px] text-slate-400 leading-normal font-black uppercase">
+                    {receiptFooterThankYou}
+                  </p>
+                  {receiptFooterSub && (
+                    <p className="text-[7.5px] text-slate-400 font-normal lowercase italic">
+                      {receiptFooterSub}
+                    </p>
+                  )}
+                  {receiptMediaSosial && (
+                    <p className="text-[8px] text-slate-400 leading-normal font-bold lowercase italic border-t border-slate-100 pt-1 font-mono">
+                      {receiptMediaSosial}
+                    </p>
+                  )}
+                </div>
+
+                {/* Receipt Serrated Border Decor at Bottom */}
+                <div className="absolute bottom-0 left-0 right-0 h-1.5 bg-repeat-x overflow-hidden rounded-b-xl" 
+                  style={{
+                    backgroundImage: `linear-gradient(45deg, transparent 4px, white 4px), linear-gradient(-45deg, transparent 4px, white 4px)`,
+                    backgroundSize: '8px 8px',
+                    transform: 'translateY(4px)'
+                  }}
+                />
               </div>
 
-              {/* Receipt Details */}
-              <div className="space-y-2 text-[10.5px] leading-relaxed">
-                <div className="flex justify-between gap-1">
-                  <span className="text-slate-400 uppercase font-bold text-[9px] shrink-0">No. Transaksi</span>
-                  <span className="font-extrabold text-slate-900 truncate font-mono text-[10px]">{receiptData.idTransaksi || '-'}</span>
-                </div>
-                <div className="flex justify-between gap-1">
-                  <span className="text-slate-400 uppercase font-bold text-[9px] shrink-0">Tanggal</span>
-                  <span className="font-bold text-slate-800">{formatDateString(receiptData.tanggal)}</span>
+              {/* Tunai / Cash Payment Keyboard (print-exclude) */}
+              <div className="bg-white p-3 rounded-xl border border-slate-200 space-y-2 text-left print-exclude">
+                <div className="flex justify-between items-center">
+                  <span className="text-[10px] font-black text-slate-500 uppercase tracking-wider">💵 PEMBAYARAN TUNAI</span>
+                  <span className="text-[9px] bg-indigo-50 text-indigo-700 px-1.5 py-0.2 rounded font-black font-mono">LIVE CALC</span>
                 </div>
                 
-                <div className="border-b border-dashed border-slate-200 my-1.5" />
-
-                <div className="flex justify-between gap-2">
-                  <span className="text-slate-400 uppercase font-bold text-[9px] shrink-0">Anggota</span>
-                  <span className="font-black text-slate-900 uppercase text-right max-w-[180px] break-words">
-                    {receiptData.namaLengkap || 'Semua Anggota'}
-                  </span>
-                </div>
-                <div className="flex justify-between gap-1">
-                  <span className="text-slate-400 uppercase font-bold text-[9px] shrink-0">NIA</span>
-                  <span className="font-bold text-slate-800 font-mono">{receiptData.nia === 'ALL_MEMBERS' ? 'Semua Anggota' : receiptData.nia}</span>
-                </div>
-                <div className="flex justify-between gap-2">
-                  <span className="text-slate-400 uppercase font-bold text-[9px] shrink-0">Keperluan</span>
-                  <span className="font-bold text-slate-800 text-right max-w-[180px] break-words">{receiptData.namaTagihan}</span>
-                </div>
-                {receiptData.keterangan && (
-                  <div className="flex justify-between gap-2">
-                    <span className="text-slate-400 uppercase font-bold text-[9px] shrink-0">Keterangan</span>
-                    <span className="font-medium text-slate-600 text-right max-w-[180px] break-words">{receiptData.keterangan}</span>
-                  </div>
-                )}
-
-                <div className="border-b border-dashed border-slate-350 my-2.5" />
-
-                {/* Total Section */}
-                <div className="flex justify-between items-center bg-slate-50 p-2 rounded border border-slate-100">
-                  <span className="text-[10px] font-extrabold text-slate-700 uppercase">SUB-TOTAL</span>
-                  <span className="text-sm font-black text-emerald-600 font-mono">
-                    {formatRupiah(Number(receiptData.nominal) || 0)}
-                  </span>
+                <div className="flex gap-2 items-center">
+                  <span className="text-xs text-slate-400 font-bold shrink-0">Rp</span>
+                  <input
+                    type="text"
+                    placeholder="Masukkan pembayaran tunai..."
+                    value={receiptCashPaid || ''}
+                    onChange={(e) => {
+                      const raw = e.target.value.replace(/\D/g, '');
+                      setReceiptCashPaid(Number(raw) || 0);
+                    }}
+                    className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs font-bold outline-none focus:border-indigo-500 bg-slate-50/50 text-slate-800"
+                  />
                 </div>
 
-                {/* Terbilang block */}
-                <div className="text-[8.5px] text-slate-500 italic mt-2 text-left leading-relaxed bg-[#f8fafc] p-2 rounded border border-slate-100 uppercase tracking-tight font-bold">
-                  Terbilang: {terbilang(Number(receiptData.nominal) || 0)} rupiah
-                </div>
-
-                <div className="flex justify-between items-center pt-2">
-                  <span className="text-slate-400 uppercase font-bold text-[9px]">Status</span>
-                  <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded font-black text-[9px] uppercase border border-emerald-200">
-                    {receiptData.status || 'Lunas'}
-                  </span>
+                {/* Quick denominator buttons */}
+                <div className="flex flex-wrap gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setReceiptCashPaid(grandTotal)}
+                    className="px-2 py-1 bg-indigo-50 hover:bg-indigo-100 border border-indigo-100 rounded text-[9px] font-extrabold text-indigo-700 cursor-pointer transition select-none"
+                  >
+                    Pas ({formatRupiah(grandTotal)})
+                  </button>
+                  {[50000, 100000, 150000, 200000, 300000, 500000].map((denom) => {
+                    if (denom > grandTotal) {
+                      return (
+                        <button
+                          key={denom}
+                          type="button"
+                          onClick={() => setReceiptCashPaid(denom)}
+                          className="px-2 py-1 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded text-[9px] font-bold text-slate-600 cursor-pointer transition select-none"
+                        >
+                          {formatRupiah(denom)}
+                        </button>
+                      );
+                    }
+                    return null;
+                  })}
                 </div>
               </div>
 
-              {/* Thank you foot decoration */}
-              <div className="text-center pt-5 mt-5 border-t border-dashed border-slate-300">
-                <p className="text-[9px] text-slate-400 leading-normal font-black">
-                  TERIMA KASIH ATAS KOPERASI & PEMBAYARAN ANDA
-                </p>
-                <p className="text-[7.5px] text-slate-400 mt-1 font-normal lowercase italic">
-                  *struk resmi yang diakui secara digital oleh bendahara lembaga.
-                </p>
+              {/* Print and Close controls */}
+              <div className="flex gap-2 w-full mt-1 print-exclude">
+                <button
+                  type="button"
+                  onClick={() => executeDevicePrint('area-struk-pembayaran')}
+                  className="flex-1 py-2 bg-indigo-650 hover:bg-indigo-750 text-white rounded-xl text-xs font-bold transition flex items-center justify-center space-x-1.5 cursor-pointer shadow-md hover:-translate-y-0.5 active:translate-y-0"
+                >
+                  <Printer className="w-4 h-4 text-white" />
+                  <span>Cetak Struk</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsReceiptModalOpen(false);
+                    setReceiptData(null);
+                    setReceiptCashPaid(0);
+                  }}
+                  className="flex-1 py-2 bg-white border border-[#e2e8f0] text-slate-700 rounded-xl text-xs font-bold transition flex items-center justify-center space-x-1.5 hover:bg-[#f8fafc] cursor-pointer shadow-sm hover:-translate-y-0.5 active:translate-y-0"
+                >
+                  <X className="w-4 h-4 text-slate-500" />
+                  <span>Tutup</span>
+                </button>
               </div>
-
-              {/* Receipt Serrated Border Decor at Bottom */}
-              <div className="absolute bottom-0 left-0 right-0 h-1.5 bg-repeat-x overflow-hidden rounded-b-xl" 
-                style={{
-                  backgroundImage: `linear-gradient(45deg, transparent 4px, white 4px), linear-gradient(-45deg, transparent 4px, white 4px)`,
-                  backgroundSize: '8px 8px',
-                  transform: 'translateY(4px)'
-                }}
-              />
             </div>
-
-            {/* Print and Close controls */}
-            <div className="flex gap-2 w-full mt-1 print-exclude">
-              <button
-                type="button"
-                onClick={() => executeDevicePrint('area-struk-pembayaran')}
-                className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition flex items-center justify-center space-x-1.5 cursor-pointer shadow-md hover:-translate-y-0.5 active:translate-y-0"
-              >
-                <Printer className="w-4 h-4 text-white" />
-                <span>Cetak Struk</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setIsReceiptModalOpen(false);
-                  setReceiptData(null);
-                }}
-                className="flex-1 py-2.5 bg-white border border-[#e2e8f0] text-slate-700 rounded-xl text-xs font-bold transition flex items-center justify-center space-x-1.5 hover:bg-slate-50 cursor-pointer shadow-sm hover:-translate-y-0.5 active:translate-y-0"
-              >
-                <X className="w-4 h-4 text-slate-500" />
-                <span>Tutup</span>
-              </button>
-            </div>
-
           </div>
-        </div>
-      )}
+        );
+      })()}
 
     </div>
   );

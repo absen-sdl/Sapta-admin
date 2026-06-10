@@ -109,6 +109,37 @@ export function formatDateString(dateStr: string): string {
   }
 }
 
+export function terbilang(num: number): string {
+  const words = ["", "satu", "dua", "tiga", "empat", "lima", "enam", "tujuh", "delapan", "sembilan", "sepuluh", "sebelas"];
+  let temp = "";
+  const n = Math.floor(num);
+  if (n < 0) {
+    return "minus " + terbilang(Math.abs(n));
+  }
+  if (n < 12) {
+    temp = " " + words[n];
+  } else if (n < 20) {
+    temp = terbilang(n - 10) + " belas";
+  } else if (n < 100) {
+    temp = terbilang(Math.floor(n / 10)) + " puluh" + terbilang(n % 10);
+  } else if (n < 200) {
+    temp = " seratus" + terbilang(n - 100);
+  } else if (n < 1000) {
+    temp = terbilang(Math.floor(n / 100)) + " ratus" + terbilang(n % 100);
+  } else if (n < 2000) {
+    temp = " seribu" + terbilang(n - 1000);
+  } else if (n < 1000000) {
+    temp = terbilang(Math.floor(n / 1000)) + " ribu" + terbilang(n % 1000);
+  } else if (n < 1000000000) {
+    temp = terbilang(Math.floor(n / 1000000)) + " juta" + terbilang(n % 1000000);
+  } else if (n < 1000000000000) {
+    temp = terbilang(Math.floor(n / 1000000000)) + " milyar" + terbilang(num % 1000000000);
+  } else if (n < 1000000000000000) {
+    temp = terbilang(Math.floor(n / 1000000000000)) + " trilyun" + terbilang(num % 1000000000000);
+  }
+  return temp.trim();
+}
+
 export function getProp(obj: any, ...keys: string[]): any {
   if (!obj) return '';
   for (const k of keys) {

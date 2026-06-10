@@ -41,11 +41,14 @@ import {
   Scale,
   FileText,
   Sun,
-  Moon
+  Moon,
+  UserCheck,
+  Printer,
+  Download
 } from 'lucide-react';
 
 import { initializeDatabase } from './dataSdk';
-import { parseCSV, generateId, formatRupiah, formatDateString, getProp } from './utils';
+import { parseCSV, generateId, formatRupiah, formatDateString, getProp, terbilang } from './utils';
 import { Anggota, Pembayaran, Prestasi, Pelanggaran, Absensi, Informasi, Surat, Peraturan, ActiveTab, ToastMessage } from './types';
 import { GOOGLE_APPS_SCRIPT_CODE } from './googleAppsScriptCode';
 
@@ -166,6 +169,7 @@ export default function App() {
     const timer = setInterval(() => {
       setCurrentTime(new Date());
     }, 1000);
+    setIsInIframe(window.self !== window.top);
     return () => clearInterval(timer);
   }, []);
 
@@ -252,26 +256,189 @@ export default function App() {
     return localStorage.getItem('USER_MENU') || '';
   });
 
+  const [userRemoveMenu, setUserRemoveMenu] = useState<string>(() => {
+    return localStorage.getItem('USER_REMOVE_MENU') || '';
+  });
+
   const [isLembagaVerified, setIsLembagaVerified] = useState<boolean>(false);
   const [lembagaAkunList, setLembagaAkunList] = useState<any[]>([]);
 
+  // States for Manage Accounts (Kelola Akun Sapta) by Master Account
+  const [subAccountList, setSubAccountList] = useState<any[]>([]);
+  const [isLoadingSubAccounts, setIsLoadingSubAccounts] = useState<boolean>(false);
+  const [subAccountsError, setSubAccountsError] = useState<string | null>(null);
+  const [subAccountSearchQuery, setSubAccountSearchQuery] = useState<string>('');
+  const [isSubAccountModalOpen, setIsSubAccountModalOpen] = useState<boolean>(false);
+  const [subAccountModalType, setSubAccountModalType] = useState<'add' | 'edit'>('add');
+  const [editingSubAccount, setEditingSubAccount] = useState<any | null>(null);
+  const [subAccountFormValues, setSubAccountFormValues] = useState({
+    nama: '',
+    username: '',
+    pasword: '',
+    remove_menu: ''
+  });
+  const [isSavingSubAccount, setIsSavingSubAccount] = useState<boolean>(false);
+
+  // --- STATES FOR CETAK & SIMPAN DATA TAB ---
+  const [isInIframe, setIsInIframe] = useState<boolean>(false);
+  const [printNotification, setPrintNotification] = useState<string | null>(null);
+  const [cetakActiveSubTab, setCetakActiveSubTab] = useState<'kartu' | 'absensi' | 'pelanggaran'>('kartu');
+  const [cetakSelectedNia, setCetakSelectedNia] = useState<string>('');
+  const [cetakSelectedClass, setCetakSelectedClass] = useState<string>('Semua');
+  const [cetakSelectedStatus, setCetakSelectedStatus] = useState<string>('Semua');
+  const [cetakCardTheme, setCetakCardTheme] = useState<'blue' | 'gold' | 'red' | 'emerald'>('blue');
+  const [cetakCardOrientation, setCetakCardOrientation] = useState<'horizontal' | 'vertical'>('horizontal');
+  const [cetakSelectedMonth, setCetakSelectedMonth] = useState<string>('Semua');
+  const [printElementId, setPrintElementId] = useState<string | null>(null);
+
   const isMenuAllowed = (tab: ActiveTab): boolean => {
-    if (tab === 'dashboard' || tab === 'pengaturan') return true;
+    if (tab === 'dashboard' || tab === 'pengaturan' || tab === 'cetak_data') return true;
+    
+    // Master account (Super Admin) can access everything, including kelola_akun
+    const currentUsername = (localStorage.getItem('USER_USERNAME') || userUsername || '').toLowerCase();
+    const currentGmail = (localStorage.getItem('G-MAIL_LOGIN') || gmailLogin || '').toLowerCase();
+    const isMaster = isLoggedIn && currentUsername === currentGmail && currentGmail !== '';
+    
+    if (tab === 'kelola_akun') {
+      return isMaster;
+    }
+    if (isMaster) return true;
+
+    // Check if the tab is blocked by remove_menu column
+    const removeMenuStr = localStorage.getItem('USER_REMOVE_MENU') || userRemoveMenu || '';
+    if (removeMenuStr) {
+      const removedList = removeMenuStr.toLowerCase().split(',').map(s => s.trim());
+      const matchesTab = (term: string) => {
+        if (!term) return false;
+        if (term === tab) return true;
+        if (tab === 'anggota' && (term.includes('anggota') || term.includes('member'))) return true;
+        if (tab === 'pembayaran' && (term.includes('bayar') || term.includes('pembayaran') || term.includes('nominal') || term.includes('uang') || term.includes('keuangan') || term.includes('transaksi'))) return true;
+        if (tab === 'prestasi' && term.includes('prestasi')) return true;
+        if (tab === 'pelanggaran' && (term.includes('pelanggaran') || term.includes('hukum') || term.includes('disiplin'))) return true;
+        if (tab === 'absensi' && (term.includes('absen') || term.includes('hadir') || term.includes('presensi'))) return true;
+        if (tab === 'informasi' && (term.includes('informasi') || term.includes('info') || term.includes('kabar') || term.includes('pengumuman'))) return true;
+        if (tab === 'surat' && (term.includes('surat') || term.includes('dokumen') || term.includes('letter'))) return true;
+        if (tab === 'peraturan' && (term.includes('aturan') || term.includes('peraturan') || term.includes('regulasi'))) return true;
+        return false;
+      };
+      if (removedList.some(term => matchesTab(term))) {
+        return false; // Specifically removed/blocked!
+      }
+    }
+
+    // Existing allow-list compatibility
     const savedMenu = localStorage.getItem('USER_MENU') || userMenu;
-    if (!savedMenu || savedMenu.trim() === '') return true;
+    if (savedMenu && savedMenu.trim() !== '') {
+      const allowedNormalized = savedMenu.toLowerCase();
+      if (tab === 'anggota' && (allowedNormalized.includes('anggota') || allowedNormalized.includes('member'))) return true;
+      if (tab === 'pembayaran' && (allowedNormalized.includes('bayar') || allowedNormalized.includes('pembayaran') || allowedNormalized.includes('nominal') || allowedNormalized.includes('uang') || allowedNormalized.includes('keuangan') || allowedNormalized.includes('transaksi'))) return true;
+      if (tab === 'prestasi' && allowedNormalized.includes('prestasi')) return true;
+      if (tab === 'pelanggaran' && (allowedNormalized.includes('pelanggaran') || allowedNormalized.includes('hukum') || allowedNormalized.includes('disiplin'))) return true;
+      if (tab === 'absensi' && (allowedNormalized.includes('absen') || allowedNormalized.includes('hadir') || allowedNormalized.includes('presensi'))) return true;
+      if (tab === 'informasi' && (allowedNormalized.includes('informasi') || allowedNormalized.includes('info') || allowedNormalized.includes('kabar') || allowedNormalized.includes('pengumuman'))) return true;
+      if (tab === 'surat' && (allowedNormalized.includes('surat') || allowedNormalized.includes('dokumen') || allowedNormalized.includes('letter'))) return true;
+      if (tab === 'peraturan' && (allowedNormalized.includes('aturan') || allowedNormalized.includes('peraturan') || allowedNormalized.includes('regulasi'))) return true;
+      
+      return false;
+    }
     
-    const allowedNormalized = savedMenu.toLowerCase();
-    
-    if (tab === 'anggota' && (allowedNormalized.includes('anggota') || allowedNormalized.includes('member'))) return true;
-    if (tab === 'pembayaran' && (allowedNormalized.includes('bayar') || allowedNormalized.includes('pembayaran') || allowedNormalized.includes('nominal') || allowedNormalized.includes('uang') || allowedNormalized.includes('keuangan') || allowedNormalized.includes('transaksi'))) return true;
-    if (tab === 'prestasi' && allowedNormalized.includes('prestasi')) return true;
-    if (tab === 'pelanggaran' && (allowedNormalized.includes('pelanggaran') || allowedNormalized.includes('hukum') || allowedNormalized.includes('disiplin'))) return true;
-    if (tab === 'absensi' && (allowedNormalized.includes('absen') || allowedNormalized.includes('hadir') || allowedNormalized.includes('presensi'))) return true;
-    if (tab === 'informasi' && (allowedNormalized.includes('informasi') || allowedNormalized.includes('info') || allowedNormalized.includes('kabar') || allowedNormalized.includes('pengumuman'))) return true;
-    if (tab === 'surat' && (allowedNormalized.includes('surat') || allowedNormalized.includes('dokumen') || allowedNormalized.includes('letter'))) return true;
-    if (tab === 'peraturan' && (allowedNormalized.includes('aturan') || allowedNormalized.includes('peraturan') || allowedNormalized.includes('regulasi'))) return true;
-    
-    return false;
+    return true;
+  };
+
+  const executeDevicePrint = (elementId: string) => {
+    setPrintElementId(elementId);
+    setPrintNotification("Menginisialisasi modul pencetakan perangkat...");
+    const timeout = setTimeout(() => {
+      try {
+        window.print();
+        setPrintNotification("Perintah cetak dikirim ke printer perangkat!");
+      } catch (error) {
+        console.error("Gagal meluncurkan print dialog:", error);
+        setPrintNotification("Gagal mencetak. Silakan buka aplikasi pada Tab Baru demi compatibility penuh.");
+      }
+      setTimeout(() => setPrintNotification(null), 5000);
+      setPrintElementId(null);
+    }, 450);
+  };
+
+  const handleAutoPrint = (
+    subTab: 'kartu' | 'absensi' | 'pelanggaran', 
+    primaryKey: string, 
+    elementId: string
+  ) => {
+    setActiveTab('cetak_data');
+    setCetakActiveSubTab(subTab);
+    if (subTab === 'kartu') {
+      setCetakSelectedNia(primaryKey);
+    } else if (subTab === 'absensi') {
+      setCetakSelectedNia(primaryKey);
+    } else if (subTab === 'pelanggaran') {
+      setCetakSelectedNia(primaryKey);
+    }
+    executeDevicePrint(elementId);
+  };
+
+  const fetchSubAccounts = async () => {
+    const endpoint = appsScriptUrl || localStorage.getItem('LINK_SCRIPT_UTAMA') || '';
+    if (!endpoint) return;
+    setIsLoadingSubAccounts(true);
+    setSubAccountsError(null);
+    try {
+      const targetUrl = endpoint + (endpoint.includes('?') ? '&' : '?') + 'action=read&sheetName=' + encodeURIComponent('AKUN SAPTA');
+      const response = await fetch(targetUrl);
+      if (!response.ok) throw new Error('Gagal menghubungi App Script lembaga.');
+      const resText = await response.text();
+      let parsedJson: any = null;
+      try {
+        parsedJson = JSON.parse(resText);
+      } catch (e) {
+        throw new Error('Data dari server tidak berformat JSON valid.');
+      }
+      if (parsedJson && parsedJson.error) {
+        throw new Error(parsedJson.message || 'Error internal Google Sheets App Script.');
+      }
+      if (Array.isArray(parsedJson)) {
+        const parsedAccounts = parsedJson.map((item: any) => {
+          let nama = '';
+          let username = '';
+          let pasword = '';
+          let removeMenu = '';
+          let menu = '';
+
+          Object.keys(item).forEach(key => {
+            const lowerK = key.toLowerCase().replace(/_/g, ' ');
+            const val = String(item[key] || '').trim();
+            if (lowerK === 'nama' || lowerK === 'name' || lowerK.includes('nama lengkap') || lowerK.includes('fullname')) {
+              nama = val;
+            } else if (lowerK === 'username' || lowerK === 'user' || lowerK === 'login') {
+              username = val;
+            } else if (lowerK === 'pasword' || lowerK === 'password' || lowerK.includes('pass') || lowerK.includes('word')) {
+              pasword = val;
+            } else if (lowerK === 'menu' || lowerK.includes('akses') || lowerK.includes('fitur') || lowerK.includes('role')) {
+              menu = val;
+            } else if (lowerK === 'remove menu' || lowerK === 'remove_menu' || lowerK === 'removemenu' || lowerK.includes('hapus menu') || lowerK.includes('tidak diizinkan') || lowerK.includes('restricted')) {
+              removeMenu = val;
+            }
+          });
+
+          if (!nama) nama = String(item['nama'] || item['name'] || '').trim();
+          if (!username) username = String(item['username'] || item['user'] || '').trim();
+          if (!pasword) pasword = String(item['pasword'] || item['password'] || '').trim();
+          if (!removeMenu) removeMenu = String(item['remove_menu'] || item['remove menu'] || item['hapus_menu'] || item['hapus menu'] || '').trim();
+          if (!menu) menu = String(item['menu'] || item['aksesMenu'] || item['akses_menu'] || '').trim();
+
+          return { nama, username, pasword, remove_menu: removeMenu, menu };
+        }).filter(acc => acc.username || acc.nama);
+        setSubAccountList(parsedAccounts);
+      } else {
+        throw new Error('Format dari sheet AKUN SAPTA tidak sesuai.');
+      }
+    } catch (err: any) {
+      console.error(err);
+      setSubAccountsError(err.message || 'Terjadi kesalahan saat memuat data akun sapta.');
+    } finally {
+      setIsLoadingSubAccounts(false);
+    }
   };
 
   // --- AKUN SAPTA STATE FOR LOGIN PAGE ---
@@ -710,11 +877,12 @@ export default function App() {
           let username = '';
           let pasword = '';
           let menu = '';
+          let removeMenu = '';
 
           Object.keys(item).forEach(key => {
-            const lowerK = key.toLowerCase();
+            const lowerK = key.toLowerCase().replace(/_/g, ' ');
             const val = String(item[key] || '').trim();
-            if (lowerK === 'nama' || lowerK === 'name' || lowerK.includes('nama_lengkap') || lowerK.includes('fullname')) {
+            if (lowerK === 'nama' || lowerK === 'name' || lowerK.includes('nama lengkap') || lowerK.includes('fullname')) {
               nama = val;
             } else if (lowerK === 'username' || lowerK === 'user' || lowerK === 'login') {
               username = val;
@@ -722,6 +890,8 @@ export default function App() {
               pasword = val;
             } else if (lowerK === 'menu' || lowerK.includes('akses') || lowerK.includes('fitur') || lowerK.includes('role')) {
               menu = val;
+            } else if (lowerK === 'remove menu' || lowerK === 'remove_menu' || lowerK === 'removemenu' || lowerK.includes('hapus menu') || lowerK.includes('tidak diizinkan') || lowerK.includes('restricted')) {
+              removeMenu = val;
             }
           });
 
@@ -729,8 +899,9 @@ export default function App() {
           if (!username) username = String(item['username'] || item['user'] || '').trim();
           if (!pasword) pasword = String(item['pasword'] || item['password'] || '').trim();
           if (!menu) menu = String(item['menu'] || item['aksesMenu'] || item['akses_menu'] || '').trim();
+          if (!removeMenu) removeMenu = String(item['remove_menu'] || item['remove menu'] || item['hapus_menu'] || item['hapus menu'] || '').trim();
 
-          return { nama, username, pasword, menu };
+          return { nama, username, pasword, menu, removeMenu };
         }).filter(acc => acc.username || acc.nama);
 
         setLembagaAkunList(parsedAccounts);
@@ -803,7 +974,8 @@ export default function App() {
             nama: 'Super Admin',
             username: match.gmail,
             pasword: match.pasword,
-            menu: '' // Empty means all privileges
+            menu: '', // Empty means all privileges
+            removeMenu: ''
           };
         }
       }
@@ -827,6 +999,7 @@ export default function App() {
         localStorage.setItem('USER_NAMA', matchedUser.nama || 'Amd');
         localStorage.setItem('USER_USERNAME', matchedUser.username);
         localStorage.setItem('USER_MENU', matchedUser.menu || '');
+        localStorage.setItem('USER_REMOVE_MENU', matchedUser.removeMenu || '');
 
         localStorage.setItem('google_sheets_absensi_csv_url', formattedAbsensiUrl);
         localStorage.setItem('google_apps_script_url', match.urlAppScript);
@@ -849,6 +1022,7 @@ export default function App() {
         setUserNama(matchedUser.nama || 'Amd');
         setUserUsername(matchedUser.username);
         setUserMenu(matchedUser.menu || '');
+        setUserRemoveMenu(matchedUser.removeMenu || '');
 
         // Run sync data from cloud urls synchronously BEFORE declaring user logged in!
         await syncDataFromCloudUrls(match.urlAppScript, formattedAbsensiUrl, (step, text) => {
@@ -890,6 +1064,7 @@ export default function App() {
     localStorage.removeItem('USER_NAMA');
     localStorage.removeItem('USER_USERNAME');
     localStorage.removeItem('USER_MENU');
+    localStorage.removeItem('USER_REMOVE_MENU');
 
     setAppsScriptUrl('');
     setAbsensiCsvPublishUrl('');
@@ -906,11 +1081,200 @@ export default function App() {
     setUserNama('');
     setUserUsername('');
     setUserMenu('');
+    setUserRemoveMenu('');
     setIsLembagaVerified(false);
     setLembagaAkunList([]);
 
     hasAutoSyncedRef.current = false;
     addToast('Anda berhasil keluar dari sistem.', 'info');
+  };
+
+  // --- SUB-ACCOUNT MANAGE METHODS BY MASTER ADMIN ---
+  const [visiblePasswords, setVisiblePasswords] = useState<Record<string, boolean>>({});
+  
+  const togglePasswordVisibility = (username: string) => {
+    setVisiblePasswords(prev => ({
+      ...prev,
+      [username]: !prev[username]
+    }));
+  };
+
+  const handleOpenAddSubAccount = () => {
+    setSubAccountModalType('add');
+    setEditingSubAccount(null);
+    setSubAccountFormValues({
+      nama: '',
+      username: '',
+      pasword: '',
+      remove_menu: ''
+    });
+    setIsSubAccountModalOpen(true);
+  };
+
+  const handleOpenEditSubAccount = (acc: any) => {
+    setSubAccountModalType('edit');
+    setEditingSubAccount(acc);
+    setSubAccountFormValues({
+      nama: acc.nama,
+      username: acc.username,
+      pasword: acc.pasword,
+      remove_menu: acc.remove_menu || ''
+    });
+    setIsSubAccountModalOpen(true);
+  };
+
+  const handleToggleRemoveMenu = (menuKey: string) => {
+    const currentList = subAccountFormValues.remove_menu ? subAccountFormValues.remove_menu.split(',').map(s => s.trim()).filter(Boolean) : [];
+    let newList: string[];
+    if (currentList.includes(menuKey)) {
+      newList = currentList.filter(m => m !== menuKey);
+    } else {
+      newList = [...currentList, menuKey];
+    }
+    setSubAccountFormValues(prev => ({
+      ...prev,
+      remove_menu: newList.join(',')
+    }));
+  };
+
+  const handleSaveSubAccount = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (isSavingSubAccount) return;
+    
+    const namaVal = subAccountFormValues.nama.trim();
+    const usernameVal = subAccountFormValues.username.trim();
+    const passwordVal = subAccountFormValues.pasword.trim();
+    
+    if (!namaVal) {
+      addToast('Nama lengkap tidak boleh kosong.', 'error');
+      return;
+    }
+    if (!usernameVal) {
+      addToast('Username tidak boleh kosong.', 'error');
+      return;
+    }
+    if (!passwordVal) {
+      addToast('Kata sandi tidak boleh kosong.', 'error');
+      return;
+    }
+    
+    if (subAccountModalType === 'add') {
+      const usernameExists = subAccountList.some(acc => acc.username.toLowerCase() === usernameVal.toLowerCase());
+      if (usernameExists) {
+        addToast(`Username "@${usernameVal}" sudah terdaftar dalam sistem.`, 'error');
+        return;
+      }
+    }
+    
+    setIsSavingSubAccount(true);
+    
+    const payload = {
+      action: subAccountModalType === 'add' ? 'add' : 'edit',
+      sheetName: 'AKUN SAPTA',
+      targetId: subAccountModalType === 'edit' ? editingSubAccount.username : undefined,
+      data: {
+        nama: namaVal,
+        username: usernameVal,
+        pasword: passwordVal,
+        remove_menu: subAccountFormValues.remove_menu,
+        menu: ''
+      }
+    };
+
+    if (subAccountModalType === 'add') {
+      setSubAccountList(prev => [...prev, payload.data]);
+    } else {
+      setSubAccountList(prev => prev.map(acc => acc.username === editingSubAccount.username ? payload.data : acc));
+    }
+
+    try {
+      const endpoint = appsScriptUrl || localStorage.getItem('LINK_SCRIPT_UTAMA') || '';
+      if (!endpoint) {
+        addToast('Gagal menyimpan: Tautan Google Apps Script tidak diset.', 'error');
+        setIsSavingSubAccount(false);
+        return;
+      }
+
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'text/plain'
+        },
+        body: JSON.stringify(payload)
+      });
+
+      const resText = await response.text();
+      let resJson: any = null;
+      try {
+        resJson = JSON.parse(resText);
+      } catch (err) {}
+
+      if (resJson && resJson.error) {
+        throw new Error(resJson.message || 'Error dari server Sheets.');
+      }
+
+      addToast(subAccountModalType === 'add' ? 'Akun sub-member berhasil ditambahkan!' : 'Akun sub-member berhasil disimpan!', 'success');
+      setIsSubAccountModalOpen(false);
+      
+      setTimeout(() => {
+        fetchSubAccounts();
+      }, 800);
+    } catch (err: any) {
+      console.error(err);
+      addToast('Gagal sinkron cloud: ' + (err.message || 'Error koneksi'), 'error');
+    } finally {
+      setIsSavingSubAccount(false);
+    }
+  };
+
+  const handleDeleteSubAccount = async (account: any) => {
+    if (!window.confirm(`Apakah Anda yakin ingin menghapus akun sub-member "${account.nama}" (@${account.username})?`)) {
+      return;
+    }
+    
+    setSubAccountList(prev => prev.filter(acc => acc.username !== account.username));
+    addToast('Akun sedang dihapus...', 'info');
+
+    const endpoint = appsScriptUrl || localStorage.getItem('LINK_SCRIPT_UTAMA') || '';
+    if (!endpoint) {
+      addToast('Tautan Google Apps Script kosong.', 'error');
+      return;
+    }
+
+    const payload = {
+      action: 'delete',
+      sheetName: 'AKUN SAPTA',
+      data: account,
+      targetId: account.username
+    };
+
+    try {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'text/plain'
+        },
+        body: JSON.stringify(payload)
+      });
+
+      const resText = await response.text();
+      let resJson: any = null;
+      try {
+        resJson = JSON.parse(resText);
+      } catch (err) {}
+
+      if (resJson && resJson.error) {
+        throw new Error(resJson.message || 'Error dari server Sheets.');
+      }
+
+      addToast('Akun sub-member berhasil dihapus dari Google Sheets!', 'success');
+      setTimeout(() => {
+        fetchSubAccounts();
+      }, 800);
+    } catch (err: any) {
+      console.error(err);
+      addToast('Gagal menghapus akun di Cloud: ' + (err.message || 'Error koneksi'), 'error');
+    }
   };
 
   // Selected details
@@ -2640,6 +3004,34 @@ export default function App() {
               </button>
             )}
 
+            {isMenuAllowed('kelola_akun') && (
+              <button
+                onClick={() => handleTabSwitch('kelola_akun')}
+                className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-[13px] font-medium transition-all duration-150 select-none border-l-4 ${
+                  activeTab === 'kelola_akun'
+                    ? 'bg-indigo-600/10 text-indigo-400 border-indigo-500 font-semibold'
+                    : 'text-[#94a3b8] hover:bg-slate-800/40 hover:text-slate-100 border-transparent hover:translate-x-0.5'
+                }`}
+              >
+                <UserCheck className={`w-4 h-4 shrink-0 ${activeTab === 'kelola_akun' ? 'text-indigo-400' : 'text-[#94a3b8]'}`} />
+                <span>Kelola Akun</span>
+              </button>
+            )}
+
+            {isMenuAllowed('cetak_data') && (
+              <button
+                onClick={() => handleTabSwitch('cetak_data')}
+                className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-[13px] font-medium transition-all duration-150 select-none border-l-4 ${
+                  activeTab === 'cetak_data'
+                    ? 'bg-indigo-600/10 text-indigo-400 border-indigo-500 font-semibold'
+                    : 'text-[#94a3b8] hover:bg-slate-800/40 hover:text-slate-100 border-transparent hover:translate-x-0.5'
+                }`}
+              >
+                <Printer className={`w-4 h-4 shrink-0 ${activeTab === 'cetak_data' ? 'text-indigo-400' : 'text-[#94a3b8]'}`} />
+                <span>Cetak & Simpan Data</span>
+              </button>
+            )}
+
             <button
               onClick={() => handleTabSwitch('pengaturan')}
               className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-[13px] font-medium transition-all duration-150 select-none border-l-4 ${
@@ -2692,6 +3084,8 @@ export default function App() {
                  activeTab === 'informasi' ? 'Informasi' :
                  activeTab === 'surat' ? 'Surat' :
                  activeTab === 'peraturan' ? 'Peraturan' :
+                 activeTab === 'kelola_akun' ? 'Kelola Akun' :
+                 activeTab === 'cetak_data' ? 'Cetak & Simpan Data' :
                  activeTab.replace('-', ' ')}
               </h2>
             )}
@@ -2706,8 +3100,8 @@ export default function App() {
             </div>
           )}
 
-          {/* Centered Search Bar for all menus except dashboard and pengaturan */}
-          {activeTab !== 'dashboard' && activeTab !== 'pengaturan' && (
+          {/* Centered Search Bar for all menus except dashboard, pengaturan, kelola_akun, and cetak_data */}
+          {activeTab !== 'dashboard' && activeTab !== 'pengaturan' && activeTab !== 'kelola_akun' && activeTab !== 'cetak_data' && (
             <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-10 w-28 xs:w-36 sm:w-48 md:w-64">
               <div className="flex items-center bg-[#f1f5f9]/70 px-2 sm:px-4 py-1 sm:py-1.5 rounded-lg gap-1.5 border border-transparent focus-within:border-indigo-300 focus-within:bg-white transition-all duration-200">
                 <Search className="w-3.5 h-3.5 text-[#94a3b8] shrink-0" />
@@ -2732,8 +3126,8 @@ export default function App() {
           )}
 
           <div className="flex items-center space-x-1.5 sm:space-x-3 z-0">
-            {/* Dynamic Tambah Data Trigger (Exclude dashboard, absensi, and pengaturan) */}
-            {activeTab !== 'dashboard' && activeTab !== 'absensi' && activeTab !== 'pengaturan' && (
+            {/* Dynamic Tambah Data Trigger (Exclude dashboard, absensi, pengaturan, kelola_akun, and cetak_data) */}
+            {activeTab !== 'dashboard' && activeTab !== 'absensi' && activeTab !== 'pengaturan' && activeTab !== 'kelola_akun' && activeTab !== 'cetak_data' && (
               <button
                 onClick={() => handleOpenAddModal(activeTab as any)}
                 className="flex items-center bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg px-2 sm:px-3.5 py-1 sm:py-1.5 text-[10px] sm:text-[11px] font-semibold shadow-sm shadow-indigo-600/10 transition-all duration-200 cursor-pointer hover:-translate-y-0.5 active:translate-y-0 shrink-0"
@@ -3587,6 +3981,18 @@ export default function App() {
                           </td>
                           <td className="py-4 px-4 text-right" onClick={(e) => e.stopPropagation()}>
                             <div className="flex items-center justify-end space-x-2">
+                              {isMenuAllowed('cetak_data') && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleAutoPrint('kartu', member.nia, 'area-kartu-identitas');
+                                  }}
+                                  className="p-1.5 rounded bg-indigo-50 text-indigo-600 hover:bg-indigo-100 transition cursor-pointer"
+                                  title="Cetak Kartu Tanda Anggota (KTA)"
+                                >
+                                  <Printer className="w-3.5 h-3.5" />
+                                </button>
+                              )}
                               <button
                                 onClick={() => handleOpenEditModal('anggota', member)}
                                 className="p-1.5 rounded bg-[#f1f5f9] text-[#475569] hover:bg-[#cbd5e1] hover:text-[#0f172a] transition cursor-pointer"
@@ -3840,6 +4246,15 @@ export default function App() {
                           </td>
                           <td className="py-4 px-6 text-right">
                             <div className="flex items-center justify-end space-x-2">
+                              {isMenuAllowed('cetak_data') && (
+                                <button
+                                  onClick={() => handleAutoPrint('pelanggaran', caseRow.nia, 'area-laporan-pelanggaran')}
+                                  className="p-1.5 rounded bg-indigo-50 text-indigo-600 hover:bg-indigo-100 transition cursor-pointer"
+                                  title="Cetak Surat Laporan Pelanggaran"
+                                >
+                                  <Printer className="w-3.5 h-3.5" />
+                                </button>
+                              )}
                               <button
                                 onClick={() => handleOpenEditModal('pelanggaran', caseRow)}
                                 className="p-1.5 rounded bg-[#f1f5f9] text-[#475569] hover:bg-[#cbd5e1] hover:text-[#0f172a] transition cursor-pointer"
@@ -4751,6 +5166,975 @@ export default function App() {
                   </pre>
                 </div>
               </div>
+
+            </div>
+          )}
+
+
+          {/* ======================= VIEW: KELOLA AKUN ======================= */}
+          {activeTab === 'kelola_akun' && (
+            <div className="space-y-6 animate-fade-in print-exclude p-6">
+              {/* Info Header Card */}
+              <div className="bg-white p-6 rounded-xl border border-[#e2e8f0] flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div className="space-y-1">
+                  <h3 className="text-base font-bold text-[#0f172a] flex items-center space-x-2">
+                    <UserCheck className="w-5 h-5 text-indigo-600" />
+                    <span>Kelola Sub-Akun Akses (AKUN SAPTA)</span>
+                  </h3>
+                  <p className="text-[11px] text-[#64748b]">
+                    Atur hak akses akun member lembaga, tambah akun baru atau hapus menu tertentu dari akun tersebut.
+                  </p>
+                </div>
+                <button
+                  onClick={() => {
+                    // Open the Add Sub-Account Modal
+                    setSubAccountFormValues({
+                      nama: '',
+                      username: '',
+                      pasword: '',
+                      remove_menu: ''
+                    });
+                    setEditingSubAccount(null);
+                    setSubAccountModalType('add');
+                    setIsSubAccountModalOpen(true);
+                  }}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition flex items-center space-x-1.5 cursor-pointer shadow-sm hover:-translate-y-0.5 active:translate-y-0"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Tambah Sub-Akun</span>
+                </button>
+              </div>
+
+              {/* Sub-Account Search Panel */}
+              <div className="bg-white p-4 rounded-xl border border-[#e2e8f0] flex items-center justify-between gap-4">
+                <div className="relative w-full max-w-sm">
+                  <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="Cari sub-akun berdasarkan nama atau username..."
+                    value={subAccountSearchQuery}
+                    onChange={(e) => setSubAccountSearchQuery(e.target.value)}
+                    className="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-lg text-xs outline-none focus:border-indigo-500 bg-slate-50/50"
+                  />
+                </div>
+                <button
+                  onClick={fetchSubAccounts}
+                  disabled={isLoadingSubAccounts}
+                  className="px-3 py-2 border border-slate-200 text-slate-700 hover:bg-slate-50 disabled:opacity-50 transition rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isLoadingSubAccounts ? 'animate-spin' : ''}`} />
+                  <span>Refresh</span>
+                </button>
+              </div>
+
+              {/* Sub Accounts Table list */}
+              <div className="bg-white rounded-xl border border-[#e2e8f0] overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-slate-50 border-b border-slate-100 text-slate-500 text-[10px] font-bold tracking-wider uppercase select-none">
+                        <th className="px-6 py-3.5">Nama Lengkap</th>
+                        <th className="px-6 py-3.5">Nama Pengguna (Username)</th>
+                        <th className="px-6 py-3.5">Kata Sandi (Password)</th>
+                        <th className="px-6 py-3.5">Menu Terblokir (Remove Menu)</th>
+                        <th className="px-6 py-3.5 text-right">Aksi</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#f1f5f9] text-[11px] font-semibold text-[#334155]">
+                      {isLoadingSubAccounts ? (
+                        <tr>
+                          <td colSpan={5} className="px-6 py-10 text-center text-slate-400 select-none">
+                            <div className="flex flex-col items-center justify-center space-y-2">
+                              <RefreshCw className="w-6 h-6 animate-spin text-indigo-600" />
+                              <span>Memuat data Akun Sapta...</span>
+                            </div>
+                          </td>
+                        </tr>
+                      ) : subAccountsError ? (
+                        <tr>
+                          <td colSpan={5} className="px-6 py-10 text-center text-rose-500 select-none">
+                            {subAccountsError}
+                          </td>
+                        </tr>
+                      ) : subAccountList.length === 0 ? (
+                        <tr>
+                          <td colSpan={5} className="px-6 py-10 text-center text-slate-400 select-none">
+                            Belum ada sub-akun dikonfigurasi. Klik tombol "Tambah Sub-Akun" di atas.
+                          </td>
+                        </tr>
+                      ) : (
+                        subAccountList
+                          .filter(acc => 
+                            (acc.nama || '').toLowerCase().includes(subAccountSearchQuery.toLowerCase()) ||
+                            (acc.username || '').toLowerCase().includes(subAccountSearchQuery.toLowerCase())
+                          )
+                          .map((acc, index) => {
+                            const blockedMenus = acc.remove_menu
+                              ? acc.remove_menu.split(',').map((s: string) => s.trim()).filter(Boolean)
+                              : [];
+                            return (
+                              <tr key={index} className="hover:bg-slate-50/50 transition">
+                                <td className="px-6 py-4 font-bold text-slate-800">{acc.nama}</td>
+                                <td className="px-6 py-4 font-mono text-xs text-indigo-600 bg-indigo-50/20 px-2 py-0.5 rounded max-w-max">
+                                  {acc.username}
+                                </td>
+                                <td className="px-6 py-4 font-mono text-slate-600">
+                                  <span>{acc.pasword}</span>
+                                </td>
+                                <td className="px-6 py-4">
+                                  {blockedMenus.length === 0 ? (
+                                    <span className="text-emerald-600 bg-emerald-50 text-[9px] px-2 py-0.5 rounded-full font-bold">
+                                      Akses Penuh (Full Access)
+                                    </span>
+                                  ) : (
+                                    <div className="flex flex-wrap gap-1">
+                                      {blockedMenus.map((m: string, idx: number) => (
+                                        <span key={idx} className="text-rose-600 bg-rose-50 text-[9px] px-2 py-0.5 rounded font-bold capitalize">
+                                          {m}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  )}
+                                </td>
+                                <td className="px-6 py-4 text-right">
+                                  <div className="flex items-center justify-end space-x-1.5">
+                                    <button
+                                      onClick={() => {
+                                        setEditingSubAccount(acc);
+                                        setSubAccountFormValues({
+                                          nama: acc.nama,
+                                          username: acc.username,
+                                          pasword: acc.pasword,
+                                          remove_menu: acc.remove_menu || ''
+                                        });
+                                        setSubAccountModalType('edit');
+                                        setIsSubAccountModalOpen(true);
+                                      }}
+                                      title="Edit Akun"
+                                      className="p-1 px-2.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded transition cursor-pointer flex items-center space-x-1"
+                                    >
+                                      <Edit className="w-3.5 h-3.5" />
+                                      <span>Edit</span>
+                                    </button>
+                                    <button
+                                      onClick={async () => {
+                                        if (window.confirm(`Apakah Anda yakin ingin menghapus sub-akun "${acc.nama}"?`)) {
+                                          try {
+                                            setIsLoadingSubAccounts(true);
+                                            const endpoint = appsScriptUrl || localStorage.getItem('LINK_SCRIPT_UTAMA') || '';
+                                            if (!endpoint) throw new Error('Script URL Utama kosong.');
+
+                                            const targetUrl = endpoint;
+                                            const response = await fetch(targetUrl, {
+                                              method: 'POST',
+                                              headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                                              body: new URLSearchParams({
+                                                action: 'delete',
+                                                sheetName: 'AKUN SAPTA',
+                                                primaryKey: acc.username // Use username as key
+                                              })
+                                            });
+                                            if (!response.ok) throw new Error('Respons server gagal.');
+                                            const resTxt = await response.text();
+                                            const resJson = JSON.parse(resTxt);
+                                            if (resJson.error) throw new Error(resJson.message);
+
+                                            addToast(`Sukses menghapus akun ${acc.nama}`, 'success');
+                                            fetchSubAccounts();
+                                          } catch (err: any) {
+                                            addToast(`Gagal menghapus: ${err.message}`, 'error');
+                                          } finally {
+                                            setIsLoadingSubAccounts(false);
+                                          }
+                                        }
+                                      }}
+                                      title="Hapus Akun"
+                                      className="p-1 px-2.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded transition cursor-pointer flex items-center space-x-1"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                      <span>Hapus</span>
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+
+          {/* ======================= VIEW: CETAK & SIMPAN DATA ======================= */}
+          {activeTab === 'cetak_data' && (
+            <div className="space-y-6 animate-fade-in p-6">
+              {printNotification && (
+                <div className="fixed bottom-6 right-6 z-50 bg-slate-900/95 text-white text-xs font-semibold px-4 py-3 rounded-xl shadow-lg border border-slate-700/50 flex items-center space-x-2 animate-bounce print-exclude">
+                  <Printer className="w-4 h-4 text-indigo-400 animate-pulse animate-spin" />
+                  <span>{printNotification}</span>
+                </div>
+              )}
+
+              {isInIframe && (
+                <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-xs font-medium text-amber-800 flex items-start space-x-3 print-exclude shadow-sm">
+                  <span className="text-sm">⚠️</span>
+                  <div className="space-y-1 text-left">
+                    <p className="font-bold">Mode Preview Terdeteksi</p>
+                    <p className="leading-relaxed font-normal text-amber-700">
+                      Jika tombol cetak tidak memunculkan dialog pencetakan di perangkat Anda, silakan klik tombol <strong>"Buka Tab Baru"</strong> di pojok kanan atas untuk menghindari pemblokiran iframe oleh browser Anda.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Dynamic Print Helper Styles */}
+              <style>{`
+                @media print {
+                  body {
+                    background: white !important;
+                    color: black !important;
+                    margin: 0 !important;
+                    padding: 0 !important;
+                  }
+                  .print-exclude, aside, header, nav, button {
+                    display: none !important;
+                    visibility: hidden !important;
+                  }
+                  .print-now {
+                    position: absolute !important;
+                    left: 0 !important;
+                    top: 0 !important;
+                    width: 100% !important;
+                    max-width: 100% !important;
+                    background: white !important;
+                    box-shadow: none !important;
+                    border: none !important;
+                    visibility: visible !important;
+                    z-index: 9999 !important;
+                    padding: 20px !important;
+                  }
+                  .print-now * {
+                    visibility: visible !important;
+                  }
+                }
+              `}</style>
+
+              {/* Sub Navigation Tabs */}
+              <div className="bg-white p-2 rounded-xl border border-[#e2e8f0] flex flex-wrap gap-1 print-exclude shadow-sm">
+                <button
+                  onClick={() => setCetakActiveSubTab('kartu')}
+                  className={`px-4 py-2 rounded-lg text-xs font-bold transition flex items-center space-x-1.5 cursor-pointer ${
+                    cetakActiveSubTab === 'kartu'
+                      ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/15'
+                      : 'text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  <User className="w-3.5 h-3.5" />
+                  <span>1. Kartu Identitas Anggota</span>
+                </button>
+                <button
+                  onClick={() => setCetakActiveSubTab('absensi')}
+                  className={`px-4 py-2 rounded-lg text-xs font-bold transition flex items-center space-x-1.5 cursor-pointer ${
+                    cetakActiveSubTab === 'absensi'
+                      ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/15'
+                      : 'text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  <Calendar className="w-3.5 h-3.5" />
+                  <span>2. Rekap Absensi</span>
+                </button>
+                <button
+                  onClick={() => setCetakActiveSubTab('pelanggaran')}
+                  className={`px-4 py-2 rounded-lg text-xs font-bold transition flex items-center space-x-1.5 cursor-pointer ${
+                    cetakActiveSubTab === 'pelanggaran'
+                      ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/15'
+                      : 'text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  <AlertTriangle className="w-3.5 h-3.5" />
+                  <span>3. Laporan Pelanggaran</span>
+                </button>
+              </div>
+
+              {/* SECTION 1: KARTU IDENTITAS ANGGOTA */}
+              {cetakActiveSubTab === 'kartu' && (() => {
+                const currentNia = cetakSelectedNia || (anggotaList[0] ? anggotaList[0].nia : '');
+                const selectedAnggota = anggotaList.find(a => String(a.nia) === String(currentNia));
+
+                const themeColors = {
+                  blue: {
+                    accent: 'bg-blue-600 text-white',
+                    border: 'border-blue-600',
+                    gradient: 'from-blue-700 to-indigo-950',
+                    text: 'text-blue-700'
+                  },
+                  gold: {
+                    accent: 'bg-amber-600 text-white',
+                    border: 'border-amber-500',
+                    gradient: 'from-amber-600 to-amber-950',
+                    text: 'text-amber-700'
+                  },
+                  red: {
+                    accent: 'bg-rose-600 text-white',
+                    border: 'border-rose-600',
+                    gradient: 'from-rose-700 to-red-950',
+                    text: 'text-rose-700'
+                  },
+                  emerald: {
+                    accent: 'bg-emerald-600 text-white',
+                    border: 'border-emerald-600',
+                    gradient: 'from-emerald-700 to-teal-950',
+                    text: 'text-emerald-700'
+                  }
+                };
+                const themeClasses = themeColors[cetakCardTheme] || themeColors.blue;
+
+                return (
+                  <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+                    {/* Controls Side Panel */}
+                    <div className="bg-white p-5 rounded-xl border border-[#e2e8f0] space-y-5 print-exclude shadow-sm">
+                      <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider border-b pb-2">
+                        Konfigurasi Kartu
+                      </h4>
+
+                      <div className="space-y-1.5">
+                        <label className="text-[11px] font-bold text-slate-600">Pilih Anggota</label>
+                        <select
+                          value={currentNia}
+                          onChange={(e) => setCetakSelectedNia(e.target.value)}
+                          className="w-full text-xs font-semibold p-2 border border-slate-200 rounded-lg outline-none focus:border-indigo-500 cursor-pointer"
+                        >
+                          {anggotaList.map((a) => (
+                            <option key={a.nia} value={a.nia}>
+                              {a.namaLengkap} - {a.nia}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <label className="text-[11px] font-bold text-slate-600">Template Warna</label>
+                        <div className="grid grid-cols-4 gap-2">
+                          {(['blue', 'gold', 'red', 'emerald'] as const).map((col) => (
+                            <button
+                              key={col}
+                              onClick={() => setCetakCardTheme(col)}
+                              className={`p-2 rounded-lg border text-[10px] font-bold capitalize transition cursor-pointer text-center ${
+                                cetakCardTheme === col
+                                  ? 'border-indigo-600 bg-indigo-50 text-indigo-700'
+                                  : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                              }`}
+                            >
+                              {col}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <label className="text-[11px] font-bold text-slate-600">Orientasi Kartu</label>
+                        <div className="grid grid-cols-2 gap-2">
+                          {(['horizontal', 'vertical'] as const).map((orient) => (
+                            <button
+                              key={orient}
+                              onClick={() => setCetakCardOrientation(orient)}
+                              className={`p-2 rounded-lg border text-[10px] font-bold capitalize transition cursor-pointer text-center ${
+                                cetakCardOrientation === orient
+                                  ? 'border-indigo-600 bg-indigo-50 text-indigo-700'
+                                  : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                              }`}
+                            >
+                              {orient}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="pt-2">
+                        <button
+                          onClick={() => executeDevicePrint('area-kartu-identitas')}
+                          disabled={!selectedAnggota}
+                          className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition flex items-center justify-center space-x-1.5 disabled:opacity-50 cursor-pointer shadow-md hover:-translate-y-0.5 active:translate-y-0"
+                        >
+                          <Printer className="w-4 h-4" />
+                          <span>Cetak Kartu Tanda Anggota</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Preview Area */}
+                    <div className="xl:col-span-2 flex flex-col items-center justify-center space-y-4">
+                      <div className="w-full text-center print-exclude">
+                        <span className="text-[10px] tracking-widest text-[#94a3b8] font-bold block">
+                          REAL-TIME DIGITAL PREVIEW
+                        </span>
+                      </div>
+
+                      <div
+                        id="area-kartu-identitas"
+                        className={`flex flex-col items-center gap-6 p-6 bg-white rounded-2xl w-full max-w-2xl border border-[#e2e8f0] shadow-sm ${
+                          printElementId === 'area-kartu-identitas' ? 'print-now' : ''
+                        }`}
+                      >
+                        {selectedAnggota ? (
+                          <div className={`w-full flex ${cetakCardOrientation === 'horizontal' ? 'flex-col md:flex-row md:flex-wrap md:justify-center' : 'flex-col items-center'} gap-6 justify-center items-center`}>
+                            
+                            {/* FRONT OF THE CARD */}
+                            <div
+                              className={`relative overflow-hidden rounded-xl border-2 ${themeClasses.border} shadow-lg shrink-0 bg-gradient-to-br ${themeClasses.gradient} text-white flex flex-col justify-between`}
+                              style={{
+                                width: cetakCardOrientation === 'horizontal' ? '340px' : '240px',
+                                height: cetakCardOrientation === 'horizontal' ? '216px' : '340px',
+                              }}
+                            >
+                              {/* Background Overlays */}
+                              <div className="absolute inset-0 opacity-10 bg-[radial-gradient(circle_at_bottom_left,_var(--tw-gradient-stops))] from-yellow-300 via-rose-300 to-indigo-800" />
+                              <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full blur-2xl -mr-10 -mt-10" />
+
+                              {/* Card Header */}
+                              <div className="p-3 border-b border-white/20 flex items-center space-x-2 bg-black/10 z-10">
+                                <div className="p-1 bg-white/10 rounded">
+                                  <School className="w-4 h-4 text-yellow-300" />
+                                </div>
+                                <div className="leading-tight text-left">
+                                  <h3 className="text-[9px] font-black tracking-wider uppercase text-yellow-300 truncate max-w-[200px]">
+                                    {lembagaLogin || "Lembaga Sapta"}
+                                  </h3>
+                                  <p className="text-[7px] text-white/80 uppercase tracking-widest font-mono">KARTU TANDA ANGGOTA</p>
+                                </div>
+                              </div>
+
+                              {/* Card Body */}
+                              <div className={`p-4 flex ${cetakCardOrientation === 'horizontal' ? 'flex-row' : 'flex-col items-center text-center'} gap-3 z-10 flex-1 justify-center`}>
+                                {/* Profile image photo frame */}
+                                <div className="shrink-0">
+                                  <img
+                                    src={selectedAnggota.linkProfile || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&fit=crop"}
+                                    alt="Foto"
+                                    referrerPolicy="no-referrer"
+                                    className="w-14 h-18 bg-slate-300 object-cover rounded border border-white/40 shadow shadow-black/30"
+                                  />
+                                </div>
+
+                                {/* Text data credentials */}
+                                <div className="space-y-1.5 text-left text-white leading-tight flex-1 min-w-0">
+                                  <div>
+                                    <span className="text-[6px] tracking-wider uppercase text-white/70 block">NOMOR INDUK ANGGOTA</span>
+                                    <span className="text-[11px] font-mono font-black tracking-widest text-yellow-200">{selectedAnggota.nia}</span>
+                                  </div>
+                                  <div>
+                                    <span className="text-[6px] tracking-wider uppercase text-white/70 block">NAMA LENGKAP</span>
+                                    <h4 className="text-[10px] font-black uppercase text-white tracking-wide border-b border-white/15 pb-0.5 truncate">{selectedAnggota.namaLengkap}</h4>
+                                  </div>
+                                  <div className="grid grid-cols-2 gap-1 pt-0.5">
+                                    <div>
+                                      <span className="text-[5px] tracking-wider text-white/60 block">KELAS / TINGKAT</span>
+                                      <span className="text-[8px] font-bold uppercase truncate block">{selectedAnggota.kelas || 'N/A'}</span>
+                                    </div>
+                                    <div>
+                                      <span className="text-[5px] tracking-wider text-white/60 block">JABATAN</span>
+                                      <span className="text-[8px] font-bold uppercase truncate block">{selectedAnggota.status || 'N/A'}</span>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Card Footer */}
+                              <div className="p-2 border-t border-white/10 bg-black/20 text-center z-10 flex items-center justify-between">
+                                <span className="text-[6px] opacity-70 tracking-widest font-mono">SAPTA DIGITAL CARD</span>
+                                <span className="text-[6px] font-bold text-yellow-300">VALID PERMANEN</span>
+                              </div>
+                            </div>
+
+                            {/* BACK OF THE CARD */}
+                            <div
+                              className="relative overflow-hidden rounded-xl border border-slate-300 shadow-lg shrink-0 bg-white text-slate-800 flex flex-col justify-between"
+                              style={{
+                                width: cetakCardOrientation === 'horizontal' ? '340px' : '240px',
+                                height: cetakCardOrientation === 'horizontal' ? '216px' : '340px',
+                              }}
+                            >
+                              {/* Overlay pattern background */}
+                              <div className="absolute inset-x-0 bottom-0 top-1/2 bg-slate-50 border-t border-slate-100" />
+                              
+                              {/* Rules guidelines heading */}
+                              <div className="p-2 bg-slate-100 border-b border-slate-200 text-center z-10">
+                                <h4 className="text-[8px] font-bold tracking-wider text-slate-700 uppercase">Ketentuan Pemegang Kartu</h4>
+                              </div>
+
+                              {/* Rules list body */}
+                              <div className="p-3.5 space-y-1 text-left text-slate-600 text-[7px] leading-relaxed z-10 font-bold flex-1">
+                                <p>1. Kartu ini milik sah lembaga {lembagaLogin || "Portal Sapta"}.</p>
+                                <p>2. Kartu wajib dibawa dan ditunjukkan pada setiap jenis kegiatan formal.</p>
+                                <p>3. Dilarang keras menyalahgunakan atau merusak fisik kartu ini.</p>
+                                <p>4. Jika menemukan kartu ini, harap hubungi pengelola sekretariat.</p>
+                              </div>
+
+                              {/* Barcode representation zone */}
+                              <div className="p-2 bg-white border-t border-slate-100 flex flex-col items-center justify-center space-y-1 z-10 leading-none">
+                                <div className="flex h-7 items-stretch space-x-[2px] w-40 justify-center bg-white border p-0.5 rounded shadow-sm">
+                                  {[1, 2, 1, 3, 2, 1, 4, 1, 1, 3, 2, 1, 4, 1, 2, 1].map((w, idx) => (
+                                    <div key={idx} className="bg-slate-900" style={{ width: `${w}px` }} />
+                                  ))}
+                                </div>
+                                <span className="text-[7px] font-mono tracking-widest text-slate-500 font-bold leading-none">
+                                  {selectedAnggota.nia}
+                                </span>
+                              </div>
+                            </div>
+
+                          </div>
+                        ) : (
+                          <div className="p-10 text-center text-slate-400 font-bold select-none text-xs">
+                            Unggah data anggota terlebih dahulu untuk melihat preview kartu identitas.
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* SECTION 2: REKAP ABSENSI ANGGOTA */}
+              {cetakActiveSubTab === 'absensi' && (() => {
+                // Get pre-filtered absensi by Nia & Class for base counters
+                const baseAbsensi = absensiList.filter(item => {
+                  const matchNia = cetakSelectedNia === 'Semua' || !cetakSelectedNia || String(item.nia) === String(cetakSelectedNia);
+                  const matchClass = cetakSelectedClass === 'Semua' || (item.kelas || '').toLowerCase() === cetakSelectedClass.toLowerCase();
+                  return matchNia && matchClass;
+                });
+
+                // Compute counters using the base selection
+                const hadirCount = baseAbsensi.filter(a => (a.status || '').toLowerCase() === 'hadir').length;
+                const izinCount = baseAbsensi.filter(a => (a.status || '').toLowerCase() === 'izin').length;
+                const sakitCount = baseAbsensi.filter(a => (a.status || '').toLowerCase() === 'sakit').length;
+                const alfaCount = baseAbsensi.filter(a => (a.status || '').toLowerCase() === 'alpha' || (a.status || '').toLowerCase() === 'alfa').length;
+
+                // Get final printed/displayed target filtered by status selection
+                const targetAbsensi = baseAbsensi.filter(item => {
+                  if (cetakSelectedStatus === 'Semua') return true;
+                  const statusVal = (item.status || '').toLowerCase();
+                  if (cetakSelectedStatus === 'Alpha') {
+                    return statusVal === 'alpha' || statusVal === 'alfa';
+                  }
+                  return statusVal === cetakSelectedStatus.toLowerCase();
+                });
+
+                // Unique Class options list
+                const kelasList = Array.from(new Set(anggotaList.map(a => a.kelas).filter(Boolean)));
+
+                return (
+                  <div className="space-y-6">
+                    {/* Controls Header Row view */}
+                    <div className="bg-white p-4 rounded-xl border border-[#e2e8f0] grid grid-cols-1 md:grid-cols-4 gap-4 items-end print-exclude shadow-sm">
+                      <div className="space-y-1">
+                        <label className="text-[11px] font-bold text-slate-600">Filter Anggota</label>
+                        <select
+                          value={cetakSelectedNia}
+                          onChange={(e) => setCetakSelectedNia(e.target.value)}
+                          className="w-full text-xs font-semibold p-2 border border-slate-200 rounded-lg outline-none cursor-pointer bg-white"
+                        >
+                          <option value="Semua">-- Semua Anggota --</option>
+                          {anggotaList.map((a) => (
+                            <option key={a.nia} value={a.nia}>
+                              {a.namaLengkap} ({a.nia})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="text-[11px] font-bold text-slate-600">Filter Kelas</label>
+                        <select
+                          value={cetakSelectedClass}
+                          onChange={(e) => setCetakSelectedClass(e.target.value)}
+                          className="w-full text-xs font-semibold p-2 border border-slate-200 rounded-lg outline-none cursor-pointer bg-white"
+                        >
+                          <option value="Semua">-- Semua Kelas --</option>
+                          {kelasList.map((k) => (
+                            <option key={k} value={k}>{k}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="text-[11px] font-bold text-slate-600">Filter Status</label>
+                        <select
+                          value={cetakSelectedStatus}
+                          onChange={(e) => setCetakSelectedStatus(e.target.value)}
+                          className="w-full text-xs font-semibold p-2 border border-slate-200 rounded-lg outline-none cursor-pointer bg-white"
+                        >
+                          <option value="Semua">Semua Kehadiran</option>
+                          <option value="Hadir">Hadir ({hadirCount})</option>
+                          <option value="Izin">Izin ({izinCount})</option>
+                          <option value="Sakit">Sakit ({sakitCount})</option>
+                          <option value="Alpha">Alpha/Tanpa Keterangan ({alfaCount})</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <button
+                          onClick={() => executeDevicePrint('area-rekap-absensi')}
+                          className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition flex items-center justify-center space-x-1.5 cursor-pointer shadow-md hover:-translate-y-0.5 active:translate-y-0"
+                        >
+                          <Printer className="w-4 h-4" />
+                          <span>Cetak Rekap Absensi</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Report statement Sheet layout */}
+                    <div
+                      id="area-rekap-absensi"
+                      className={`bg-white rounded-2xl border border-slate-200 p-8 max-w-4xl mx-auto shadow-sm ${
+                        printElementId === 'area-rekap-absensi' ? 'print-now text-black' : 'text-slate-800'
+                      }`}
+                    >
+                      {/* Letterhead */}
+                      <div className="border-b-4 border-double border-slate-900 pb-2.5 mb-6 text-center">
+                        <h2 className="text-xl font-extrabold tracking-wide uppercase text-slate-900">
+                          {lembagaLogin || "SEKRETARIAT UTAMA LEMBAGA SAPTA INDONESIA"}
+                        </h2>
+                        <p className="text-[10px] text-slate-500 font-bold tracking-wider pt-0.5">
+                          Sistem Pemantauan Terpadu • Email: {gmailLogin || 'info@sapta-portal.id'}
+                        </p>
+                      </div>
+
+                      <div className="text-center space-y-1 mb-6 leading-relaxed">
+                        <h3 className="text-sm font-bold tracking-wider text-slate-900 uppercase underline">
+                          LAPORAN REKAPITULASI PRESENSI & KEHADIRAN ANGGOTA
+                        </h3>
+                        <p className="text-[10px] text-slate-500 tracking-wide">
+                          Dicetak pada: {formatDateString(new Date().toISOString().substring(0,10))}
+                        </p>
+                      </div>
+
+                      {/* Filter Details Metadata */}
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 bg-slate-50/75 border rounded-xl p-4 mb-6 text-[10px] font-bold text-slate-600 leading-tight text-left">
+                        <div>
+                          <span className="block text-slate-400 font-normal">FILTER ANGGOTA</span>
+                          <span className="text-slate-800 leading-normal block">
+                            {cetakSelectedNia === 'Semua' || !cetakSelectedNia ? 'Semua Anggota' : anggotaList.find(a=>String(a.nia)===String(cetakSelectedNia))?.namaLengkap || 'Anggota Mandiri'}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="block text-slate-400 font-normal">KELAS / TINGKAT</span>
+                          <span className="text-slate-800 leading-normal block">{cetakSelectedClass}</span>
+                        </div>
+                        <div>
+                          <span className="block text-slate-400 font-normal">SITUASI / STATUS</span>
+                          <span className="text-emerald-600 leading-normal block uppercase font-extrabold">{cetakSelectedStatus}</span>
+                        </div>
+                        <div>
+                          <span className="block text-slate-400 font-normal">TOTAL ENTRI DICETAK</span>
+                          <span className="text-indigo-600 leading-normal font-mono block">{targetAbsensi.length} Baris Data</span>
+                        </div>
+                      </div>
+
+                      {/* Cumulative stats counters */}
+                      <div className="grid grid-cols-4 gap-4 mb-6 select-none">
+                        <button
+                          type="button"
+                          onClick={() => setCetakSelectedStatus(cetakSelectedStatus === 'Hadir' ? 'Semua' : 'Hadir')}
+                          className={`p-3 p-y-4 rounded-xl text-center leading-tight transition cursor-pointer text-left border ${
+                            cetakSelectedStatus === 'Hadir'
+                              ? 'bg-emerald-100 border-emerald-500 ring-2 ring-emerald-500/20'
+                              : 'bg-emerald-50 hover:bg-emerald-100/50 border-emerald-100'
+                          }`}
+                        >
+                          <span className="block text-[8px] font-black text-emerald-800 tracking-wider">HADIR</span>
+                          <span className="text-lg font-black text-emerald-600 font-mono block mt-1">{hadirCount}</span>
+                          <span className="text-[7.5px] text-emerald-700 block mt-0.5 tracking-tight print-exclude">
+                            {cetakSelectedStatus === 'Hadir' ? '✓ Sedang Difilter' : 'Klik untuk filter'}
+                          </span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setCetakSelectedStatus(cetakSelectedStatus === 'Izin' ? 'Semua' : 'Izin')}
+                          className={`p-3 p-y-4 rounded-xl text-center leading-tight transition cursor-pointer text-left border ${
+                            cetakSelectedStatus === 'Izin'
+                              ? 'bg-amber-100 border-amber-500 ring-2 ring-amber-500/20'
+                              : 'bg-amber-50 hover:bg-amber-100/50 border-amber-100'
+                          }`}
+                        >
+                          <span className="block text-[8px] font-black text-amber-800 tracking-wider">IZIN</span>
+                          <span className="text-lg font-black text-amber-600 font-mono block mt-1">{izinCount}</span>
+                          <span className="text-[7.5px] text-amber-700 block mt-0.5 tracking-tight print-exclude">
+                            {cetakSelectedStatus === 'Izin' ? '✓ Sedang Difilter' : 'Klik untuk filter'}
+                          </span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setCetakSelectedStatus(cetakSelectedStatus === 'Sakit' ? 'Semua' : 'Sakit')}
+                          className={`p-3 p-y-4 rounded-xl text-center leading-tight transition cursor-pointer text-left border ${
+                            cetakSelectedStatus === 'Sakit'
+                              ? 'bg-blue-100 border-blue-500 ring-2 ring-blue-500/20'
+                              : 'bg-blue-50 hover:bg-blue-100/50 border-blue-100'
+                          }`}
+                        >
+                          <span className="block text-[8px] font-black text-blue-800 tracking-wider">SAKIT</span>
+                          <span className="text-lg font-black text-blue-600 font-mono block mt-1">{sakitCount}</span>
+                          <span className="text-[7.5px] text-blue-700 block mt-0.5 tracking-tight print-exclude">
+                            {cetakSelectedStatus === 'Sakit' ? '✓ Sedang Difilter' : 'Klik untuk filter'}
+                          </span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setCetakSelectedStatus(cetakSelectedStatus === 'Alpha' ? 'Semua' : 'Alpha')}
+                          className={`p-3 p-y-4 rounded-xl text-center leading-tight transition cursor-pointer text-left border ${
+                            cetakSelectedStatus === 'Alpha'
+                              ? 'bg-rose-100 border-rose-500 ring-2 ring-rose-500/20'
+                              : 'bg-rose-50 hover:bg-rose-100/50 border-rose-100'
+                          }`}
+                        >
+                          <span className="block text-[8px] font-black text-rose-800 tracking-wider">ALPHA</span>
+                          <span className="text-lg font-black text-rose-600 font-mono block mt-1">{alfaCount}</span>
+                          <span className="text-[7.5px] text-rose-700 block mt-0.5 tracking-tight print-exclude">
+                            {cetakSelectedStatus === 'Alpha' ? '✓ Sedang Difilter' : 'Klik untuk filter'}
+                          </span>
+                        </button>
+                      </div>
+
+                      {/* Table detail list */}
+                      <div className="border border-slate-200 rounded-xl overflow-hidden mb-8">
+                        <table className="w-full text-left border-collapse text-[10px] font-semibold">
+                          <thead>
+                            <tr className="bg-slate-100 border-b border-slate-200 text-slate-700 font-bold">
+                              <th className="px-4 py-2">NIA</th>
+                              <th className="px-4 py-2">Nama Lengkap</th>
+                              <th className="px-4 py-2">Kelas</th>
+                              <th className="px-4 py-2">Tanggal</th>
+                              <th className="px-3 py-2">Waktu</th>
+                              <th className="px-3 py-2">Status</th>
+                              <th className="px-4 py-2">Keterangan</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100 text-slate-700">
+                            {targetAbsensi.length === 0 ? (
+                              <tr>
+                                <td colSpan={7} className="px-4 py-8 text-center text-slate-400 select-none">
+                                  Belum ada entri catatan kehadiran sesuai filter yang dipilih.
+                                </td>
+                              </tr>
+                            ) : (
+                              targetAbsensi.map((a, idx) => (
+                                <tr key={idx} className="hover:bg-slate-50/50">
+                                  <td className="px-4 py-2 font-mono font-bold text-slate-800">{a.nia}</td>
+                                  <td className="px-4 py-2 uppercase font-black">{a.namaLengkap}</td>
+                                  <td className="px-4 py-2">{a.kelas || '-'}</td>
+                                  <td className="px-4 py-2">{formatDateString(a.tanggal)}</td>
+                                  <td className="px-3 py-2 font-mono">{a.waktu || '-'}</td>
+                                  <td className="px-3 py-2">
+                                    <span className={`px-1.5 py-0.5 rounded font-bold text-[8px] ${
+                                      (a.status || '').toLowerCase() === 'hadir' ? 'text-emerald-600 bg-emerald-50' :
+                                      (a.status || '').toLowerCase() === 'izin' ? 'text-amber-600 bg-amber-50' :
+                                      (a.status || '').toLowerCase() === 'sakit' ? 'text-blue-600 bg-blue-50' : 'text-rose-600 bg-rose-50'
+                                    }`}>
+                                      {a.status}
+                                    </span>
+                                  </td>
+                                  <td className="px-4 py-2 text-slate-500 italic font-medium">{a.keterangan || '-'}</td>
+                                </tr>
+                              ))
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      {/* Signature Lines */}
+                      <div className="flex justify-between items-center text-[10px] font-bold text-slate-800 mt-10">
+                        <div className="w-40 text-center leading-relaxed">
+                          <p className="opacity-0">Placeholder</p>
+                          <p className="pb-16">Petugas Administrasi,</p>
+                          <p className="underline uppercase font-extrabold">{userNama || "ADMIN SAPTA"}</p>
+                          <p className="text-[8px] text-slate-400">NIP / Jabatan Terverifikasi</p>
+                        </div>
+                        <div className="w-40 text-center leading-relaxed">
+                          <p>Mengetahui,</p>
+                          <p className="pb-16">Pembimbing / Pembina,</p>
+                          <p className="underline uppercase font-extrabold">______________________</p>
+                          <p className="text-[8px] text-slate-400">Lembaga {lembagaLogin || "Sapta"}</p>
+                        </div>
+                      </div>
+
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* SECTION 3: LAPORAN PELANGGARAN ANGGOTA */}
+              {cetakActiveSubTab === 'pelanggaran' && (() => {
+                const targetPelanggaran = pelanggaranList.filter(item => {
+                  const matchNia = cetakSelectedNia === 'Semua' || !cetakSelectedNia || String(item.nia) === String(cetakSelectedNia);
+                  return matchNia;
+                });
+
+                // Calculate cumulative penalty fines
+                const totalDenda = targetPelanggaran.reduce((acc, p) => acc + (Number(p.nominalDenda) || 0), 0);
+                const unpaidFine = targetPelanggaran.filter(p => !p.statusTindakLanjut || p.statusTindakLanjut.toLowerCase().includes('belum')).reduce((acc, p) => acc + (Number(p.nominalDenda) || 0), 0);
+
+                return (
+                  <div className="space-y-6">
+                    {/* Controls Row and Action */}
+                    <div className="bg-white p-4 rounded-xl border border-[#e2e8f0] grid grid-cols-1 md:grid-cols-3 gap-4 items-end print-exclude shadow-sm">
+                      <div className="space-y-1">
+                        <label className="text-[11px] font-bold text-slate-600">Pilih Anggota</label>
+                        <select
+                          value={cetakSelectedNia}
+                          onChange={(e) => setCetakSelectedNia(e.target.value)}
+                          className="w-full text-xs font-semibold p-2 border border-slate-200 rounded-lg outline-none cursor-pointer"
+                        >
+                          <option value="Semua">-- Semua Anggota --</option>
+                          {anggotaList.map((a) => (
+                            <option key={a.nia} value={a.nia}>
+                              {a.namaLengkap} ({a.nia})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="md:col-span-2 text-right">
+                        <button
+                          onClick={() => executeDevicePrint('area-laporan-pelanggaran')}
+                          className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition flex items-center space-x-1.5 cursor-pointer max-w-max ml-auto shadow-md hover:-translate-y-0.5 active:translate-y-0"
+                        >
+                          <Printer className="w-4 h-4" />
+                          <span>Cetak Laporan Ketertiban</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Report Sheet Layout */}
+                    <div
+                      id="area-laporan-pelanggaran"
+                      className={`bg-white rounded-2xl border border-slate-200 p-8 max-w-4xl mx-auto shadow-sm ${
+                        printElementId === 'area-laporan-pelanggaran' ? 'print-now text-black' : 'text-slate-800'
+                      }`}
+                    >
+                      {/* Letterhead */}
+                      <div className="border-b-4 border-double border-slate-900 pb-2.5 mb-6 text-center">
+                        <h2 className="text-xl font-extrabold tracking-wide uppercase text-slate-900">
+                          {lembagaLogin || "SEKRETARIAT UTAMA LEMBAGA SAPTA INDONESIA"}
+                        </h2>
+                        <p className="text-[10px] text-slate-500 font-bold tracking-wider pt-0.5">
+                          Seksi Ketertiban & Regulasi Konselong Disiplin • Email: {gmailLogin || 'info@sapta-portal.id'}
+                        </p>
+                      </div>
+
+                      <div className="text-center space-y-1 mb-6 leading-relaxed">
+                        <h3 className="text-sm font-bold tracking-wider text-slate-950 uppercase underline">
+                          SURAT LAPORAN DISIPLIN & SANKSI PELANGGARAN ANGGOTA
+                        </h3>
+                        <p className="text-[9px] text-slate-500 tracking-wider">
+                          Nomor Transkrip: DISIP-{new Date().getFullYear()}-{Math.floor(1000 + Math.random() * 9000)}
+                        </p>
+                      </div>
+
+                      {/* Header detail grid */}
+                      <div className="grid grid-cols-2 md:grid-cols-3 gap-4 bg-slate-50 border rounded-xl p-4 mb-6 text-[10px] font-bold text-slate-600 text-left">
+                        <div>
+                          <span className="block text-slate-400 font-normal">NAMA ANGGOTA SASARAN</span>
+                          <span className="text-slate-800 uppercase block leading-normal font-extrabold">
+                            {cetakSelectedNia === 'Semua' || !cetakSelectedNia ? 'Semua Terdaftar' : anggotaList.find(a=>String(a.nia)===String(cetakSelectedNia))?.namaLengkap || 'Anggota Mandiri'}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="block text-slate-400 font-normal">NOMOR INDUK ANGGOTA</span>
+                          <span className="text-slate-800 block leading-normal font-mono">{cetakSelectedNia === 'Semua' ? 'MULTI NIA' : cetakSelectedNia}</span>
+                        </div>
+                        <div>
+                          <span className="block text-slate-400 font-normal">TOTAL AKUMULASI DENDA</span>
+                          <span className="text-rose-600 block leading-normal text-xs font-black">{formatRupiah(totalDenda)}</span>
+                        </div>
+                      </div>
+
+                      {/* Fine information bar */}
+                      {totalDenda > 0 && (
+                        <div className="p-3 bg-rose-50 border border-rose-100 rounded-lg text-[10px] font-bold text-rose-800 mb-6 leading-relaxed text-left">
+                          ⚠️ PERHATIAN: Masih terdapat total tagihan denda tindak lanjut sejumlah <span className="text-rose-700 font-black underline">{formatRupiah(unpaidFine)}</span> yang belum dibayarkan secara penuh ke bendahara ketertiban lembaga.
+                        </div>
+                      )}
+
+                      {/* Violation detail table */}
+                      <div className="border border-slate-200 rounded-xl overflow-hidden mb-8">
+                        <table className="w-full text-left border-collapse text-[10px] font-semibold">
+                          <thead>
+                            <tr className="bg-slate-100 border-b border-slate-200 text-slate-700 font-bold">
+                              <th className="px-4 py-2 w-20">ID Laporan</th>
+                              <th className="px-4 py-2 w-28">Tanggal</th>
+                              <th className="px-4 py-2">Nama Pelanggaran</th>
+                              <th className="px-3 py-2 w-16">Tingkat</th>
+                              <th className="px-4 py-2 w-20">Denda</th>
+                              <th className="px-4 py-2">Hukuman / Sanksi</th>
+                              <th className="px-3 py-2">Status</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-150 text-slate-700 font-medium">
+                            {targetPelanggaran.length === 0 ? (
+                              <tr>
+                                <td colSpan={7} className="px-4 py-8 text-center text-slate-400 select-none">
+                                  Sempurna! Tidak ada catatan pelanggaran disiplin terdeteksi untuk filter saat ini.
+                                </td>
+                              </tr>
+                            ) : (
+                              targetPelanggaran.map((p, idx) => (
+                                <tr key={idx} className="hover:bg-slate-50/50">
+                                  <td className="px-4 py-2 font-mono text-slate-600">{p.idPelanggaran || idx + 1}</td>
+                                  <td className="px-4 py-2">{formatDateString(p.tanggal)}</td>
+                                  <td className="px-4 py-2 font-bold text-slate-900 uppercase text-left">
+                                    {p.namaPelanggaran}
+                                    <span className="block text-[8px] font-medium text-slate-400 leading-normal lowercase italic">{p.keterangan || ''}</span>
+                                  </td>
+                                  <td className="px-3 py-2 font-bold">{p.jenisPelanggaran || 'Sedang'}</td>
+                                  <td className="px-4 py-2 font-mono text-rose-600 font-bold">{formatRupiah(Number(p.nominalDenda) || 0)}</td>
+                                  <td className="px-4 py-2 text-slate-500">{p.jenisHukuman || 'Peringatan keras'}</td>
+                                  <td className="px-3 py-2">
+                                    <span className={`px-1.5 py-0.5 rounded text-[8px] font-bold ${
+                                      (p.statusTindakLanjut || '').toLowerCase().includes('sudah') || (p.statusTindakLanjut || '').toLowerCase().includes('selesai')
+                                        ? 'text-emerald-600 bg-emerald-50'
+                                        : 'text-rose-600 bg-rose-50'
+                                    }`}>
+                                      {p.statusTindakLanjut || 'Belum Selesai'}
+                                    </span>
+                                  </td>
+                                </tr>
+                              ))
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      {/* Regulatory guidelines foot */}
+                      <div className="text-[8px] text-slate-400 leading-normal space-y-1 mb-8 pr-4 text-left">
+                        <p>* Segala bentuk pelanggaran disiplin dicatat berdasarkan AD/ART tata tertib hukum lembaga Sapta.</p>
+                        <p>* Hubungi komisi konseling kedisiplinan dan koordinasi wali murid jika pelanggaran berstatus denda atau tindak lanjut akumulatif tinggi.</p>
+                      </div>
+
+                      {/* Signatures */}
+                      <div className="flex justify-between items-center text-[10px] font-bold text-slate-800 mt-10">
+                        <div className="w-40 text-center leading-relaxed">
+                          <p>Mengetahui,</p>
+                          <p className="pb-16">Orang Tua / Wali Anggota,</p>
+                          <p className="underline uppercase font-extrabold">______________________</p>
+                        </div>
+                        <div className="w-40 text-center leading-relaxed">
+                          <p>Lembaga Koordinator,</p>
+                          <p className="pb-16">Kepala Bidang Konseling,</p>
+                          <p className="underline uppercase font-extrabold">______________________</p>
+                          <p className="text-[8px] text-slate-400">Komisi Disiplin Sapta</p>
+                        </div>
+                      </div>
+
+                    </div>
+                  </div>
+                );
+              })()}
 
             </div>
           )}

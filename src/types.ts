@@ -87,7 +87,7 @@ export interface Peraturan {
   status: 'Ringan' | 'Sedang' | 'Berat';
 }
 
-export type ActiveTab = 'dashboard' | 'anggota' | 'pembayaran' | 'prestasi' | 'pelanggaran' | 'absensi' | 'informasi' | 'surat' | 'peraturan' | 'pengaturan';
+export type ActiveTab = 'dashboard' | 'anggota' | 'pembayaran' | 'prestasi' | 'pelanggaran' | 'absensi' | 'informasi' | 'surat' | 'peraturan' | 'pengaturan' | 'kelola_akun' | 'cetak_data';
 
 export interface ToastMessage {
   id: string;

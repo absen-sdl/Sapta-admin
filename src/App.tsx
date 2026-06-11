@@ -6237,6 +6237,159 @@ export default function App() {
             </div>
           )}
 
+          {/* ========================================================== */}
+          {/* ================ SUB-ACCOUNT EDIT / ADD MODAL ============ */}
+          {/* ========================================================== */}
+          {isSubAccountModalOpen && (
+            <div className="fixed inset-0 bg-slate-950/60 z-50 flex items-center justify-center p-4 backdrop-blur-xs">
+              <div className="bg-white rounded-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto shadow-2xl flex flex-col justify-between border border-[#e2e8f0] animate-scale-up">
+                
+                {/* Modal Header */}
+                <header className="px-6 py-5 border-b border-[#f1f5f9] flex items-center justify-between bg-white rounded-t-2xl shrink-0">
+                  <h3 className="font-extrabold text-[#0f172a] font-sans text-base tracking-tight">
+                    {subAccountModalType === 'add' ? 'Tambah Sub-Akun Baru' : 'Edit Sub-Akun Akses'}
+                  </h3>
+                  <button
+                    onClick={() => setIsSubAccountModalOpen(false)}
+                    className="p-1.5 rounded-lg text-[#64748b] hover:bg-[#f1f5f9] hover:text-[#0f172a] transition cursor-pointer"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </header>
+
+                {/* Modal Body / Form */}
+                <form onSubmit={handleSaveSubAccount} className="p-6 space-y-5">
+                  
+                  {/* Field: NAMA LENGKAP */}
+                  <div className="space-y-1.5 text-left">
+                    <label className="block text-xs font-black text-slate-700 uppercase tracking-wider">
+                      NAMA LENGKAP
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="Masukkan nama lengkap..."
+                      value={subAccountFormValues.nama}
+                      onChange={(e) => setSubAccountFormValues(prev => ({ ...prev, nama: e.target.value }))}
+                      className="w-full px-3.5 py-2 border border-slate-200 rounded-lg text-xs font-bold outline-none focus:border-indigo-500 bg-slate-50/50 text-slate-850"
+                    />
+                  </div>
+
+                  {/* Field: NAMA PENGGUNA (USERNAME) */}
+                  <div className="space-y-1.5 text-left">
+                    <label className="block text-xs font-black text-slate-700 uppercase tracking-wider">
+                      NAMA PENGGUNA (USERNAME)
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      disabled={subAccountModalType === 'edit'}
+                      placeholder="Masukkan username (contoh: admin_baru)..."
+                      value={subAccountFormValues.username}
+                      onChange={(e) => {
+                        const cleanValue = e.target.value.toLowerCase().replace(/\s+/g, '');
+                        setSubAccountFormValues(prev => ({ ...prev, username: cleanValue }));
+                      }}
+                      className={`w-full px-3.5 py-2 border border-slate-200 rounded-lg text-xs font-mono outline-none focus:border-indigo-500 text-slate-850 ${
+                        subAccountModalType === 'edit' ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'bg-slate-50/50'
+                      }`}
+                    />
+                    {subAccountModalType === 'edit' && (
+                      <p className="text-[10px] text-slate-400 italic font-medium">Username tidak dapat diubah setelah dibuat.</p>
+                    )}
+                  </div>
+
+                  {/* Field: KATA SANDI (PASSWORD) */}
+                  <div className="space-y-1.5 text-left">
+                    <label className="block text-xs font-black text-slate-700 uppercase tracking-wider">
+                      KATA SANDI (PASSWORD)
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="Masukkan kata sandi..."
+                      value={subAccountFormValues.pasword}
+                      onChange={(e) => setSubAccountFormValues(prev => ({ ...prev, pasword: e.target.value }))}
+                      className="w-full px-3.5 py-2 border border-slate-200 rounded-lg text-xs font-mono font-bold outline-none focus:border-indigo-500 bg-slate-50/50 text-slate-850"
+                    />
+                  </div>
+
+                  {/* Checkboxes: MENU TERBLOKIR */}
+                  <div className="pt-2 border-t border-slate-150 text-left">
+                    <label className="block text-xs font-black text-slate-700 uppercase tracking-wider mb-1.5">
+                      MENU TERBLOKIR
+                    </label>
+                    <p className="text-[10px] text-slate-400 mb-3 leading-relaxed">
+                      Centang di bawah ini untuk memblokir hak akses halaman tertentu dari akun ini. Biarkan kosong untuk memberikan akses penuh.
+                    </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-56 overflow-y-auto p-1.5 border border-slate-100 rounded-lg bg-slate-50/20">
+                      {[
+                        { key: 'anggota', label: 'Daftar Anggota' },
+                        { key: 'pembayaran', label: 'Pembayaran / Keuangan' },
+                        { key: 'prestasi', label: 'Prestasi Anggota' },
+                        { key: 'pelanggaran', label: 'Pelanggaran / Ketertiban' },
+                        { key: 'absensi', label: 'Rekap Absensi' },
+                        { key: 'informasi', label: 'Informasi / Kabar' },
+                        { key: 'surat', label: 'Surat Resmi' },
+                        { key: 'peraturan', label: 'Peraturan & Regulasi' },
+                        { key: 'cetak_data', label: 'Cetak & Simpan Data' },
+                        { key: 'pengaturan', label: 'Pengaturan Sistem' },
+                      ].map((menuItem) => {
+                        const isBlocked = subAccountFormValues.remove_menu
+                          ? subAccountFormValues.remove_menu.split(',').map(s => s.trim().toLowerCase()).includes(menuItem.key.toLowerCase())
+                          : false;
+                        return (
+                          <label
+                            key={menuItem.key}
+                            className={`flex items-center space-x-2.5 p-2 rounded-lg border transition cursor-pointer select-none text-[11px] font-semibold ${
+                              isBlocked
+                                ? 'border-rose-200 bg-rose-50/50 text-rose-700 font-bold'
+                                : 'border-slate-200 hover:bg-slate-50 text-slate-700'
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isBlocked}
+                              onChange={() => handleToggleRemoveMenu(menuItem.key)}
+                              className="w-3.5 h-3.5 rounded border-slate-300 text-rose-600 focus:ring-rose-500 accent-rose-600 cursor-pointer"
+                            />
+                            <span>{menuItem.label}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Action Buttons */}
+                  <div className="pt-4 border-t border-[#f1f5f9] flex justify-end gap-2 text-xs font-bold">
+                    <button
+                      type="button"
+                      onClick={() => setIsSubAccountModalOpen(false)}
+                      className="px-4 py-2 border border-slate-200 text-slate-700 rounded-lg hover:bg-[#f8fafc] transition cursor-pointer shadow-sm"
+                    >
+                      Batal
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={isSavingSubAccount}
+                      className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition cursor-pointer shadow-sm flex items-center justify-center space-x-1"
+                    >
+                      {isSavingSubAccount ? (
+                        <>
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin mr-1" />
+                          <span>Menyimpan...</span>
+                        </>
+                      ) : (
+                        <span>Simpan Akun</span>
+                      )}
+                    </button>
+                  </div>
+
+                </form>
+              </div>
+            </div>
+          )}
+
 
           {/* ======================= VIEW: CETAK & SIMPAN DATA ======================= */}
           {activeTab === 'cetak_data' && (

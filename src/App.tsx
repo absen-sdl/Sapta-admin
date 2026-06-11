@@ -52,6 +52,60 @@ import { parseCSV, generateId, formatRupiah, formatDateString, getProp, terbilan
 import { Anggota, Pembayaran, Prestasi, Pelanggaran, Absensi, Informasi, Surat, Peraturan, ActiveTab, ToastMessage } from './types';
 import { GOOGLE_APPS_SCRIPT_CODE } from './googleAppsScriptCode';
 
+// Local fetch override to transparently proxy external requests and bypass iframe sandbox CORS limitations
+const originalFetch = window.fetch;
+const fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+  let url = '';
+  if (typeof input === 'string') {
+    url = input;
+  } else if (input instanceof URL) {
+    url = input.toString();
+  } else if (input && typeof input === 'object' && 'url' in input) {
+    url = (input as any).url;
+  }
+
+  if (url && (url.startsWith('http://') || url.startsWith('https://')) && !url.includes(window.location.host)) {
+    const proxyUrl = `/api/proxy?url=${encodeURIComponent(url)}`;
+    if (typeof input === 'string') {
+      return originalFetch(proxyUrl, init);
+    } else {
+      try {
+        const reqObj = input as Request;
+        const headers: Record<string, string> = {};
+        if (reqObj.headers) {
+          reqObj.headers.forEach((value, key) => {
+            headers[key] = value;
+          });
+        }
+        
+        let body: any = undefined;
+        if (reqObj.method !== 'GET' && reqObj.method !== 'HEAD' && !reqObj.bodyUsed) {
+          try {
+            body = await reqObj.clone().text();
+          } catch (e) {
+            console.warn("Failed to clone request body:", e);
+          }
+        }
+        
+        return originalFetch(proxyUrl, {
+          method: reqObj.method,
+          headers: {
+            ...headers,
+            ...(init?.headers || {})
+          },
+          body: body || init?.body,
+          credentials: reqObj.credentials || init?.credentials,
+          mode: 'cors'
+        });
+      } catch (err) {
+        console.warn("Proxy mapping failed, falling back to direct fetch", err);
+        return originalFetch(input, init);
+      }
+    }
+  }
+  return originalFetch(input, init);
+};
+
 function getRowPrimaryKey(tab: string, row: any): string {
   if (!row) return '';
   if (tab === 'anggota') {

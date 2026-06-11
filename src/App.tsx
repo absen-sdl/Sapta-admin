@@ -3001,6 +3001,93 @@ export default function App() {
   return (
     <div className="flex h-screen w-full bg-[#f8fafc] text-[#0f172a] font-sans overflow-hidden relative">
       
+      {/* Global CSS overrides for browser print pipeline printing */}
+      <style>{`
+        @media print {
+          /* Unlock parent scroll boundaries for full page layout flow across multiple sheets */
+          html, body, #root,
+          .flex.h-screen.w-full,
+          main,
+          main > div,
+          .overflow-y-auto,
+          .overflow-hidden {
+            height: auto !important;
+            min-height: 0 !important;
+            max-height: none !important;
+            overflow: visible !important;
+            overflow-y: visible !important;
+            position: static !important;
+          }
+
+          /* Hide controls, banners, tables non-targets & layout panels */
+          .print-exclude, 
+          aside, 
+          header, 
+          nav, 
+          button, 
+          input, 
+          select, 
+          option, 
+          textarea {
+            display: none !important;
+            visibility: hidden !important;
+          }
+
+          /* Format targets sheet area to display as full relative width blocks */
+          .print-now {
+            display: block !important;
+            visibility: visible !important;
+            position: relative !important;
+            left: 0 !important;
+            top: 0 !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            margin: 0px auto !important;
+            padding: 0px !important;
+            background: white !important;
+            box-shadow: none !important;
+            border: none !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
+
+          /* Ensure functional layouts like flex / columns inside printed sheets are supported */
+          .print-now .flex {
+            display: flex !important;
+          }
+          .print-now .grid {
+            display: grid !important;
+          }
+
+          .print-now * {
+            visibility: visible !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
+
+          /* Dedicated parameters styling for physical receipt receipts */
+          #area-struk-pembayaran.print-now {
+            display: block !important;
+            position: relative !important;
+            margin: 20px auto !important;
+            width: 360px !important;
+            max-width: 360px !important;
+            background: white !important;
+            border: 1px solid #cbd5e1 !important;
+            border-radius: 12px !important;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.06) !important;
+            padding: 24px !important;
+            visibility: visible !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
+
+          #area-struk-pembayaran.print-now * {
+            visibility: visible !important;
+          }
+        }
+      `}</style>
+      
       {/* Mobile Sidebar overlay backdrop */}
       {isSidebarOpen && (
         <div 
@@ -6119,61 +6206,7 @@ export default function App() {
                 </div>
               )}
 
-              {/* Dynamic Print Helper Styles */}
-              <style>{`
-                @media print {
-                  body {
-                    background: white !important;
-                    color: black !important;
-                    margin: 0 !important;
-                    padding: 0 !important;
-                    -webkit-print-color-adjust: exact !important;
-                    print-color-adjust: exact !important;
-                  }
-                  .print-exclude, aside, header, nav, button {
-                    display: none !important;
-                    visibility: hidden !important;
-                  }
-                  .print-now {
-                    position: absolute !important;
-                    left: 0 !important;
-                    top: 0 !important;
-                    width: 100% !important;
-                    max-width: 100% !important;
-                    background: white !important;
-                    box-shadow: none !important;
-                    border: none !important;
-                    visibility: visible !important;
-                    z-index: 9999 !important;
-                    padding: 20px !important;
-                    -webkit-print-color-adjust: exact !important;
-                    print-color-adjust: exact !important;
-                  }
-                  
-                  /* Dedicated thermal layout for the printed physical / digital receipt */
-                  #area-struk-pembayaran.print-now {
-                    position: relative !important;
-                    margin: 30px auto !important;
-                    width: 360px !important;
-                    max-width: 360px !important;
-                    background: white !important;
-                    border: 1px solid #cbd5e1 !important;
-                    border-radius: 12px !important;
-                    box-shadow: 0 4px 10px rgba(0,0,0,0.06) !important;
-                    padding: 24px !important;
-                    visibility: visible !important;
-                    z-index: 10000 !important;
-                    -webkit-print-color-adjust: exact !important;
-                    print-color-adjust: exact !important;
-                  }
-
-                  .print-now * {
-                    visibility: visible !important;
-                    -webkit-print-color-adjust: exact !important;
-                    print-color-adjust: exact !important;
-                  }
-                }
-              `}</style>
+              {/* Global print stylesheet handles all printing layouts */}
 
               {/* Sub Navigation Tabs */}
               <div className="bg-white p-2 rounded-xl border border-[#e2e8f0] flex flex-wrap gap-1 print-exclude shadow-sm">

@@ -5312,78 +5312,82 @@ export default function App() {
                 </div>
               </div>
 
-              {/* ========================================================================= */}
+                           {/* ========================================================================= */}
               {/* =========== PENGATURAN BUKTI PEMBAYARAN (STRUK THERMAL) ================ */}
               {/* ========================================================================= */}
-              <div className="bg-white p-6 rounded-xl border border-[#e2e8f0] space-y-6">
-                <div>
-                  <h3 className="text-sm font-bold text-[#0f172a] flex items-center gap-2">
+              <div className="bg-white p-4 rounded-xl border border-[#e2e8f0] space-y-4">
+                <div className="flex items-center gap-2 border-b border-[#f1f5f9] pb-2">
+                  <div className="p-1.5 bg-indigo-50 rounded-lg">
                     <FileText className="w-4 h-4 text-indigo-600" />
-                    <span>Pengaturan Bukti Pembayaran (Struk Thermal)</span>
-                  </h3>
-                  <p className="text-[11px] text-[#64748b]">
-                    Sesuaikan rincian tata letak, teks header kop, email, diskon, dan catatan kaki untuk struk bukti pembayaran resmi.
-                  </p>
+                  </div>
+                  <div className="text-left">
+                    <h3 className="text-xs font-black uppercase tracking-wider text-[#0f172a]">
+                      Pengaturan Bukti Pembayaran (Struk Thermal)
+                    </h3>
+                    <p className="text-[10px] text-[#64748b]">
+                      Sesuaikan rincian tata letak kop header, email, diskon default, dan ucapan kaki struk thermal.
+                    </p>
+                  </div>
                 </div>
 
-                <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
                   {/* Left Column: Form Controls */}
-                  <div className="lg:col-span-7 space-y-4 text-left">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="lg:col-span-8 space-y-3 text-left">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       {/* Kop Utama */}
-                      <div className="space-y-1.5">
-                        <label className="text-[11px] font-bold text-slate-700 block">Nama Kop Utama (Header)</label>
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold text-slate-700 block">Nama Kop Utama (Header)</label>
                         <input
                           type="text"
                           value={receiptHeaderTitle}
                           onChange={(e) => setReceiptHeaderTitle(e.target.value)}
                           placeholder={lembagaLogin || "PORTAL SEKTOR BERSAMA"}
-                          className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs outline-none focus:border-indigo-500 bg-slate-50/50"
+                          className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs outline-none focus:border-indigo-500 bg-slate-50/50"
                         />
-                        <span className="text-[9px] text-slate-400 font-medium block mt-0.5">Bila kosong, menggunakan nama lembaga aktif ({lembagaLogin || 'Default'}).</span>
+                        <span className="text-[8px] text-slate-400 block mt-0.5 leading-none">Kosongkan untuk nama lembaga aktif ({lembagaLogin || 'Default'}).</span>
                       </div>
 
                       {/* Judul Sub Kop */}
-                      <div className="space-y-1.5">
-                        <label className="text-[11px] font-bold text-slate-700 block">Sub-Judul Kwitansi</label>
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold text-slate-700 block">Sub-Judul Kwitansi</label>
                         <input
                           type="text"
                           value={receiptHeaderSub}
                           onChange={(e) => setReceiptHeaderSub(e.target.value)}
                           placeholder="Bukti Pembayaran Resmi (Lunas)"
-                          className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs outline-none focus:border-indigo-500 bg-slate-50/50 font-medium text-slate-700"
+                          className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs outline-none focus:border-indigo-500 bg-slate-50/50 font-medium text-slate-700"
                         />
                       </div>
                     </div>
 
-                    <div className="space-y-1.5">
-                      <label className="text-[11px] font-bold text-slate-700 block">Alamat Lembaga (Header Kop)</label>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-700 block">Alamat Lembaga (Header Kop)</label>
                       <input
                         type="text"
                         value={receiptHeaderAddress}
                         onChange={(e) => setReceiptHeaderAddress(e.target.value)}
                         placeholder="Jl. Raya Sektor Bersama No. 10, Jakarta"
-                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs outline-none focus:border-indigo-500 bg-slate-50/50 text-slate-750"
+                        className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs outline-none focus:border-indigo-500 bg-slate-50/50 text-slate-750"
                       />
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       {/* Kop Kontak / Email */}
-                      <div className="space-y-1.5">
-                        <label className="text-[11px] font-bold text-slate-700 block">Kontak / Email Informasi</label>
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold text-slate-700 block">Kontak / Email Informasi</label>
                         <input
                           type="text"
                           value={receiptHeaderEmail}
                           onChange={(e) => setReceiptHeaderEmail(e.target.value)}
                           placeholder={gmailLogin || 'info@sapta-portal.id'}
-                          className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs outline-none focus:border-indigo-500 bg-slate-50/50"
+                          className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs outline-none focus:border-indigo-500 bg-slate-50/50"
                         />
-                        <span className="text-[9px] text-slate-400 font-medium block mt-0.5">Bila kosong, menggunakan email aktif ({gmailLogin || 'Default'}).</span>
+                        <span className="text-[8px] text-slate-400 block mt-0.5 leading-none">Kosongkan untuk email aktif ({gmailLogin || 'Default'}).</span>
                       </div>
 
                       {/* Default Discount Percent */}
-                      <div className="space-y-1.5">
-                        <label className="text-[11px] font-bold text-slate-700 block">Potongan Diskon (%)</label>
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold text-slate-700 block">Potongan Diskon (%)</label>
                         <div className="flex items-center space-x-2">
                           <input
                             type="number"
@@ -5394,18 +5398,17 @@ export default function App() {
                               const v = Math.min(100, Math.max(0, Number(e.target.value) || 0));
                               setReceiptDiscountPercent(v);
                             }}
-                            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs outline-none focus:border-indigo-500 bg-slate-50/50 font-bold text-slate-850"
+                            className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs outline-none focus:border-indigo-500 bg-slate-50/50 font-bold text-slate-850"
                           />
                           <span className="text-xs text-slate-500 shrink-0 font-bold">%</span>
                         </div>
-                        <span className="text-[9px] text-slate-400 font-medium block mt-0.5">Diskon standar yang dipotong dari sub-total pembayaran.</span>
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       {/* PPN (%) */}
-                      <div className="space-y-1.5">
-                        <label className="text-[11px] font-bold text-slate-700 block">Pajak PPN (%)</label>
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold text-slate-700 block">Pajak PPN (%)</label>
                         <div className="flex items-center space-x-2">
                           <input
                             type="number"
@@ -5416,58 +5419,56 @@ export default function App() {
                               const v = Math.min(100, Math.max(0, Number(e.target.value) || 0));
                               setReceiptPpnPercent(v);
                             }}
-                            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs outline-none focus:border-indigo-500 bg-slate-50/50 font-bold text-slate-850"
+                            className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs outline-none focus:border-indigo-500 bg-slate-50/50 font-bold text-slate-850"
                           />
                           <span className="text-xs text-slate-500 shrink-0 font-bold">%</span>
                         </div>
-                        <span className="text-[9px] text-slate-400 font-medium block mt-0.5">Pajak PPN standar ditambahkan ke total.</span>
                       </div>
 
                       {/* Media Sosial */}
-                      <div className="space-y-1.5">
-                        <label className="text-[11px] font-bold text-slate-700 block">Informasi Media Sosial (Footer)</label>
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold text-slate-700 block">Informasi Media Sosial (Footer)</label>
                         <input
                           type="text"
                           value={receiptMediaSosial}
                           onChange={(e) => setReceiptMediaSosial(e.target.value)}
                           placeholder="@sapta.official • www.saptaweb.id"
-                          className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs outline-none focus:border-indigo-500 bg-slate-50/50 font-mono text-slate-705"
+                          className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs outline-none focus:border-indigo-500 bg-slate-50/50 font-mono text-slate-705"
                         />
-                        <span className="text-[9px] text-slate-400 font-medium block mt-0.5">Akun social media yang tercantum di paling bawah.</span>
                       </div>
                     </div>
 
-                    <div className="space-y-1.5">
-                      <label className="text-[11px] font-bold text-slate-700 block">Ucapan Terima Kasih (Footer)</label>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-700 block">Ucapan Terima Kasih (Footer)</label>
                       <input
                         type="text"
                         value={receiptFooterThankYou}
                         onChange={(e) => setReceiptFooterThankYou(e.target.value)}
                         placeholder="TERIMA KASIH ATAS KOPERASI & PEMBAYARAN ANDA"
-                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs outline-none focus:border-indigo-500 bg-slate-50/50 text-slate-700"
+                        className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs outline-none focus:border-indigo-500 bg-slate-50/50 text-slate-700"
                       />
                     </div>
 
-                    <div className="space-y-1.5">
-                      <label className="text-[11px] font-bold text-slate-700 block">Keterangan Catatan Kaki Akhir (Undertitle)</label>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-700 block">Keterangan Catatan Kaki Akhir (Undertitle)</label>
                       <textarea
                         rows={2}
                         value={receiptFooterSub}
                         onChange={(e) => setReceiptFooterSub(e.target.value)}
                         placeholder="*struk resmi yang diakui secara digital oleh bendahara lembaga."
-                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs outline-none focus:border-indigo-500 bg-slate-50/50 text-slate-600 text-[11px] leading-relaxed"
+                        className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs outline-none focus:border-indigo-500 bg-slate-50/50 text-slate-600 text-[10px] leading-relaxed"
                       />
                     </div>
 
-                    <div className="pt-2.5 flex items-center justify-between border-t border-slate-100">
-                      <div className="flex flex-col">
-                        <span className="text-[11px] font-bold text-slate-800">Visibilitas Detail Transaksi</span>
-                        <span className="text-[9px] text-slate-400">Tampilkan No. Transaksi, Tanggal, dan Admin pada struk cetak.</span>
+                    <div className="pt-2 flex items-center justify-between border-t border-slate-150">
+                      <div className="flex flex-col text-left">
+                        <span className="text-[10px] font-bold text-slate-800">Visibilitas Detail Transaksi</span>
+                        <span className="text-[8px] text-slate-400">Tampilkan No. Transaksi, Tanggal, dan Admin pada struk cetak.</span>
                       </div>
                       <button
                         type="button"
                         onClick={() => setReceiptShowTrxDetails(!receiptShowTrxDetails)}
-                        className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase transition cursor-pointer border ${
+                        className={`px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 text-[#0f172a] text-[9px] font-black uppercase transition cursor-pointer border ${
                           receiptShowTrxDetails
                             ? 'bg-indigo-50 border-indigo-200 text-indigo-700'
                             : 'bg-slate-50 border-slate-200 text-slate-500'
@@ -5479,12 +5480,12 @@ export default function App() {
                   </div>
 
                   {/* Right Column: Instant Miniature Live Preview of Receipt */}
-                  <div className="lg:col-span-5 flex flex-col items-center justify-center bg-slate-50 p-4 rounded-xl border border-dashed border-slate-250 min-h-[350px]">
-                    <span className="text-[9px] tracking-widest text-[#94a3b8] font-black block mb-3 uppercase leading-none">
-                      🔍 PREVIEW STRUK THERMAL SEKARANG
+                  <div className="lg:col-span-4 flex flex-col items-center justify-center bg-slate-50 p-3 rounded-xl border border-dashed border-slate-200">
+                    <span className="text-[8px] tracking-widest text-[#94a3b8] font-black block mb-2 uppercase leading-none">
+                      🔍 PREVIEW STRUK MINI
                     </span>
 
-                    <div className="bg-white rounded-lg border border-slate-200 p-5 shadow-sm max-w-[280px] w-full text-slate-800 text-[9px] relative overflow-hidden font-mono select-none pointer-events-none">
+                    <div className="bg-white rounded-lg border border-slate-200 p-4 shadow-xs max-w-[220px] w-full text-slate-800 text-[8px] relative overflow-hidden font-mono select-none pointer-events-none">
                       {/* Receipt Serrated Border Decor at Top */}
                       <div className="absolute top-0 left-0 right-0 h-1 bg-repeat-x overflow-hidden" 
                         style={{
@@ -5493,58 +5494,47 @@ export default function App() {
                         }}
                       />
 
-                      <div className="text-center pb-3 mb-3 border-b border-dashed border-slate-300">
-                        <h4 className="text-[10px] font-black tracking-wide uppercase text-slate-900 leading-tight">
+                      <div className="text-center pb-2 mb-2 border-b border-dashed border-slate-250">
+                        <h4 className="text-[9px] font-black tracking-wide uppercase text-slate-900 leading-tight">
                           {receiptHeaderTitle || lembagaLogin || "PORTAL SEKTOR BERSAMA"}
                         </h4>
                         {receiptHeaderSub && (
-                          <p className="text-[8px] text-slate-500 font-bold tracking-wider pt-0.5 uppercase">
+                          <p className="text-[7.5px] text-slate-501 font-bold tracking-wider pt-0.5 uppercase">
                             {receiptHeaderSub}
                           </p>
                         )}
                         {receiptHeaderAddress && (
-                          <p className="text-[7.5px] text-[#475569] mt-0.5 uppercase font-medium leading-tight select-none">
+                          <p className="text-[7px] text-slate-400 mt-0.5 uppercase max-w-[170px] mx-auto truncate text-center">
                             {receiptHeaderAddress}
                           </p>
                         )}
-                        <p className="text-[7.5px] text-slate-400 mt-0.5 lowercase font-mono">
-                          {receiptHeaderEmail || gmailLogin || 'info@sapta-portal.id'}
-                        </p>
                       </div>
 
-                      <div className="space-y-1.5 text-[8.5px]">
+                      <div className="space-y-1 text-[8px]">
                         {receiptShowTrxDetails && (
                           <>
                             <div className="flex justify-between">
-                              <span className="text-slate-400 font-bold text-[8px] uppercase">Kode Struk</span>
-                              <span className="font-extrabold text-slate-900 font-mono">TRX-SAMPLE001</span>
+                              <span className="text-slate-400 font-bold uppercase text-[7px]">KODE STRUK</span>
+                              <span className="font-extrabold text-slate-900 font-mono">TRX-SAMPLE01</span>
                             </div>
                             <div className="flex justify-between">
-                              <span className="text-slate-400 font-bold text-[8px] uppercase">Tanggal</span>
+                              <span className="text-slate-400 font-bold uppercase text-[7px]">TANGGAL</span>
                               <span className="font-bold text-slate-800">10 Juni 2026</span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span className="text-slate-400 font-bold text-[8px] uppercase">Admin</span>
-                              <span className="font-bold text-slate-850 font-mono">@{userUsername || 'admin'}</span>
                             </div>
                             <div className="border-b border-dashed border-slate-150 my-1" />
                           </>
                         )}
 
                         <div className="flex justify-between">
-                          <span className="text-slate-400 font-bold text-[8px] uppercase">Nama Anggota</span>
-                          <span className="font-black text-slate-900 uppercase">Ahmad Fauzi (Contoh)</span>
+                          <span className="text-slate-400 font-bold uppercase text-[7px]">ANGGOTA</span>
+                          <span className="font-black text-slate-900 truncate max-w-[100px] uppercase">Achmad Fauzi (Contoh)</span>
                         </div>
                         <div className="flex justify-between">
-                          <span className="text-slate-400 font-bold text-[8px] uppercase">NIA</span>
-                          <span className="font-bold text-slate-800">20260001</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-slate-400 font-bold text-[8px] uppercase">Isi Struk</span>
-                          <span className="font-bold text-slate-800 text-right max-w-[120px] truncate">Iuran Bulanan Anggota</span>
+                          <span className="text-slate-400 font-bold uppercase text-[7px]">KEPERLUAN</span>
+                          <span className="font-bold text-slate-800 truncate max-w-[100px]">Iuran Bulanan</span>
                         </div>
 
-                        <div className="border-b border-dashed border-slate-300 my-2" />
+                        <div className="border-b border-dashed border-slate-250 my-1.5" />
 
                         {/* Calculations */}
                         {(() => {
@@ -5553,75 +5543,42 @@ export default function App() {
                           const taxableTotal = originalNominal - discountAmount;
                           const ppnAmount = (taxableTotal * receiptPpnPercent) / 100;
                           const finalTotal = taxableTotal + ppnAmount;
-                          const dummyCash = finalTotal + 10000;
-                          const dummyChange = 10000;
                           return (
                             <>
                               <div className="flex justify-between text-slate-600 font-bold">
-                                <span className="uppercase text-[8px]">Subtotal</span>
+                                <span className="uppercase text-[7.5px]">Subtotal</span>
                                 <span className="font-mono">{formatRupiah(originalNominal)}</span>
                               </div>
 
                               {receiptDiscountPercent > 0 && (
-                                <div className="flex justify-between text-rose-600 font-bold mt-0.5">
-                                  <span className="uppercase text-[8px]">Diskon ({receiptDiscountPercent}%)</span>
+                                <div className="flex justify-between text-rose-600 font-bold">
+                                  <span className="uppercase text-[7.5px]">Diskon ({receiptDiscountPercent}%)</span>
                                   <span className="font-mono">-{formatRupiah(discountAmount)}</span>
                                 </div>
                               )}
 
                               {receiptPpnPercent > 0 && (
-                                <div className="flex justify-between text-indigo-600 font-bold mt-0.5">
-                                  <span className="uppercase text-[8px]">PPN ({receiptPpnPercent}%)</span>
+                                <div className="flex justify-between text-indigo-600 font-bold">
+                                  <span className="uppercase text-[7.5px]">PPN ({receiptPpnPercent}%)</span>
                                   <span className="font-mono">+{formatRupiah(ppnAmount)}</span>
                                 </div>
                               )}
 
-                              <div className="flex justify-between items-center bg-slate-50 p-1.5 rounded border border-slate-100 mt-1.5">
-                                <span className="text-[8.5px] font-black text-slate-700 uppercase">TOTAL</span>
-                                <span className="text-[10px] font-black text-emerald-600 font-mono">
+                              <div className="flex justify-between items-center bg-slate-50 p-1 rounded border border-slate-100 mt-1">
+                                <span className="text-[7.5px] font-black text-slate-705 uppercase">TOTAL</span>
+                                <span className="text-[9px] font-black text-emerald-600 font-mono">
                                   {formatRupiah(finalTotal)}
                                 </span>
-                              </div>
-
-                              <div className="flex justify-between text-[8px] mt-1.5">
-                                <span className="text-slate-400 font-bold uppercase">Tunai</span>
-                                <span className="font-bold text-slate-800 font-mono">{formatRupiah(dummyCash)}</span>
-                              </div>
-
-                              <div className="flex justify-between text-[8px]">
-                                <span className="text-slate-400 font-bold uppercase">Kembali</span>
-                                <span className="font-bold text-indigo-650 font-mono">{formatRupiah(dummyChange)}</span>
-                              </div>
-
-                              <div className="text-[7.5px] text-slate-500 italic mt-1 bg-slate-50/50 p-1 rounded uppercase tracking-tight font-bold">
-                                Terbilang: {terbilang(finalTotal)} rupiah
                               </div>
                             </>
                           );
                         })()}
-
-                        <div className="flex justify-between items-center pt-1.5">
-                          <span className="text-slate-400 uppercase font-bold text-[8px]">Status</span>
-                          <span className="px-1.5 py-0.2 bg-emerald-100 text-emerald-800 rounded font-black text-[8px] uppercase border border-emerald-200 font-mono">
-                            Lunas
-                          </span>
-                        </div>
                       </div>
 
-                      <div className="text-center pt-4 mt-4 border-t border-dashed border-slate-300 space-y-1">
-                        <p className="text-[8px] text-slate-400 font-black uppercase">
+                      <div className="text-center pt-2 mt-2 border-t border-dashed border-slate-250">
+                        <p className="text-[7px] text-slate-400 font-black uppercase">
                           {receiptFooterThankYou}
                         </p>
-                        {receiptFooterSub && (
-                          <p className="text-[7px] text-slate-405 font-normal lowercase italic tracking-tight">
-                            {receiptFooterSub}
-                          </p>
-                        )}
-                        {receiptMediaSosial && (
-                          <p className="text-[7.5px] text-[#475569] font-bold lowercase italic tracking-tight pt-1 border-t border-slate-150 font-mono">
-                            {receiptMediaSosial}
-                          </p>
-                        )}
                       </div>
 
                       {/* Receipt Serrated Border Decor at Bottom */}
@@ -5939,58 +5896,6 @@ export default function App() {
                   </div>
                 </div>
               </div>
-
-              {/* Developer Testing Payload Sandbox Grid */}
-              <div className="bg-white p-6 rounded-xl border border-[#e2e8f0]">
-                <h3 className="text-xs font-mono font-bold text-[#64748b] uppercase tracking-widest mb-4">JSON POST Payload Schema Preview</h3>
-                <div className="bg-[#0f172a] rounded-xl p-5 font-mono text-xs text-[#cbd5e1] space-y-2">
-                  <p className="text-[#64748b]">// Payload format dikirimkan dengan MIME 'text/plain' demi bypass rintangan CORS</p>
-                  <pre className="text-emerald-400 overflow-x-auto whitespace-pre-wrap leading-relaxed">
-{`{
-  "action": "add/edit/delete",
-  "sheetName": "DATA ANGGOTA | PEMBAYARAN | PRESTASI | PELANGGARAN | INFORMASI",
-  "data": {
-    "tanggal": "2026-05-26",
-    "nia": "20260001",
-    "namaLengkap": "Achmad Fauzi",
-    ...
-  },
-  "targetId": "KUNCI_ACUAN_UNIK"
-}`}
-                  </pre>
-                </div>
-              </div>
-
-              {/* Google Apps Script Code Copier Pane */}
-              <div className="bg-white p-6 rounded-xl border border-[#e2e8f0] space-y-4">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#f1f5f9] pb-4">
-                  <div>
-                    <h3 className="text-sm font-bold text-[#0f172a]">
-                      Kode Google Apps Script Terbaru (Stabil & Fitur Edit/Hapus Diperbaiki)
-                    </h3>
-                    <p className="text-[11px] text-[#64748b]">
-                      Gunakan kode di bawah ini untuk memperbarui Apps Script (Ekstensi &rarr; Apps Script) agar fungsi Edit dan Hapus tersinkronisasi 100% sempurna ke Google Sheets.
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      navigator.clipboard.writeText(GOOGLE_APPS_SCRIPT_CODE);
-                      addToast('Kode Google Apps Script berhasil disalin ke papan klip!', 'success');
-                    }}
-                    className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[11px] font-bold transition flex items-center space-x-1.5 cursor-pointer shrink-0"
-                  >
-                    <span>Salin Kode Script</span>
-                  </button>
-                </div>
-                
-                <div className="bg-slate-900 rounded-xl p-4 font-mono text-[10px] text-slate-300 max-h-72 overflow-y-auto">
-                  <pre className="whitespace-pre overflow-x-auto text-slate-300">
-                    {GOOGLE_APPS_SCRIPT_CODE}
-                  </pre>
-                </div>
-              </div>
-
             </div>
           )}
 

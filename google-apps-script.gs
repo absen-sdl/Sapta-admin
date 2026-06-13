@@ -350,6 +350,8 @@ function getObjectValueCaseInsensitive(obj, keyToFind) {
     "idinformasi": ["idinformasi", "id", "id_informasi"],
     "linkdokumen": ["linkdokumen", "linkgoogledoc", "url", "link", "linkdoc"],
     "linkgoogledoc": ["linkdokumen", "linkgoogledoc", "url", "link", "linkdoc"],
+    "pin": ["pin", "key", "password", "pasword", "sandi", "kunci"],
+    "key": ["pin", "key", "password", "pasword", "sandi", "kunci"],
     "tingkat": ["status", "tingkat", "level"],
     "status": ["status", "tingkat", "level"],
     "removemenu": ["removemenu", "removemenu", "remove_menu", "remove menu"]

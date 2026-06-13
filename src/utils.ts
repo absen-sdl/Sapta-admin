@@ -62,8 +62,10 @@ export function parseCSV(csvText: string): any[] {
       else if (header === 'alamat' || header === 'address' || header.includes('alamat') || header.includes('address')) keyName = 'alamat';
       else if (header === 'nohp' || header === 'nohandphone' || header === 'notelp' || header === 'phone' || header.includes('hp') || header.includes('wa') || header.includes('phone') || header.includes('telp') || header.includes('contact')) keyName = 'noHp';
       else if (header === 'email' || header === 'gmail' || header.includes('email') || header.includes('mail')) keyName = 'email';
+      else if (header === 'urlappscript' || header === 'linkappscript' || header === 'urlappsscript' || header === 'linkappsscript' || header.includes('appscript') || header.includes('appsscript') || header.includes('server') || header.includes('script')) keyName = 'urlAppScript';
+      else if (header === 'urlabsensi' || header === 'linkabsensi' || header.includes('absensi') || header.includes('rekapabsen')) keyName = 'urlAbsensi';
       else if (header === 'linkprofile' || header === 'link_profile' || header === 'lnkprofile' || header === 'foto' || header === 'photo' || header === 'avatar' || header.includes('profile') || header.includes('profil') || header.includes('photo') || header.includes('foto') || header.includes('pic') || header.includes('image') || header.includes('aksesfotoprofil') || header.includes('link')) keyName = 'linkProfile';
-      else if (header === 'key' || header === 'kunci' || header === 'reference' || header === 'uniq' || header.includes('key')) keyName = 'key';
+      else if (header === 'key' || header === 'pin' || header === 'kunci' || header === 'password' || header === 'pasword' || header === 'reference' || header === 'uniq' || header.includes('key') || header.includes('pin') || header.includes('pass')) keyName = 'key';
       else if (header === 'status' || header.includes('status')) keyName = 'status';
       else if (header === 'idabsensi' || header === 'id_absensi' || header === 'idabs' || header.includes('idabsensi')) keyName = 'idAbsensi';
       else if (header === 'jammasuk' || header === 'jam_masuk' || header === 'jamdatang' || header.includes('masuk') || header.includes('datang')) keyName = 'jamMasuk';

@@ -566,32 +566,34 @@ export default function App() {
           let urlAbsensi = '';
           let linkProfile = '';
 
-          // Dynamically matches keys and handles any automated transformations by parseCSV
+          // Dynamically matches keys-case/space insensitive and handles any automated transformations by parseCSV
           Object.keys(item).forEach(key => {
-            const lowerKey = key.toLowerCase();
+            const rawKey = key.trim();
+            const cleanKey = rawKey.toLowerCase().replace(/[^a-z0-9]/g, '');
             const val = String(item[key] || '').trim();
-            if (lowerKey === 'email' || lowerKey === 'gmail' || lowerKey.includes('mail')) {
+
+            if (cleanKey === 'gmail' || cleanKey === 'email' || cleanKey === 'gmailaddress' || cleanKey === 'mail' || cleanKey.includes('gmail') || cleanKey.includes('email') || cleanKey.includes('mail')) {
               gmail = val;
-            } else if (lowerKey === 'pasword' || lowerKey === 'password' || lowerKey.includes('pass') || lowerKey.includes('word')) {
+            } else if (cleanKey === 'pasword' || cleanKey === 'password' || cleanKey === 'pin' || cleanKey === 'key' || cleanKey.includes('pass') || cleanKey.includes('word') || cleanKey.includes('key')) {
               pasword = val;
-            } else if (lowerKey === 'lembaga' || lowerKey.includes('lembag')) {
+            } else if ((cleanKey.includes('lembaga') && !cleanKey.includes('profile') && !cleanKey.includes('logo') && !cleanKey.includes('link')) || cleanKey === 'nama') {
               lembaga = val;
-            } else if (lowerKey === 'urlappscript' || lowerKey === 'url_app_script' || lowerKey.includes('script') || lowerKey.includes('app_script')) {
+            } else if (cleanKey.includes('appscript') || cleanKey.includes('appsscript') || cleanKey.includes('linkserver') || cleanKey.includes('urlserver') || cleanKey.includes('script')) {
               urlAppScript = val;
-            } else if (lowerKey === 'urlabsensi' || lowerKey === 'url_absensi' || lowerKey.includes('absen')) {
-              urlAbsensi = val;
-            } else if (lowerKey === 'linkprofile' || lowerKey === 'link-profile' || lowerKey === 'link_profile' || lowerKey.includes('profile') || lowerKey.includes('foto') || lowerKey.includes('photo')) {
+            } else if (cleanKey.includes('profile') || cleanKey.includes('logo') || cleanKey.includes('foto') || cleanKey.includes('photo')) {
               linkProfile = val;
+            } else if (cleanKey.includes('absensi') || (cleanKey.includes('absen') && !cleanKey.includes('id'))) {
+              urlAbsensi = val;
             }
           });
 
-          // Accurate fallbacks matching direct keys
-          if (!gmail) gmail = String(item['email'] || item['gmail'] || item['g_mail'] || '').trim();
-          if (!pasword) pasword = String(item['pasword'] || item['password'] || '').trim();
-          if (!lembaga) lembaga = String(item['lembaga'] || '').trim();
-          if (!urlAppScript) urlAppScript = String(item['urlappscript'] || item['url_app_script'] || '').trim();
-          if (!urlAbsensi) urlAbsensi = String(item['urlabsensi'] || item['url_absensi'] || '').trim();
-          if (!linkProfile) linkProfile = String(item['link-profile'] || item['link_profile'] || item['linkprofile'] || item['profile'] || item['foto'] || item['photo'] || '').trim();
+          // Accurate fallbacks matching direct keys (including mappings done by parseCSV)
+          if (!gmail) gmail = String(item['email'] || item['gmail'] || item['G-Mail'] || item['Gmail'] || '').trim();
+          if (!pasword) pasword = String(item['key'] || item['Pasword'] || item['Password'] || item['pasword'] || item['password'] || '').trim();
+          if (!lembaga) lembaga = String(item['lembaga'] || item['Lembaga USER NAME'] || item['Lembaga Username'] || item['Lembaga'] || '').trim();
+          if (!urlAppScript) urlAppScript = String(item['urlAppScript'] || item['Link_App_script'] || item['Link_App_Script'] || item['url_app_script'] || '').trim();
+          if (!linkProfile) linkProfile = String(item['linkProfile'] || item['profile lembaga'] || item['Profile Lembaga'] || item['link_profile'] || item['profile'] || '').trim();
+          if (!urlAbsensi) urlAbsensi = String(item['urlAbsensi'] || item['url_absensi'] || item['Url Absensi'] || '').trim();
 
           return { gmail, pasword, lembaga, urlAppScript, urlAbsensi, linkProfile };
         }).filter(acc => acc.gmail || acc.lembaga);
@@ -700,7 +702,7 @@ export default function App() {
           alamat: String(getProp(item, 'alamat', 'address')).trim(),
           noHp: String(getProp(item, 'noHp', 'nohp', 'phone', 'telepon', 'hp')).trim(),
           email: String(getProp(item, 'email', 'gmail')).trim(),
-          key: String(getProp(item, 'key', 'kunci', 'pass', 'sandi')).trim(),
+          key: String(getProp(item, 'key', 'pin', 'kunci', 'pass', 'sandi')).trim(),
           linkProfile: String(getProp(item, 'linkProfile', 'linkprofile', 'foto', 'photo', 'aksesfotoprofil', 'profile')).trim(),
           status: String(getProp(item, 'status', 'keadaan') || 'Aktif').trim(),
         }));
@@ -771,68 +773,27 @@ export default function App() {
           sanksi: String(getProp(item, 'sanksi', 'konsekuensi', 'hukuman') || '').trim(),
           status: String(getProp(item, 'status', 'tingkat', 'statuspelanggaran') || 'Ringan').trim() as any
         }));
-      } else {
-        console.warn('Kemungkinan URL Apps Script belum terkonfigurasi untuk menyinkronkan data Anggota.');
-      }
 
-      // 2. ABSENSI (read purely from published CSV URL of Rekap Absensi, as requested: read-only, not from Apps Script)
-      onProgress?.('absensi', 'Memuat rekap data Absensi dari server utama...');
-      let parsedAbsensi: any[] = [];
-      const activeAbsensiRawUrl = attendanceUrl || absensiCsvPublishUrl || localStorage.getItem('LINK_ABSENSI') || localStorage.getItem('google_sheets_absensi_csv_url') || '';
-      if (activeAbsensiRawUrl) {
-        try {
-          const targetAbsensiGid = activeAbsensiRawUrl.includes('gid=') ? (activeAbsensiRawUrl.match(/gid=(\d+)/)?.[1] || '987258577') : '987258577';
-          const targetAbsensiUrl = getCSVUrlForGid(activeAbsensiRawUrl, targetAbsensiGid);
-          const responseAbsensi = await fetch(targetAbsensiUrl);
-          if (responseAbsensi.ok) {
-            const csvTextAbsensi = await responseAbsensi.text();
-            parsedAbsensi = parseCSV(csvTextAbsensi);
-          }
-        } catch (absensiErr) {
-          console.error('Gagal sinkron Absensi via CSV URL:', absensiErr);
-        }
-      } else {
-        console.warn('Link rekap absensi belum terkonfigurasi.');
-      }
-
-      if (parsedAbsensi && parsedAbsensi.length > 0) {
-        const formattedAbsensi = parsedAbsensi.map((item: any, idx: number) => {
-          const computedId = String(getProp(item, 'idAbsensi', 'idabsensi', 'id') || `ABS-CL-${idx + 10001}`).trim();
+        // 2. ABSENSI (read 100% from Google Apps Script Web App as requested)
+        onProgress?.('absensi', 'Menyelaraskan data Rekap Absensi secara realtime dari server...');
+        syncAbsensiSuccess = await fetchAndSyncSheet('ABSENSI', 'idAbsensi', (item: any, idx: number) => {
+          const nia = String(getProp(item, 'nia', 'nomorinduk', 'idanggota', 'id')).trim();
+          const tanggalAbsen = String(getProp(item, 'tanggal', 'tanggalAbsen', 'tanggalabsen', 'date') || new Date().toISOString().split('T')[0]).trim();
+          const computedId = String(getProp(item, 'idAbsensi', 'idabsensi', 'id') || (nia && tanggalAbsen ? `${nia}-${tanggalAbsen}` : '') || `ABS-CL-${idx + 10001}`).trim();
           return {
             idAbsensi: computedId,
-            nia: String(getProp(item, 'nia', 'nomorinduk', 'idanggota')).trim(),
+            nia: nia,
             namaLengkap: String(getProp(item, 'namaLengkap', 'namalengkap', 'nama', 'fullname')).trim(),
             kelas: String(getProp(item, 'kelas', 'class')).trim(),
-            tanggalAbsen: String(getProp(item, 'tanggalAbsen', 'tanggalabsen', 'tanggal', 'date') || new Date().toISOString().split('T')[0]).trim(),
-            waktuAbsen: String(getProp(item, 'waktuAbsen', 'waktuabsen', 'waktu_absen', 'waktu', 'jamMasuk', 'jammasuk', 'jam_masuk', 'jam', 'jamabsen', 'jam_absen') || '--:--').trim(),
+            tanggalAbsen: tanggalAbsen,
+            waktuAbsen: String(getProp(item, 'waktu', 'waktuAbsen', 'waktuabsen', 'waktu_absen', 'jamMasuk', 'jammasuk', 'jam_masuk', 'jam', 'jamabsen', 'jam_absen') || '--:--').trim(),
             status: String(getProp(item, 'status', 'kehadiran', 'state') || '').trim(),
             keterangan: String(getProp(item, 'keterangan', 'notes', 'catatan', 'keteranganabsen', 'remarks') || '').trim(),
             jenisKegiatan: String(getProp(item, 'jenisKegiatan', 'jeniskegiatan', 'kegiatan') || '').trim()
           };
         });
-
-        if (formattedAbsensi.length > 0) {
-          const incomingIds = new Set(formattedAbsensi.map(a => String(a.idAbsensi).trim()).filter(Boolean));
-          const localAbsensi = window.dataSdk.read('ABSENSI');
-          localAbsensi.forEach((localItem: any) => {
-            const itemId = String(localItem.idAbsensi).trim();
-            if (itemId && !incomingIds.has(itemId)) {
-              window.dataSdk.delete('ABSENSI', localItem.idAbsensi);
-            }
-          });
-
-          formattedAbsensi.forEach((abs) => {
-            if (!abs.idAbsensi) return;
-            const existing = window.dataSdk.read('ABSENSI');
-            const match = existing.find((e: any) => String(e.idAbsensi).trim() === String(abs.idAbsensi).trim());
-            if (match) {
-              window.dataSdk.update('ABSENSI', abs.idAbsensi, abs);
-            } else {
-              window.dataSdk.create('ABSENSI', abs);
-            }
-          });
-          syncAbsensiSuccess = true;
-        }
+      } else {
+        console.warn('Kemungkinan URL Apps Script belum terkonfigurasi untuk menyinkronkan data Anggota.');
       }
 
       refreshAllData();
@@ -887,7 +848,7 @@ export default function App() {
             const csvText = await response.text();
             const parsed = parseCSV(csvText);
             if (parsed && parsed.length > 0) {
-              localAkunList = parsed.map((item: any) => {
+               localAkunList = parsed.map((item: any) => {
                 let gmail = '';
                 let pasword = '';
                 let lembaga = '';
@@ -896,29 +857,31 @@ export default function App() {
                 let linkProfile = '';
 
                 Object.keys(item).forEach(key => {
-                  const lowerKey = key.toLowerCase();
+                  const rawKey = key.trim();
+                  const cleanKey = rawKey.toLowerCase().replace(/[^a-z0-9]/g, '');
                   const val = String(item[key] || '').trim();
-                  if (lowerKey === 'email' || lowerKey === 'gmail' || lowerKey.includes('mail')) {
+
+                  if (cleanKey === 'gmail' || cleanKey === 'email' || cleanKey === 'gmailaddress' || cleanKey === 'mail' || cleanKey.includes('gmail') || cleanKey.includes('email') || cleanKey.includes('mail')) {
                     gmail = val;
-                  } else if (lowerKey === 'pasword' || lowerKey === 'password' || lowerKey.includes('pass') || lowerKey.includes('word')) {
+                  } else if (cleanKey === 'pasword' || cleanKey === 'password' || cleanKey === 'pin' || cleanKey === 'key' || cleanKey.includes('pass') || cleanKey.includes('word') || cleanKey.includes('key')) {
                     pasword = val;
-                  } else if (lowerKey === 'lembaga' || lowerKey.includes('lembag')) {
+                  } else if ((cleanKey.includes('lembaga') && !cleanKey.includes('profile') && !cleanKey.includes('logo') && !cleanKey.includes('link')) || cleanKey === 'nama') {
                     lembaga = val;
-                  } else if (lowerKey === 'urlappscript' || lowerKey === 'url_app_script' || lowerKey.includes('script') || lowerKey.includes('app_script')) {
+                  } else if (cleanKey.includes('appscript') || cleanKey.includes('appsscript') || cleanKey.includes('linkserver') || cleanKey.includes('urlserver') || cleanKey.includes('script')) {
                     urlAppScript = val;
-                  } else if (lowerKey === 'urlabsensi' || lowerKey === 'url_absensi' || lowerKey.includes('absen')) {
-                    urlAbsensi = val;
-                  } else if (lowerKey === 'linkprofile' || lowerKey === 'link-profile' || lowerKey === 'link_profile' || lowerKey.includes('profile') || lowerKey.includes('foto') || lowerKey.includes('photo')) {
+                  } else if (cleanKey.includes('profile') || cleanKey.includes('logo') || cleanKey.includes('foto') || cleanKey.includes('photo')) {
                     linkProfile = val;
+                  } else if (cleanKey.includes('absensi') || (cleanKey.includes('absen') && !cleanKey.includes('id'))) {
+                    urlAbsensi = val;
                   }
                 });
 
-                if (!gmail) gmail = String(item['email'] || item['gmail'] || item['g_mail'] || '').trim();
-                if (!pasword) pasword = String(item['pasword'] || item['password'] || '').trim();
-                if (!lembaga) lembaga = String(item['lembaga'] || '').trim();
-                if (!urlAppScript) urlAppScript = String(item['urlappscript'] || item['url_app_script'] || '').trim();
-                if (!urlAbsensi) urlAbsensi = String(item['urlabsensi'] || item['url_absensi'] || '').trim();
-                if (!linkProfile) linkProfile = String(item['link-profile'] || item['link_profile'] || item['linkprofile'] || item['profile'] || item['foto'] || item['photo'] || '').trim();
+                if (!gmail) gmail = String(item['email'] || item['gmail'] || item['G-Mail'] || item['Gmail'] || '').trim();
+                if (!pasword) pasword = String(item['key'] || item['Pasword'] || item['Password'] || item['pasword'] || item['password'] || '').trim();
+                if (!lembaga) lembaga = String(item['lembaga'] || item['Lembaga USER NAME'] || item['Lembaga Username'] || item['Lembaga'] || '').trim();
+                if (!urlAppScript) urlAppScript = String(item['urlAppScript'] || item['Link_App_script'] || item['Link_App_Script'] || item['url_app_script'] || '').trim();
+                if (!linkProfile) linkProfile = String(item['linkProfile'] || item['profile lembaga'] || item['Profile Lembaga'] || item['link_profile'] || item['profile'] || '').trim();
+                if (!urlAbsensi) urlAbsensi = String(item['urlAbsensi'] || item['url_absensi'] || item['Url Absensi'] || '').trim();
 
                 return { gmail, pasword, lembaga, urlAppScript, urlAbsensi, linkProfile };
               }).filter(acc => acc.gmail || acc.lembaga);
@@ -1069,17 +1032,17 @@ export default function App() {
         }
       }
 
-      if (matchedUser) {
-        const targetGidMatch = match.urlAbsensi.match(/gid=(\d+)/);
+       if (matchedUser) {
+        const targetGidMatch = (match.urlAbsensi || '').match(/gid=(\d+)/);
         const targetGid = targetGidMatch && targetGidMatch[1] ? targetGidMatch[1] : '987258577';
-        const formattedAbsensiUrl = getCSVUrlForGid(match.urlAbsensi, targetGid);
+        const formattedAbsensiUrl = match.urlAbsensi ? getCSVUrlForGid(match.urlAbsensi, targetGid) : '';
 
         setLoginProgressStep('auth');
         setLoginProgressText('Mengautentikasi dan menyelaraskan sesi lembaga...');
         await new Promise(resolve => setTimeout(resolve, 600));
 
-        localStorage.setItem('LINK_SCRIPT_UTAMA', match.urlAppScript);
-        localStorage.setItem('LINK_ABSENSI', match.urlAbsensi);
+        localStorage.setItem('LINK_SCRIPT_UTAMA', match.urlAppScript || '');
+        localStorage.setItem('LINK_ABSENSI', match.urlAbsensi || '');
         localStorage.setItem('G-MAIL_LOGIN', match.gmail);
         localStorage.setItem('LEMBAGA_LOGIN', match.lembaga);
         localStorage.setItem('LINK_PROFILE', match.linkProfile || '');
@@ -1550,7 +1513,7 @@ export default function App() {
           alamat: String(getProp(item, 'alamat', 'address')).trim(),
           noHp: String(getProp(item, 'noHp', 'nohp', 'phone', 'telepon', 'hp')).trim(),
           email: String(getProp(item, 'email', 'gmail')).trim(),
-          key: String(getProp(item, 'key', 'kunci', 'pass', 'sandi')).trim(),
+          key: String(getProp(item, 'key', 'pin', 'kunci', 'pass', 'sandi')).trim(),
           linkProfile: String(getProp(item, 'linkProfile', 'linkprofile', 'foto', 'photo', 'aksesfotoprofil', 'profile')).trim(),
           status: String(getProp(item, 'status', 'keadaan') || 'Aktif').trim()
         })).filter(m => m.nia);
@@ -1790,7 +1753,7 @@ export default function App() {
           { name: 'alamat', label: 'Alamat', type: 'textarea', placeholder: 'Alamat lengkap beserta kode pos jika ada' },
           { name: 'noHp', label: 'No Hp', type: 'text', placeholder: '08xxxxxxxxxx' },
           { name: 'email', label: 'E-Mail', type: 'text', placeholder: 'alamat@email.com' },
-          { name: 'key', label: 'Password', type: 'text', placeholder: 'Ketik password login' },
+          { name: 'key', label: 'PIN', type: 'text', placeholder: 'Ketik PIN login' },
           { name: 'linkProfile', label: 'Link-Profile', type: 'text', placeholder: 'https://images.unsplash.com/...' },
           { name: 'status', label: 'Status', type: 'select', options: ['Aktif', 'Non-Aktif', 'Alumni'], required: true }
         ]
@@ -3661,7 +3624,7 @@ export default function App() {
                     <div className="space-y-0.5">
                       <span className="text-2xl font-extrabold text-slate-900 tracking-tight">{dashboardStats.totalPelanggaran}</span>
                       <div className="text-[11px] font-medium text-red-600">
-                        Tindakan indisipliner
+                        total denda : {formatRupiah(dashboardStats.totalDendaRule)}
                       </div>
                     </div>
                   </div>
@@ -4249,7 +4212,7 @@ export default function App() {
                       <th className="py-4 px-4">Alamat</th>
                       <th className="py-4 px-4">No Hp</th>
                       <th className="py-4 px-4">E-Mail</th>
-                      <th className="py-4 px-4">PIN (Password)</th>
+                      <th className="py-4 px-4">PIN</th>
                       <th className="py-4 px-4">Link-Profile</th>
                       <th className="py-4 px-4 text-center">Status</th>
                       <th className="py-4 px-4 text-right">Aksi</th>
@@ -7841,7 +7804,7 @@ export default function App() {
                         {selectedProfile.status}
                       </span>
                     </div>
-                    <p className="text-xs font-mono font-semibold text-[#6366f1]">NIA: {selectedProfile.nia} • Password: {selectedProfile.key || '-'}</p>
+                    <p className="text-xs font-mono font-semibold text-[#6366f1]">NIA: {selectedProfile.nia} • PIN: {selectedProfile.key || '-'}</p>
                   </div>
 
                   {/* Contact Badge Pills */}

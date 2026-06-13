@@ -153,7 +153,13 @@ function MemberAvatar({ linkProfile, namaLengkap, className = "w-full h-full obj
   return <span className="select-none font-bold text-center tracking-normal leading-none flex items-center justify-center w-full h-full text-xs">{initials}</span>;
 }
 
-const getAbsensiStatus = (keterangan: string): 'Hadir' | 'Izin' | 'Alpha' | 'Sakit' => {
+const getAbsensiStatus = (keterangan: string, status?: string): 'Hadir' | 'Izin' | 'Alpha' | 'Sakit' => {
+  const s = (status || '').trim().toLowerCase();
+  if (s.includes('sakit') || s === 's') return 'Sakit';
+  if (s.includes('izin') || s.includes('ijin') || s === 'i') return 'Izin';
+  if (s.includes('alpha') || s.includes('alpa') || s === 'a' || s.includes('tanpa') || s === 'bolos') return 'Alpha';
+  if (s.includes('hadir') || s === 'h') return 'Hadir';
+
   const k = (keterangan || '').trim().toLowerCase();
   if (k.includes('sakit') || k === 's' || k.includes('dokter') || k.includes('opname') || k.includes('rawat')) return 'Sakit';
   if (k.includes('izin') || k.includes('ijin') || k === 'i' || k.includes('acara') || k.includes('keluarga') || k.includes('pergi') || k.includes('cuti') || k.includes('halangan') || k.includes('pulkam') || k.includes('dispen')) return 'Izin';
@@ -466,7 +472,7 @@ export default function App() {
     setIsLoadingSubAccounts(true);
     setSubAccountsError(null);
     try {
-      const targetUrl = endpoint + (endpoint.includes('?') ? '&' : '?') + 'action=read&sheetName=' + encodeURIComponent('AKUN SAPTA');
+      const targetUrl = endpoint + (endpoint.includes('?') ? '&' : '?') + 'action=read&sheetName=' + encodeURIComponent('KELOLA AKUN');
       const response = await fetch(targetUrl);
       if (!response.ok) throw new Error('Gagal menghubungi App Script lembaga.');
       const resText = await response.text();
@@ -513,7 +519,7 @@ export default function App() {
         }).filter(acc => acc.username || acc.nama);
         setSubAccountList(parsedAccounts);
       } else {
-        throw new Error('Format dari sheet AKUN SAPTA tidak sesuai.');
+        throw new Error('Format dari sheet KELOLA AKUN tidak sesuai.');
       }
     } catch (err: any) {
       console.error(err);
@@ -799,6 +805,7 @@ export default function App() {
             kelas: String(getProp(item, 'kelas', 'class')).trim(),
             tanggalAbsen: String(getProp(item, 'tanggalAbsen', 'tanggalabsen', 'tanggal', 'date') || new Date().toISOString().split('T')[0]).trim(),
             waktuAbsen: String(getProp(item, 'waktuAbsen', 'waktuabsen', 'waktu_absen', 'waktu', 'jamMasuk', 'jammasuk', 'jam_masuk', 'jam', 'jamabsen', 'jam_absen') || '--:--').trim(),
+            status: String(getProp(item, 'status', 'kehadiran', 'state') || '').trim(),
             keterangan: String(getProp(item, 'keterangan', 'notes', 'catatan', 'keteranganabsen', 'remarks') || '').trim(),
             jenisKegiatan: String(getProp(item, 'jenisKegiatan', 'jeniskegiatan', 'kegiatan') || '').trim()
           };
@@ -932,9 +939,9 @@ export default function App() {
         throw new Error('Konfigurasi URL Google Apps Script untuk lembaga ini belum lengkap.');
       }
 
-      // Fetch user sub-accounts from 'AKUN SAPTA' sheet via Google Apps Script
+      // Fetch user sub-accounts from 'KELOLA AKUN' sheet via Google Apps Script
       setLoginProgressText('Membuka koneksi & mengunduh database akun...');
-      const targetUrl = match.urlAppScript + (match.urlAppScript.includes('?') ? '&' : '?') + 'action=read&sheetName=' + encodeURIComponent('AKUN SAPTA');
+      const targetUrl = match.urlAppScript + (match.urlAppScript.includes('?') ? '&' : '?') + 'action=read&sheetName=' + encodeURIComponent('KELOLA AKUN');
       
       const response = await fetch(targetUrl);
       if (!response.ok) {
@@ -990,7 +997,7 @@ export default function App() {
         setIsLembagaVerified(true);
         addToast('Lembaga Terhubung! Silakan masukkan username dan password akun Anda.', 'success');
       } else {
-        throw new Error('Sistem gagal membaca sheet "AKUN SAPTA". Buat sheet baru bernama AKUN SAPTA di Spreadsheet lembaga terlebih dahulu.');
+        throw new Error('Sistem gagal membaca sheet "KELOLA AKUN". Buat sheet baru bernama KELOLA AKUN di Spreadsheet lembaga terlebih dahulu.');
       }
     } catch (err: any) {
       console.error(err);
@@ -1042,7 +1049,7 @@ export default function App() {
         return;
       }
 
-      // Check sub-accounts from 'AKUN SAPTA'
+      // Check sub-accounts from 'KELOLA AKUN'
       let matchedUser = lembagaAkunList.find(u => 
         u.username.toLowerCase() === usernameTrimmed.toLowerCase() && 
         u.pasword === passwordTrimmed
@@ -1252,7 +1259,7 @@ export default function App() {
     
     const payload = {
       action: subAccountModalType === 'add' ? 'add' : 'edit',
-      sheetName: 'AKUN SAPTA',
+      sheetName: 'KELOLA AKUN',
       targetId: subAccountModalType === 'edit' ? editingSubAccount.username : undefined,
       data: {
         nama: namaVal,
@@ -1325,7 +1332,7 @@ export default function App() {
 
     const payload = {
       action: 'delete',
-      sheetName: 'AKUN SAPTA',
+      sheetName: 'KELOLA AKUN',
       data: account,
       targetId: account.username
     };
@@ -1783,7 +1790,7 @@ export default function App() {
           { name: 'alamat', label: 'Alamat', type: 'textarea', placeholder: 'Alamat lengkap beserta kode pos jika ada' },
           { name: 'noHp', label: 'No Hp', type: 'text', placeholder: '08xxxxxxxxxx' },
           { name: 'email', label: 'E-Mail', type: 'text', placeholder: 'alamat@email.com' },
-          { name: 'key', label: 'Key', type: 'text', placeholder: 'K-UNIQUE_NAME' },
+          { name: 'key', label: 'Password', type: 'text', placeholder: 'Ketik password login' },
           { name: 'linkProfile', label: 'Link-Profile', type: 'text', placeholder: 'https://images.unsplash.com/...' },
           { name: 'status', label: 'Status', type: 'select', options: ['Aktif', 'Non-Aktif', 'Alumni'], required: true }
         ]
@@ -2424,7 +2431,7 @@ export default function App() {
       );
     }
     if (absensiStatusFilter !== 'Semua') {
-      list = list.filter(a => getAbsensiStatus(a.keterangan) === absensiStatusFilter);
+      list = list.filter(a => getAbsensiStatus(a.keterangan, a.status) === absensiStatusFilter);
     }
     return list;
   }, [absensiList, searchTerm, absensiStatusFilter, selectedKelasAbsensi, selectedNamaAbsensi]);
@@ -2518,7 +2525,7 @@ export default function App() {
     let countSakit = 0;
 
     absensiList.forEach(a => {
-      const status = getAbsensiStatus(a.keterangan);
+      const status = getAbsensiStatus(a.keterangan, a.status);
       if (status === 'Hadir') countHadir++;
       else if (status === 'Izin') countIzin++;
       else if (status === 'Alpha') countAlpha++;
@@ -2632,7 +2639,7 @@ export default function App() {
       const dateStr = a.tanggalAbsen ? a.tanggalAbsen.trim() : '';
       if (!dateStr) return;
       
-      const status = getAbsensiStatus(a.keterangan);
+      const status = getAbsensiStatus(a.keterangan, a.status);
       
       if (!groups[dateStr]) {
         let dateObj = new Date(dateStr);
@@ -4242,7 +4249,7 @@ export default function App() {
                       <th className="py-4 px-4">Alamat</th>
                       <th className="py-4 px-4">No Hp</th>
                       <th className="py-4 px-4">E-Mail</th>
-                      <th className="py-4 px-4">Key</th>
+                      <th className="py-4 px-4">PIN (Password)</th>
                       <th className="py-4 px-4">Link-Profile</th>
                       <th className="py-4 px-4 text-center">Status</th>
                       <th className="py-4 px-4 text-right">Aksi</th>
@@ -4686,11 +4693,11 @@ export default function App() {
                   >
                     <span className="text-[10px] text-emerald-600 font-bold tracking-wider block">HADIR</span>
                     <p className="text-2xl font-extrabold text-emerald-600 mt-1">
-                      {absensiList.filter((a) => getAbsensiStatus(a.keterangan) === 'Hadir').length}
+                      {absensiList.filter((a) => getAbsensiStatus(a.keterangan, a.status) === 'Hadir').length}
                     </p>
                     <span className="text-[9px] text-slate-400 block mt-0.5 font-mono">
                       {absensiList.length > 0 
-                        ? `${Math.round((absensiList.filter((a) => getAbsensiStatus(a.keterangan) === 'Hadir').length / absensiList.length) * 100)}% Rasio` 
+                        ? `${Math.round((absensiList.filter((a) => getAbsensiStatus(a.keterangan, a.status) === 'Hadir').length / absensiList.length) * 100)}% Rasio` 
                         : '0%'
                       }
                     </span>
@@ -4703,16 +4710,16 @@ export default function App() {
                     className={`p-3.5 rounded-xl border transition-all duration-300 cursor-pointer text-center relative overflow-hidden select-none transform hover:-translate-y-0.5 ${
                       absensiStatusFilter === 'Izin'
                         ? 'border-amber-500 bg-amber-50/45 shadow-md ring-4 ring-amber-500/10 scale-[1.03]'
-                        : 'border-slate-200 bg-white hover:border-amber-300 hover:bg-amber-50/10 hover:shadow-sm'
+                        : 'border-slate-200 bg-white hover:border-amber-350 hover:bg-amber-50/10 hover:shadow-sm'
                     }`}
                   >
                     <span className="text-[10px] text-amber-600 font-bold tracking-wider block">IZIN</span>
                     <p className="text-2xl font-extrabold text-amber-600 mt-1">
-                      {absensiList.filter((a) => getAbsensiStatus(a.keterangan) === 'Izin').length}
+                      {absensiList.filter((a) => getAbsensiStatus(a.keterangan, a.status) === 'Izin').length}
                     </p>
                     <span className="text-[9px] text-slate-400 block mt-0.5 font-mono">
                       {absensiList.length > 0 
-                        ? `${Math.round((absensiList.filter((a) => getAbsensiStatus(a.keterangan) === 'Izin').length / absensiList.length) * 100)}% Rasio` 
+                        ? `${Math.round((absensiList.filter((a) => getAbsensiStatus(a.keterangan, a.status) === 'Izin').length / absensiList.length) * 100)}% Rasio` 
                         : '0%'
                       }
                     </span>
@@ -4730,11 +4737,11 @@ export default function App() {
                   >
                     <span className="text-[10px] text-rose-600 font-bold tracking-wider block">ALPHA</span>
                     <p className="text-2xl font-extrabold text-[#e11d48] mt-1">
-                      {absensiList.filter((a) => getAbsensiStatus(a.keterangan) === 'Alpha').length}
+                      {absensiList.filter((a) => getAbsensiStatus(a.keterangan, a.status) === 'Alpha').length}
                     </p>
                     <span className="text-[9px] text-slate-400 block mt-0.5 font-mono">
                       {absensiList.length > 0 
-                        ? `${Math.round((absensiList.filter((a) => getAbsensiStatus(a.keterangan) === 'Alpha').length / absensiList.length) * 100)}% Rasio` 
+                        ? `${Math.round((absensiList.filter((a) => getAbsensiStatus(a.keterangan, a.status) === 'Alpha').length / absensiList.length) * 100)}% Rasio` 
                         : '0%'
                       }
                     </span>
@@ -4752,11 +4759,11 @@ export default function App() {
                   >
                     <span className="text-[10px] text-blue-650 font-bold tracking-wider block">SAKIT</span>
                     <p className="text-2xl font-extrabold text-blue-600 mt-1">
-                      {absensiList.filter((a) => getAbsensiStatus(a.keterangan) === 'Sakit').length}
+                      {absensiList.filter((a) => getAbsensiStatus(a.keterangan, a.status) === 'Sakit').length}
                     </p>
                     <span className="text-[9px] text-slate-400 block mt-0.5 font-mono">
                       {absensiList.length > 0 
-                        ? `${Math.round((absensiList.filter((a) => getAbsensiStatus(a.keterangan) === 'Sakit').length / absensiList.length) * 100)}% Rasio` 
+                        ? `${Math.round((absensiList.filter((a) => getAbsensiStatus(a.keterangan, a.status) === 'Sakit').length / absensiList.length) * 100)}% Rasio` 
                         : '0%'
                       }
                     </span>
@@ -4922,22 +4929,22 @@ export default function App() {
                 </div>
                 
                 <div className="overflow-x-auto">
-                  <table className="w-full text-left border-collapse">
+                  <table className="w-full text-left border-collapse font-sans">
                     <thead>
-                      <tr className="border-b border-[#f1f5f9] bg-[#f8fafc] text-[#64748b] text-[11px] tracking-wider uppercase font-semibold font-sans">
+                      <tr className="border-b border-[#f1f5f9] bg-[#f8fafc] text-[#64748b] text-[11px] tracking-wider uppercase font-extrabold font-sans">
                         <th className="py-4 px-6">NIA</th>
                         <th className="py-4 px-6">Nama Lengkap</th>
                         <th className="py-4 px-6">Kelas</th>
-                        <th className="py-4 px-6">Tanggal Absen</th>
-                        <th className="py-4 px-6">Waktu Absen</th>
-                        <th className="py-4 px-6 text-center">Status &amp; Keterangan</th>
-                        <th className="py-4 px-6">Jenis Kegiatan</th>
+                        <th className="py-4 px-6">Tanggal</th>
+                        <th className="py-4 px-6">Waktu</th>
+                        <th className="py-4 px-6 text-center">Status</th>
+                        <th className="py-4 px-6">Keterangan</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-[#f1f5f9] text-xs">
                       {filteredAbsensi.length === 0 ? (
                         <tr>
-                          <td colSpan={7} className="py-12 text-center text-[#94a3b8]">
+                          <td colSpan={7} className="py-12 text-center text-[#94a3b8] font-sans">
                             <p className="font-medium text-slate-500">Tidak ditemukan data absensi untuk saringan "{absensiStatusFilter}".</p>
                             <button
                               onClick={() => setAbsensiStatusFilter('Semua')}
@@ -4948,66 +4955,39 @@ export default function App() {
                           </td>
                         </tr>
                       ) : (
-                        filteredAbsensi.map((row) => (
-                          <tr key={row.idAbsensi} className="hover:bg-[#f8fafc] transition duration-150">
-                            <td className="py-4 px-6 font-mono font-semibold text-[#6366f1]">{row.nia}</td>
-                            <td className="py-4 px-6 font-bold text-[#334155]">{row.namaLengkap}</td>
-                            <td className="py-4 px-6 font-semibold text-[#475569] font-mono">{row.kelas || '-'}</td>
-                            <td className="py-4 px-6 text-[#64748b] font-mono">{formatDateString(row.tanggalAbsen)}</td>
-                            <td className="py-4 px-6 font-mono font-semibold text-[#0f172a]">
-                              <span className="bg-slate-100 border border-slate-250/60 rounded-md px-2 py-0.5 text-[10.5px]">
-                                {row.waktuAbsen || '--:--'}
-                              </span>
-                            </td>
-                            <td className="py-4 px-6 text-center">
-                              <div className="flex flex-col items-center gap-1">
-                                {(() => {
-                                  const status = getAbsensiStatus(row.keterangan);
-                                  const cleanKet = (row.keterangan || '').trim().toLowerCase();
-                                  const isSimpleStatus = 
-                                    cleanKet === '' || 
-                                    cleanKet === 'hadir' || 
-                                    cleanKet === 'sakit' || 
-                                    cleanKet === 'izin' || 
-                                    cleanKet === 'ijin' || 
-                                    cleanKet === 'alpha' || 
-                                    cleanKet === 'alpa' || 
-                                    cleanKet === 'h' || 
-                                    cleanKet === 's' || 
-                                    cleanKet === 'i' || 
-                                    cleanKet === 'a';
-
-                                  return (
-                                    <>
-                                      {!isSimpleStatus && (
-                                        <span className="text-[#475569] font-medium italic font-sans block max-w-[200px] truncate" title={row.keterangan}>
-                                          "{row.keterangan}"
-                                        </span>
-                                      )}
-                                      {status === 'Sakit' && (
-                                        <span className="inline-flex items-center px-2 py-0.5 rounded text-[9px] font-black bg-blue-50 text-blue-700 border border-blue-150 uppercase">SAKIT</span>
-                                      )}
-                                      {status === 'Izin' && (
-                                        <span className="inline-flex items-center px-2 py-0.5 rounded text-[9px] font-black bg-amber-50 text-amber-700 border border-amber-150 uppercase font-sans">IZIN</span>
-                                      )}
-                                      {status === 'Alpha' && (
-                                        <span className="inline-flex items-center px-2 py-0.5 rounded text-[9px] font-black bg-rose-50 text-rose-700 border border-rose-150 uppercase font-sans">ALPHA</span>
-                                      )}
-                                      {status === 'Hadir' && (
-                                        <span className="inline-flex items-center px-2 py-0.5 rounded text-[9px] font-black bg-emerald-50 text-emerald-700 border border-emerald-150 uppercase font-sans">HADIR</span>
-                                      )}
-                                    </>
-                                  );
-                                })()}
-                              </div>
-                            </td>
-                            <td className="py-4 px-6">
-                              <span className="px-2.5 py-1 rounded-full text-[10px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-100 font-sans uppercase">
-                                {row.jenisKegiatan || '-'}
-                              </span>
-                            </td>
-                          </tr>
-                        ))
+                        filteredAbsensi.map((row) => {
+                          const statusVal = getAbsensiStatus(row.keterangan, row.status);
+                          return (
+                            <tr key={row.idAbsensi} className="hover:bg-[#f8fafc]/40 transition duration-150 font-medium text-[#475569]">
+                              <td className="py-4 px-6 font-mono font-bold text-[#6366f1]">{row.nia}</td>
+                              <td className="py-4 px-6 font-black text-[#1e293b]">{row.namaLengkap}</td>
+                              <td className="py-4 px-6 font-bold text-slate-700 font-mono">{row.kelas || '-'}</td>
+                              <td className="py-4 px-6 text-[#64748b] font-mono">{formatDateString(row.tanggalAbsen)}</td>
+                              <td className="py-4 px-6 font-mono font-bold text-slate-800">
+                                <span className="bg-slate-100 border border-slate-200 rounded-md px-2 py-0.5 text-[10.5px]">
+                                  {row.waktuAbsen || '--:--'}
+                                </span>
+                              </td>
+                              <td className="py-4 px-6 text-center">
+                                {statusVal === 'Sakit' && (
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded text-[9px] font-black bg-blue-50 text-blue-700 border border-blue-150 uppercase">SAKIT</span>
+                                )}
+                                {statusVal === 'Izin' && (
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded text-[9px] font-black bg-amber-50 text-amber-700 border border-amber-150 uppercase font-sans">IZIN</span>
+                                )}
+                                {statusVal === 'Alpha' && (
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded text-[9px] font-black bg-rose-50 text-rose-700 border border-rose-150 uppercase font-sans">ALPHA</span>
+                                )}
+                                {statusVal === 'Hadir' && (
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded text-[9px] font-black bg-emerald-50 text-emerald-700 border border-emerald-150 uppercase font-sans">HADIR</span>
+                                )}
+                              </td>
+                              <td className="py-4 px-6 italic text-slate-500 max-w-[200px] truncate" title={row.keterangan || '-'}>
+                                {row.keterangan || '-'}
+                              </td>
+                            </tr>
+                          );
+                        })
                       )}
                     </tbody>
                   </table>
@@ -6049,7 +6029,7 @@ export default function App() {
                 <div className="space-y-1">
                   <h3 className="text-base font-bold text-[#0f172a] flex items-center space-x-2">
                     <UserCheck className="w-5 h-5 text-indigo-600" />
-                    <span>Kelola Sub-Akun Akses (AKUN SAPTA)</span>
+                    <span>Kelola Sub-Akun Akses (KELOLA AKUN)</span>
                   </h3>
                   <p className="text-[11px] text-[#64748b]">
                     Atur hak akses akun member lembaga, tambah akun baru atau hapus menu tertentu dari akun tersebut.
@@ -6103,10 +6083,10 @@ export default function App() {
                   <table className="w-full text-left border-collapse">
                     <thead>
                       <tr className="bg-slate-50 border-b border-slate-100 text-slate-500 text-[10px] font-bold tracking-wider uppercase select-none">
-                        <th className="px-6 py-3.5">Nama Lengkap</th>
-                        <th className="px-6 py-3.5">Nama Pengguna (Username)</th>
-                        <th className="px-6 py-3.5">Kata Sandi (Password)</th>
-                        <th className="px-6 py-3.5">Menu Terblokir (Remove Menu)</th>
+                        <th className="px-6 py-3.5">Nama</th>
+                        <th className="px-6 py-3.5">username</th>
+                        <th className="px-6 py-3.5">pasword</th>
+                        <th className="px-6 py-3.5">remove menu</th>
                         <th className="px-6 py-3.5 text-right">Aksi</th>
                       </tr>
                     </thead>
@@ -6200,7 +6180,7 @@ export default function App() {
                                               headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
                                               body: new URLSearchParams({
                                                 action: 'delete',
-                                                sheetName: 'AKUN SAPTA',
+                                                sheetName: 'KELOLA AKUN',
                                                 primaryKey: acc.username // Use username as key
                                               })
                                             });
@@ -7861,7 +7841,7 @@ export default function App() {
                         {selectedProfile.status}
                       </span>
                     </div>
-                    <p className="text-xs font-mono font-semibold text-[#6366f1]">NIA: {selectedProfile.nia} • Key: {selectedProfile.key || '-'}</p>
+                    <p className="text-xs font-mono font-semibold text-[#6366f1]">NIA: {selectedProfile.nia} • Password: {selectedProfile.key || '-'}</p>
                   </div>
 
                   {/* Contact Badge Pills */}

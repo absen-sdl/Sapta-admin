@@ -1,6 +1,20 @@
 import express from "express";
 import path from "path";
+import os from "os";
 import { createServer as createViteServer } from "vite";
+
+function getLocalIpAddresses() {
+  const interfaces = os.networkInterfaces();
+  const addresses: string[] = [];
+  for (const name of Object.keys(interfaces)) {
+    for (const iface of interfaces[name] || []) {
+      if (iface.family === "IPv4" && !iface.internal) {
+        addresses.push(iface.address);
+      }
+    }
+  }
+  return addresses;
+}
 
 async function startServer() {
   const app = express();
@@ -56,7 +70,10 @@ async function startServer() {
   // Vite middleware for development or serving index.html in production
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: { 
+        middlewareMode: true,
+        host: true
+      },
       appType: "spa",
     });
     app.use(vite.middlewares);
@@ -69,7 +86,19 @@ async function startServer() {
   }
 
   app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on port ${PORT}`);
+    console.log("=================================================");
+    console.log(`🚀 SAPTA ADMIN Server is starting...`);
+    console.log(`👉 Local URL:     http://localhost:${PORT}`);
+    
+    const localIps = getLocalIpAddresses();
+    if (localIps.length > 0) {
+      localIps.forEach(ip => {
+        console.log(`👉 Network IP:    http://${ip}:${PORT}  (Akses dari HP / Jaringan Lokal)`);
+      });
+    } else {
+      console.log(`👉 Network IP:    http://0.0.0.0:${PORT}`);
+    }
+    console.log("=================================================");
   });
 }
 

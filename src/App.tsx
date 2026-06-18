@@ -538,6 +538,7 @@ export default function App() {
   const [emailInput, setEmailInput] = useState<string>('');
   const [passwordInput, setPasswordInput] = useState<string>('');
   const [selectedLembaga, setSelectedLembaga] = useState<string>('');
+  const [customAppsScriptUrlInput, setCustomAppsScriptUrlInput] = useState<string>('');
   const [lembagaSearch, setLembagaSearch] = useState<string>('');
   const [isLembagaDropdownOpen, setIsLembagaDropdownOpen] = useState<boolean>(false);
   const [showPassword, setShowPassword] = useState<boolean>(false);
@@ -896,6 +897,10 @@ export default function App() {
       const match = localAkunList.find(acc => acc.lembaga.toLowerCase() === selectedLembaga.toLowerCase());
       if (!match) {
         throw new Error('Lembaga tidak terdaftar dalam database utama.');
+      }
+
+      if (!match.urlAppScript && customAppsScriptUrlInput) {
+        match.urlAppScript = customAppsScriptUrlInput.trim();
       }
 
       if (!match.urlAppScript) {
@@ -2840,6 +2845,29 @@ export default function App() {
                         </div>
                       )}
                     </div>
+
+                    {(() => {
+                      const selectedLembagaConfig = selectedLembaga ? akunList.find(acc => acc.lembaga.toLowerCase() === selectedLembaga.toLowerCase()) : null;
+                      const isLembagaConfigIncomplete = selectedLembagaConfig && !selectedLembagaConfig.urlAppScript;
+                      if (!isLembagaConfigIncomplete) return null;
+                      return (
+                        <div className="bg-amber-950/25 border border-amber-900/40 rounded-xl p-3.5 space-y-2 animate-fade-in text-left">
+                          <p className="text-[10px] font-bold text-amber-300 leading-normal font-sans">
+                            ⚠️ Tautan Google Apps Script belum diset di basis data utama untuk lembaga ini. Masukkan Web App URL secara manual di bawah ini untuk melanjutkan:
+                          </p>
+                          <div className="space-y-1.5">
+                            <label className="text-[9px] font-bold text-slate-400 block pl-0.5 uppercase tracking-wide">Tautan Apps Script Utama (Web App)</label>
+                            <input
+                              type="text"
+                              placeholder="https://script.google.com/macros/s/.../exec"
+                              value={customAppsScriptUrlInput}
+                              onChange={(e) => setCustomAppsScriptUrlInput(e.target.value)}
+                              className="w-full text-[11px] px-3 py-2.5 bg-slate-950/90 border border-slate-800 rounded-lg focus:outline-none focus:ring-1 focus:ring-amber-500 focus:border-amber-500 transition text-slate-100 placeholder-slate-600 font-mono"
+                            />
+                          </div>
+                        </div>
+                      );
+                    })()}
 
                     {isVerifyingLembaga && loginProgressText && (
                       <div className="text-center py-2 text-[10px] text-slate-400 font-mono flex items-center justify-center gap-2">
@@ -5393,6 +5421,71 @@ export default function App() {
                     <Moon className="w-3.5 h-3.5 text-slate-400" />
                     <span>Gelap (Dark Theme)</span>
                   </button>
+                </div>
+              </div>
+
+              {/* Google Sheets & Apps Script Integration Settings */}
+              <div className="bg-white p-6 rounded-xl border border-[#e2e8f0] space-y-4 text-left">
+                <div className="flex items-center gap-2 border-b border-[#f1f5f9] pb-3">
+                  <div className="p-1.5 bg-indigo-50 rounded-lg">
+                    <Database className="w-4 h-4 text-indigo-600" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-[#0f172a]">🔧 Integrasi Database & Google Apps Script</h3>
+                    <p className="text-[11px] text-[#64748b]">Kelola endpoint Web App Google Apps Script dan publikasi CSV Google Sheets secara manual untuk lembaga ini.</p>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-700 block">Tautan Google Apps Script Web App</label>
+                    <input
+                      type="text"
+                      value={appsScriptUrl}
+                      onChange={(e) => {
+                        const val = e.target.value.trim();
+                        setAppsScriptUrl(val);
+                        localStorage.setItem('google_apps_script_url', val);
+                        localStorage.setItem('LINK_SCRIPT_UTAMA', val);
+                      }}
+                      placeholder="https://script.google.com/macros/s/.../exec"
+                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs font-mono outline-none focus:border-indigo-500 bg-slate-50/50 text-[#0f172a]"
+                    />
+                    <span className="text-[9px] text-slate-400 block leading-tight">
+                      URL Web App dari deployment Google Apps Script Anda. Digunakan untuk menulis data transaksi, keuangan, sub-akun dan anggota ke Google Sheets.
+                    </span>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-700 block">Tautan CSV Google Sheets (Absensi)</label>
+                    <input
+                      type="text"
+                      value={absensiCsvPublishUrl}
+                      onChange={(e) => {
+                        const val = e.target.value.trim();
+                        setAbsensiCsvPublishUrl(val);
+                        localStorage.setItem('google_sheets_absensi_csv_url', val);
+                        localStorage.setItem('LINK_ABSENSI', val);
+                      }}
+                      placeholder="https://docs.google.com/spreadsheets/d/e/.../pub?gid=...&single=true&output=csv"
+                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs font-mono outline-none focus:border-indigo-500 bg-slate-50/50 text-[#0f172a]"
+                    />
+                    <span className="text-[9px] text-slate-400 block leading-tight">
+                      URL Publikasi CSV dari spreadsheet lembaga Anda. Digunakan untuk sinkronisasi data absensi secara real-time.
+                    </span>
+                  </div>
+
+                  <div className="pt-2 flex justify-start">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        addToast('Konfigurasi integrasi berhasil diperbarui dan disimpan secara lokal!', 'success');
+                      }}
+                      className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold cursor-pointer shadow-sm active:scale-95 transition"
+                    >
+                      Simpan Konfigurasi Integrasi
+                    </button>
+                  </div>
                 </div>
               </div>
 

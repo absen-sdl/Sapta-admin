@@ -220,6 +220,11 @@ const isSameDay = (d1Str: string, d2Str: string): boolean => {
   return getCleanDate(d1Str) === getCleanDate(d2Str);
 };
 
+// Shared module-level lock for in-tab sync requests to avoid overlapping/concurrent fetches
+let activeSyncRequestId: string | null = null;
+let activeSyncPromise: Promise<boolean> | null = null;
+let lastSyncTimestamp: number = 0;
+
 export default function App() {
   // --- STATE ---
   const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
@@ -323,6 +328,18 @@ export default function App() {
       }
     }
     return localStorage.getItem('google_sheets_absensi_csv_url') || '';
+  });
+
+  const [kelolaAkunCsvPublishUrl, setKelolaAkunCsvPublishUrl] = useState<string>(() => {
+    if (localStorage.getItem('status_login') === 'true') {
+      const savedKelola = localStorage.getItem('LINK_KELOLA_AKUN');
+      if (savedKelola) {
+        const targetGidMatch = savedKelola.match(/gid=(\d+)/);
+        const targetGid = targetGidMatch && targetGidMatch[1] ? targetGidMatch[1] : '0';
+        return getCSVUrlForGid(savedKelola, targetGid);
+      }
+    }
+    return localStorage.getItem('google_sheets_kelola_akun_csv_url') || '';
   });
 
   // --- SUB-ACCOUNT PORTAL INTEGRATION STATES ---
@@ -595,6 +612,7 @@ export default function App() {
           let urlAppScript = '';
           let urlAbsensi = '';
           let linkProfile = '';
+          let urlKelolaAkun = '';
 
           // Dynamically matches keys-case/space insensitive and handles any automated transformations by parseCSV
           Object.keys(item).forEach(key => {
@@ -614,6 +632,8 @@ export default function App() {
               linkProfile = val;
             } else if (cleanKey.includes('absensi') || (cleanKey.includes('absen') && !cleanKey.includes('id'))) {
               urlAbsensi = val;
+            } else if (cleanKey.includes('kelolaakun') || cleanKey.includes('kelolasubakun') || cleanKey.includes('linkaccounts') || cleanKey.includes('linkuser') || cleanKey.includes('urlkelola') || cleanKey.includes('linkkelola') || cleanKey.includes('kelolaakuun') || cleanKey.includes('linkkelolaakuun') || cleanKey.includes('linkakun')) {
+              urlKelolaAkun = val;
             }
           });
 
@@ -624,8 +644,9 @@ export default function App() {
           if (!urlAppScript) urlAppScript = String(item['urlAppScript'] || item['Link_App_script'] || item['Link_App_Script'] || item['url_app_script'] || '').trim();
           if (!linkProfile) linkProfile = String(item['linkProfile'] || item['profile lembaga'] || item['Profile Lembaga'] || item['link_profile'] || item['profile'] || '').trim();
           if (!urlAbsensi) urlAbsensi = String(item['urlAbsensi'] || item['url_absensi'] || item['Url Absensi'] || '').trim();
+          if (!urlKelolaAkun) urlKelolaAkun = String(item['urlKelolaAkun'] || item['Link_Kelola_Akun'] || item['Link_Kelola_Akuun'] || item['link_kelola_akun'] || item['Kelola Akun'] || item['KELOLA AKUN'] || item['Link Kelola Akun'] || item['Link Kelola Akuun'] || '').trim();
 
-          return { gmail, pasword, lembaga, urlAppScript, urlAbsensi, linkProfile };
+          return { gmail, pasword, lembaga, urlAppScript, urlAbsensi, linkProfile, urlKelolaAkun };
         }).filter(acc => acc.gmail || acc.lembaga);
         
         console.log('AKUN_SAPTA loaded successfully. Parsed count:', formatted.length, formatted);
@@ -651,204 +672,291 @@ export default function App() {
     customAppsScriptUrl?: string, 
     attendanceUrl?: string,
     onProgress?: (step: 'idle' | 'auth' | 'anggota' | 'keuangan' | 'absensi' | 'selesai', text: string) => void
-  ) => {
-    setIsLoading(true);
-    addToast('Memulai pembaruan data otomatis dari basis data...', 'info');
+  ): Promise<boolean> => {
+    const requestId = 'req_' + Math.random().toString(36).substring(2, 11) + '_' + Date.now();
+    console.log(`[Sync] Request ${requestId} initiated.`);
 
-    let syncAnggotaSuccess = false;
-    let syncAbsensiSuccess = false;
+    // 1. In-Memory deduplication (within current admin instance/tab) to prevent spam or overlapping calls
+    if (activeSyncPromise) {
+      console.log(`[Sync] Concurrent request detected in same session. Request ${requestId} is joining active promise.`);
+      onProgress?.('auth', 'Penyelarasan sedang berjalan di tab/proses lain. Harap tunggu...');
+      try {
+        const res = await activeSyncPromise;
+        onProgress?.('selesai', 'Menyelesaikan penyelarasan terdeduplikasi...');
+        return res;
+      } catch (err) {
+        console.warn(`[Sync] Active promise joined by Request ${requestId} failed.`, err);
+        return false;
+      }
+    }
 
-    try {
-      // Resolve the active Google Apps Script Web App URL
-      const activeScriptUrl = customAppsScriptUrl || appsScriptUrl || localStorage.getItem('LINK_SCRIPT_UTAMA') || localStorage.getItem('google_apps_script_url') || '';
+    const executeSync = async (): Promise<boolean> => {
+      activeSyncRequestId = requestId;
       
-      if (activeScriptUrl) {
-        // Universal helper to fetch a sheet name and sync with local storage
-        const fetchAndSyncSheet = async (
-          sheetName: string,
-          idKey: string,
-          mapper: (item: any, idx: number) => any
-        ): Promise<boolean> => {
-          try {
-            const targetUrl = activeScriptUrl + (activeScriptUrl.includes('?') ? '&' : '?') + 'action=read&sheetName=' + encodeURIComponent(sheetName);
-            const response = await fetch(targetUrl);
-            if (response.ok) {
-              const resText = await response.text();
-              let parsed: any[] = [];
+      // 2. Inter-tab Debounce / Locking Mechanism via localStorage (for multiple admin tabs/windows)
+      const lockKey = 'sync_cloud_data_lock_id';
+      const lockTimeKey = 'sync_cloud_data_lock_timestamp';
+      const now = Date.now();
+      const existingLockTime = localStorage.getItem(lockTimeKey);
+      const existingLockId = localStorage.getItem(lockKey);
+
+      // If another tab has run a sync less than 4 seconds ago, or has an active lock
+      if (existingLockTime && (now - Number(existingLockTime) < 4000) && existingLockId !== requestId) {
+        console.log(`[Sync] Inter-tab lock active (ID: ${existingLockId}, Age: ${now - Number(existingLockTime)}ms). Debouncing to avoid double fetch.`);
+        onProgress?.('selesai', 'Koneksi terbagi dengan admin lain. Menggunakan data cache lokal terbaru.');
+        
+        // Add a slight staggered delay to let the other instance finish writing
+        await new Promise(resolve => setTimeout(resolve, 800));
+        refreshAllData();
+        return true;
+      }
+
+      // Write lock to localStorage to claim it
+      localStorage.setItem(lockKey, requestId);
+      localStorage.setItem(lockTimeKey, String(now));
+
+      // 3. Jitter / Randomized Delay to prevent absolute concurrent hitting from multiple physical instances
+      const jitterDelay = Math.floor(Math.random() * 800) + 200; // 200ms to 1000ms delay
+      await new Promise(resolve => setTimeout(resolve, jitterDelay));
+
+      // Update timestamp to prove we are still alive and holding the lock
+      localStorage.setItem(lockTimeKey, String(Date.now()));
+
+      setIsLoading(true);
+      addToast('Memulai pembaruan data otomatis dari basis data...', 'info');
+
+      let syncAnggotaSuccess = false;
+      let syncAbsensiSuccess = false;
+
+      try {
+        // Resolve the active Google Apps Script Web App URL
+        const activeScriptUrl = customAppsScriptUrl || appsScriptUrl || localStorage.getItem('LINK_SCRIPT_UTAMA') || localStorage.getItem('google_apps_script_url') || '';
+        
+        if (activeScriptUrl) {
+          // Universal helper to fetch a sheet name and sync with local storage
+          const fetchAndSyncSheet = async (
+            sheetName: string,
+            idKey: string,
+            mapper: (item: any, idx: number) => any
+          ): Promise<boolean> => {
+            // Keep updating lock time in long-running jobs to prevent timeout/expiry
+            localStorage.setItem(lockTimeKey, String(Date.now()));
+
+            let attempt = 0;
+            const maxAttempts = 3;
+            while (attempt < maxAttempts) {
               try {
-                const json = JSON.parse(resText);
-                if (Array.isArray(json)) {
-                  parsed = json;
-                } else if (json && Array.isArray(json.data)) {
-                  parsed = json.data;
-                } else if (json && Array.isArray(json.records)) {
-                  parsed = json.records;
+                const targetUrl = activeScriptUrl + (activeScriptUrl.includes('?') ? '&' : '?') + 'action=read&sheetName=' + encodeURIComponent(sheetName);
+                
+                // Add unique request ID parameter to targetUrl to prevent caching and track request on Apps Script
+                const cacheBusterUrl = targetUrl + '&reqId=' + encodeURIComponent(requestId) + '&t=' + Date.now();
+                
+                const response = await fetch(cacheBusterUrl);
+                if (response.ok) {
+                  const resText = await response.text();
+                  let parsed: any[] = [];
+                  try {
+                    const json = JSON.parse(resText);
+                    if (Array.isArray(json)) {
+                      parsed = json;
+                    } else if (json && Array.isArray(json.data)) {
+                      parsed = json.data;
+                    } else if (json && Array.isArray(json.records)) {
+                      parsed = json.records;
+                    }
+                  } catch (e) {
+                    parsed = parseCSV(resText);
+                  }
+
+                  const formatted = (parsed || [])
+                    .map((item: any, idx: number) => mapper(item, idx))
+                    .filter((x: any) => x && x[idKey]);
+
+                  const incomingIds = new Set(formatted.map((x: any) => String(x[idKey]).trim()).filter(Boolean));
+                  
+                  // Clean up local items that are NOT present in the downloaded Google Sheet data
+                  const localItems = window.dataSdk.read(sheetName);
+                  localItems.forEach((localItem: any) => {
+                    const idVal = String(localItem[idKey]).trim();
+                    // If the item ID is not in incoming Google Sheet list, delete it!
+                    if (idVal && !incomingIds.has(idVal)) {
+                      window.dataSdk.delete(sheetName, localItem[idKey]);
+                    }
+                  });
+
+                  // Write/update incoming items to local database
+                  formatted.forEach((item: any) => {
+                    if (!item[idKey]) return;
+                    const existing = window.dataSdk.read(sheetName);
+                    const match = existing.find((e: any) => String(e[idKey]).trim() === String(item[idKey]).trim());
+                    if (match) {
+                      window.dataSdk.update(sheetName, item[idKey], item);
+                    } else {
+                      window.dataSdk.create(sheetName, item);
+                    }
+                  });
+                  return true;
+                } else if (response.status === 429 || response.status >= 500) {
+                  console.warn(`[Sync] Sheet ${sheetName} fetch returned status ${response.status}. Retrying due to possible concurrency limiting...`);
+                } else {
+                  console.warn(`[Sync] Sheet ${sheetName} fetch status non-200: ${response.status}`);
                 }
-              } catch (e) {
-                parsed = parseCSV(resText);
+              } catch (sheetErr) {
+                console.warn(`[Sync] Error fetching sheet ${sheetName}, attempt ${attempt + 1}:`, sheetErr);
               }
 
-              const formatted = (parsed || [])
-                .map((item: any, idx: number) => mapper(item, idx))
-                .filter((x: any) => x && x[idKey]);
-
-              const incomingIds = new Set(formatted.map((x: any) => String(x[idKey]).trim()).filter(Boolean));
-              
-              // Clean up local items that are NOT present in the downloaded Google Sheet data
-              const localItems = window.dataSdk.read(sheetName);
-              localItems.forEach((localItem: any) => {
-                const idVal = String(localItem[idKey]).trim();
-                // If the item ID is not in incoming Google Sheet list, delete it!
-                if (idVal && !incomingIds.has(idVal)) {
-                  window.dataSdk.delete(sheetName, localItem[idKey]);
-                }
-              });
-
-              // Write/update incoming items to local database
-              formatted.forEach((item: any) => {
-                if (!item[idKey]) return;
-                const existing = window.dataSdk.read(sheetName);
-                const match = existing.find((e: any) => String(e[idKey]).trim() === String(item[idKey]).trim());
-                if (match) {
-                  window.dataSdk.update(sheetName, item[idKey], item);
-                } else {
-                  window.dataSdk.create(sheetName, item);
-                }
-              });
-              return true;
+              attempt++;
+              if (attempt < maxAttempts) {
+                // Wait before retrying with an exponential delay + jitter to prevent simultaneous spam
+                const backoffDelay = Math.pow(2, attempt) * 1000 + Math.floor(Math.random() * 500);
+                await new Promise(resolve => setTimeout(resolve, backoffDelay));
+              }
             }
-          } catch (sheetErr) {
-            console.error(`Gagal sinkronisasi data sheet ${sheetName}:`, sheetErr);
-          }
-          return false;
-        };
-
-        // Sync DATA ANGGOTA (Member Data)
-        onProgress?.('anggota', 'Menyelaraskan data Anggota Lembaga secara realtime...');
-        syncAnggotaSuccess = await fetchAndSyncSheet('DATA ANGGOTA', 'nia', (item: any) => ({
-          nia: String(getProp(item, 'nia', 'id', 'nomorinduk', 'nomor')).trim(),
-          namaLengkap: String(getProp(item, 'namaLengkap', 'namalengkap', 'nama', 'fullname')).trim(),
-          tempatLahir: String(getProp(item, 'tempatLahir', 'tempatlahir', 'tempat')).trim(),
-          tanggalLahir: String(getProp(item, 'tanggalLahir', 'tanggallahir', 'tgllahir')).trim(),
-          jenisKelamin: String(getProp(item, 'jenisKelamin', 'jeniskelamin', 'jk', 'gender')).trim(),
-          jenjangPendidikan: String(getProp(item, 'jenjangPendidikan', 'jenjangpendidikan', 'jenjang', 'pendidikan')).trim(),
-          namaSekolah: String(getProp(item, 'namaSekolah', 'namasekolah', 'sekolah')).trim(),
-          kelas: String(getProp(item, 'kelas', 'class')).trim(),
-          alamat: String(getProp(item, 'alamat', 'address')).trim(),
-          noHp: String(getProp(item, 'noHp', 'nohp', 'phone', 'telepon', 'hp')).trim(),
-          email: String(getProp(item, 'email', 'gmail')).trim(),
-          key: String(getProp(item, 'key', 'pin', 'kunci', 'pass', 'sandi')).trim(),
-          linkProfile: String(getProp(item, 'linkProfile', 'linkprofile', 'foto', 'photo', 'aksesfotoprofil', 'profile')).trim(),
-          status: String(getProp(item, 'status', 'keadaan') || 'Aktif').trim(),
-        }));
-
-        // Sync PEMBAYARAN (Payments Data)
-        onProgress?.('keuangan', 'Menyelaraskan buku besar keuangan, prestasi, sanksi, dan informasi...');
-        await fetchAndSyncSheet('PEMBAYARAN', 'idTransaksi', (item: any, idx: number) => ({
-          idTransaksi: String(getProp(item, 'idTransaksi', 'idtransaksi', 'id', 'transid') || `TRX-CL-${idx + 10001}`).trim(),
-          tanggal: String(getProp(item, 'tanggal', 'tgl', 'date') || new Date().toISOString().split('T')[0]).trim(),
-          nia: String(getProp(item, 'nia', 'idanggota', 'nomorinduk')).trim(),
-          namaLengkap: String(getProp(item, 'namaLengkap', 'namalengkap', 'nama', 'fullname')).trim(),
-          namaTagihan: String(getProp(item, 'namaTagihan', 'namatagihan', 'tagihan', 'keperluan', 'keterangan') || 'Pembayaran Kas/Spp').trim(),
-          nominal: Number(getProp(item, 'nominal', 'jumlah', 'nominaltagihan', 'amount') || 0),
-          status: String(getProp(item, 'status') || 'Lunas').trim(),
-          keterangan: String(getProp(item, 'keterangan', 'notes', 'catatan')).trim()
-        }));
-
-        // Sync PRESTASI (Achievements Data)
-        await fetchAndSyncSheet('PRESTASI', 'idPrestasi', (item: any, idx: number) => ({
-          idPrestasi: String(getProp(item, 'idPrestasi', 'idprestasi', 'id') || `PST-CL-${idx + 10001}`).trim(),
-          tanggal: String(getProp(item, 'tanggal', 'tgl', 'date') || new Date().toISOString().split('T')[0]).trim(),
-          nia: String(getProp(item, 'nia', 'idanggota', 'nomorinduk')).trim(),
-          namaLengkap: String(getProp(item, 'namaLengkap', 'namalengkap', 'nama', 'fullname')).trim(),
-          jenisPrestasi: String(getProp(item, 'jenisPrestasi', 'jenisprestasi', 'kategori', 'jenis') || 'Sains').trim(),
-          deskripsi: String(getProp(item, 'deskripsi', 'description', 'keterangan') || '').trim(),
-          linkFoto: String(getProp(item, 'linkFoto', 'linkfoto', 'foto', 'photo', 'gambar') || '').trim()
-        }));
-
-        // Sync PELANGGARAN (Violations Data)
-        await fetchAndSyncSheet('PELANGGARAN', 'idPelanggaran', (item: any, idx: number) => ({
-          idPelanggaran: String(getProp(item, 'idPelanggaran', 'idpelanggaran', 'id') || `PLG-CL-${idx + 10001}`).trim(),
-          tanggal: String(getProp(item, 'tanggal', 'tgl', 'date') || new Date().toISOString().split('T')[0]).trim(),
-          nia: String(getProp(item, 'nia', 'idanggota', 'nomorinduk')).trim(),
-          nama: String(getProp(item, 'nama', 'namalengkap', 'fullname')).trim(),
-          jenisPelanggaran: String(getProp(item, 'jenisPelanggaran', 'jenispelanggaran', 'kategori', 'tingkat') || 'Ringan').trim(),
-          namaPelanggaran: String(getProp(item, 'namaPelanggaran', 'namapelanggaran', 'pelanggaran', 'kasus') || '').trim(),
-          keterangan: String(getProp(item, 'keterangan', 'notes', 'catatan', 'deskripsi') || '').trim(),
-          adaDenda: String(getProp(item, 'adaDenda', 'adadenda', 'denda') || 'Tidak').trim(),
-          nominalDenda: Number(getProp(item, 'nominalDenda', 'nominaldenda', 'jumlahdenda', 'dendatagihan') || 0),
-          jenisHukuman: String(getProp(item, 'jenisHukuman', 'jenishukuman', 'sanksi', 'hukuman') || '').trim(),
-          statusHukuman: String(getProp(item, 'statusHukuman', 'statushukuman', 'statustindaklanjut', 'tindaklanjut') || 'Belum Ditindak').trim() as any
-        }));
-
-        // Sync INFORMASI (Announcements/Information Data)
-        await fetchAndSyncSheet('INFORMASI', 'idInformasi', (item: any, idx: number) => ({
-          idInformasi: String(getProp(item, 'idInformasi', 'idinformasi', 'id') || `INF-CL-${idx + 10001}`).trim(),
-          judul: String(getProp(item, 'judul', 'title', 'headline') || '').trim(),
-          isi: String(getProp(item, 'isi', 'content', 'deskripsi', 'pengumuman') || '').trim(),
-          jenisKegiatan: String(getProp(item, 'jenisKegiatan', 'jeniskegiatan', 'kategori', 'jenis') || 'Latihan Bersama').trim(),
-          tanggal: String(getProp(item, 'tanggal', 'tgl', 'date') || new Date().toISOString().split('T')[0]).trim(),
-          waktu: String(getProp(item, 'waktu', 'time', 'jam') || '--:--').trim()
-        }));
-
-        // Sync SURAT (Letter Data)
-        await fetchAndSyncSheet('SURAT', 'idSurat', (item: any, idx: number) => ({
-          idSurat: String(getProp(item, 'idSurat', 'idsurat', 'id') || `SRT-CL-${idx + 10001}`).trim(),
-          tanggal: String(getProp(item, 'tanggal', 'tgl', 'date') || new Date().toISOString().split('T')[0]).trim(),
-          nia: String(getProp(item, 'nia', 'idanggota', 'nomorinduk')).trim(),
-          namaLengkap: String(getProp(item, 'namaLengkap', 'namalengkap', 'nama', 'fullname')).trim(),
-          perihal: String(getProp(item, 'perihal', 'perihalsurat', 'hal', 'about') || '').trim(),
-          linkGoogleDoc: String(getProp(item, 'linkGoogleDoc', 'linkgoogledoc', 'linkdokumen', 'url', 'link') || '').trim()
-        }));
-
-        // Sync PERATURAN (Rules Data)
-        await fetchAndSyncSheet('PERATURAN', 'idPeraturan', (item: any, idx: number) => ({
-          idPeraturan: String(getProp(item, 'idPeraturan', 'idperaturan', 'id') || `REG-CL-${idx + 10001}`).trim(),
-          judul: String(getProp(item, 'judul', 'judulperaturan', 'peraturan', 'rule') || '').trim(),
-          sanksi: String(getProp(item, 'sanksi', 'konsekuensi', 'hukuman') || '').trim(),
-          status: String(getProp(item, 'status', 'tingkat', 'statuspelanggaran') || 'Ringan').trim() as any
-        }));
-
-        // 2. ABSENSI (read 100% from Google Apps Script Web App as requested)
-        onProgress?.('absensi', 'Menyelaraskan data Rekap Absensi secara realtime dari server...');
-        syncAbsensiSuccess = await fetchAndSyncSheet('ABSENSI', 'idAbsensi', (item: any, idx: number) => {
-          const nia = String(getProp(item, 'nia', 'nomorinduk', 'idanggota', 'id')).trim();
-          const tanggalAbsen = String(getProp(item, 'tanggal', 'tanggalAbsen', 'tanggalabsen', 'date') || new Date().toISOString().split('T')[0]).trim();
-          const computedId = String(getProp(item, 'idAbsensi', 'idabsensi', 'id') || (nia && tanggalAbsen ? `${nia}-${tanggalAbsen}` : '') || `ABS-CL-${idx + 10001}`).trim();
-          return {
-            idAbsensi: computedId,
-            nia: nia,
-            namaLengkap: String(getProp(item, 'namaLengkap', 'namalengkap', 'nama', 'fullname')).trim(),
-            kelas: String(getProp(item, 'kelas', 'class')).trim(),
-            tanggalAbsen: tanggalAbsen,
-            waktuAbsen: String(getProp(item, 'waktu', 'waktuAbsen', 'waktuabsen', 'waktu_absen', 'jamMasuk', 'jammasuk', 'jam_masuk', 'jam', 'jamabsen', 'jam_absen') || '--:--').trim(),
-            status: String(getProp(item, 'status', 'kehadiran', 'state') || '').trim(),
-            keterangan: String(getProp(item, 'keterangan', 'notes', 'catatan', 'keteranganabsen', 'remarks') || '').trim(),
-            jenisKegiatan: String(getProp(item, 'jenisKegiatan', 'jeniskegiatan', 'kegiatan') || '').trim()
+            return false;
           };
-        });
-      } else {
-        console.warn('Kemungkinan URL Apps Script belum terkonfigurasi untuk menyinkronkan data Anggota.');
-      }
 
-      refreshAllData();
-      onProgress?.('selesai', 'Selesai! Mempersiapkan dashboard sistem...');
+          // Sync DATA ANGGOTA (Member Data)
+          onProgress?.('anggota', 'Menyelaraskan data Anggota Lembaga secara realtime...');
+          syncAnggotaSuccess = await fetchAndSyncSheet('DATA ANGGOTA', 'nia', (item: any) => ({
+            nia: String(getProp(item, 'nia', 'id', 'nomorinduk', 'nomor')).trim(),
+            namaLengkap: String(getProp(item, 'namaLengkap', 'namalengkap', 'nama', 'fullname')).trim(),
+            tempatLahir: String(getProp(item, 'tempatLahir', 'tempatlahir', 'tempat')).trim(),
+            tanggalLahir: String(getProp(item, 'tanggalLahir', 'tanggallahir', 'tgllahir')).trim(),
+            jenisKelamin: String(getProp(item, 'jenisKelamin', 'jeniskelamin', 'jk', 'gender')).trim(),
+            jenjangPendidikan: String(getProp(item, 'jenjangPendidikan', 'jenjangpendidikan', 'jenjang', 'pendidikan')).trim(),
+            namaSekolah: String(getProp(item, 'namaSekolah', 'namasekolah', 'sekolah')).trim(),
+            kelas: String(getProp(item, 'kelas', 'class')).trim(),
+            alamat: String(getProp(item, 'alamat', 'address')).trim(),
+            noHp: String(getProp(item, 'noHp', 'nohp', 'phone', 'telepon', 'hp')).trim(),
+            email: String(getProp(item, 'email', 'gmail')).trim(),
+            key: String(getProp(item, 'key', 'pin', 'kunci', 'pass', 'sandi')).trim(),
+            linkProfile: String(getProp(item, 'linkProfile', 'linkprofile', 'foto', 'photo', 'aksesfotoprofil', 'profile')).trim(),
+            status: String(getProp(item, 'status', 'keadaan') || 'Aktif').trim(),
+          }));
 
-      if (syncAnggotaSuccess && syncAbsensiSuccess) {
-        addToast('Lengkap! Data Anggota & Rekap Absensi berhasil diperbarui.', 'success');
-      } else if (syncAnggotaSuccess) {
-        addToast('Lengkap! Database Anggota & operasional berhasil diperbarui.', 'success');
-      } else if (syncAbsensiSuccess) {
-        addToast('Lengkap! Rekap Absensi berhasil diperbarui.', 'success');
-      } else {
-        addToast('Pemeriksaan file data selesai (Tidak ada perubahan baru).', 'info');
+          // Sync PEMBAYARAN (Payments Data)
+          onProgress?.('keuangan', 'Menyelaraskan buku besar keuangan, prestasi, sanksi, dan informasi...');
+          await fetchAndSyncSheet('PEMBAYARAN', 'idTransaksi', (item: any, idx: number) => ({
+            idTransaksi: String(getProp(item, 'idTransaksi', 'idtransaksi', 'id', 'transid') || `TRX-CL-${idx + 10001}`).trim(),
+            tanggal: String(getProp(item, 'tanggal', 'tgl', 'date') || new Date().toISOString().split('T')[0]).trim(),
+            nia: String(getProp(item, 'nia', 'idanggota', 'nomorinduk')).trim(),
+            namaLengkap: String(getProp(item, 'namaLengkap', 'namalengkap', 'nama', 'fullname')).trim(),
+            namaTagihan: String(getProp(item, 'namaTagihan', 'namatagihan', 'tagihan', 'keperluan', 'keterangan') || 'Pembayaran Kas/Spp').trim(),
+            nominal: Number(getProp(item, 'nominal', 'jumlah', 'nominaltagihan', 'amount') || 0),
+            status: String(getProp(item, 'status') || 'Lunas').trim(),
+            keterangan: String(getProp(item, 'keterangan', 'notes', 'catatan')).trim()
+          }));
+
+          // Sync PRESTASI (Achievements Data)
+          await fetchAndSyncSheet('PRESTASI', 'idPrestasi', (item: any, idx: number) => ({
+            idPrestasi: String(getProp(item, 'idPrestasi', 'idprestasi', 'id') || `PST-CL-${idx + 10001}`).trim(),
+            tanggal: String(getProp(item, 'tanggal', 'tgl', 'date') || new Date().toISOString().split('T')[0]).trim(),
+            nia: String(getProp(item, 'nia', 'idanggota', 'nomorinduk')).trim(),
+            namaLengkap: String(getProp(item, 'namaLengkap', 'namalengkap', 'nama', 'fullname')).trim(),
+            jenisPrestasi: String(getProp(item, 'jenisPrestasi', 'jenisprestasi', 'kategori', 'jenis') || 'Sains').trim(),
+            deskripsi: String(getProp(item, 'deskripsi', 'description', 'keterangan') || '').trim(),
+            linkFoto: String(getProp(item, 'linkFoto', 'linkfoto', 'foto', 'photo', 'gambar') || '').trim()
+          }));
+
+          // Sync PELANGGARAN (Violations Data)
+          await fetchAndSyncSheet('PELANGGARAN', 'idPelanggaran', (item: any, idx: number) => ({
+            idPelanggaran: String(getProp(item, 'idPelanggaran', 'idpelanggaran', 'id') || `PLG-CL-${idx + 10001}`).trim(),
+            tanggal: String(getProp(item, 'tanggal', 'tgl', 'date') || new Date().toISOString().split('T')[0]).trim(),
+            nia: String(getProp(item, 'nia', 'idanggota', 'nomorinduk')).trim(),
+            nama: String(getProp(item, 'nama', 'namalengkap', 'fullname')).trim(),
+            jenisPelanggaran: String(getProp(item, 'jenisPelanggaran', 'jenispelanggaran', 'kategori', 'tingkat') || 'Ringan').trim(),
+            namaPelanggaran: String(getProp(item, 'namaPelanggaran', 'namapelanggaran', 'pelanggaran', 'kasus') || '').trim(),
+            keterangan: String(getProp(item, 'keterangan', 'notes', 'catatan', 'deskripsi') || '').trim(),
+            adaDenda: String(getProp(item, 'adaDenda', 'adadenda', 'denda') || 'Tidak').trim(),
+            nominalDenda: Number(getProp(item, 'nominalDenda', 'nominaldenda', 'jumlahdenda', 'dendatagihan') || 0),
+            jenisHukuman: String(getProp(item, 'jenisHukuman', 'jenishukuman', 'sanksi', 'hukuman') || '').trim(),
+            statusHukuman: String(getProp(item, 'statusHukuman', 'statushukuman', 'statustindaklanjut', 'tindaklanjut') || 'Belum Ditindak').trim() as any
+          }));
+
+          // Sync INFORMASI (Announcements/Information Data)
+          await fetchAndSyncSheet('INFORMASI', 'idInformasi', (item: any, idx: number) => ({
+            idInformasi: String(getProp(item, 'idInformasi', 'idinformasi', 'id') || `INF-CL-${idx + 10001}`).trim(),
+            judul: String(getProp(item, 'judul', 'title', 'headline') || '').trim(),
+            isi: String(getProp(item, 'isi', 'content', 'deskripsi', 'pengumuman') || '').trim(),
+            jenisKegiatan: String(getProp(item, 'jenisKegiatan', 'jeniskegiatan', 'kategori', 'jenis') || 'Latihan Bersama').trim(),
+            tanggal: String(getProp(item, 'tanggal', 'tgl', 'date') || new Date().toISOString().split('T')[0]).trim(),
+            waktu: String(getProp(item, 'waktu', 'time', 'jam') || '--:--').trim()
+          }));
+
+          // Sync SURAT (Letter Data)
+          await fetchAndSyncSheet('SURAT', 'idSurat', (item: any, idx: number) => ({
+            idSurat: String(getProp(item, 'idSurat', 'idsurat', 'id') || `SRT-CL-${idx + 10001}`).trim(),
+            tanggal: String(getProp(item, 'tanggal', 'tgl', 'date') || new Date().toISOString().split('T')[0]).trim(),
+            nia: String(getProp(item, 'nia', 'idanggota', 'nomorinduk')).trim(),
+            namaLengkap: String(getProp(item, 'namaLengkap', 'namalengkap', 'nama', 'fullname')).trim(),
+            perihal: String(getProp(item, 'perihal', 'perihalsurat', 'hal', 'about') || '').trim(),
+            linkGoogleDoc: String(getProp(item, 'linkGoogleDoc', 'linkgoogledoc', 'linkdokumen', 'url', 'link') || '').trim()
+          }));
+
+          // Sync PERATURAN (Rules Data)
+          await fetchAndSyncSheet('PERATURAN', 'idPeraturan', (item: any, idx: number) => ({
+            idPeraturan: String(getProp(item, 'idPeraturan', 'idperaturan', 'id') || `REG-CL-${idx + 10001}`).trim(),
+            judul: String(getProp(item, 'judul', 'judulperaturan', 'peraturan', 'rule') || '').trim(),
+            sanksi: String(getProp(item, 'sanksi', 'konsekuensi', 'hukuman') || '').trim(),
+            status: String(getProp(item, 'status', 'tingkat', 'statuspelanggaran') || 'Ringan').trim() as any
+          }));
+
+          // 2. ABSENSI (read 100% from Google Apps Script Web App as requested)
+          onProgress?.('absensi', 'Menyelaraskan data Rekap Absensi secara realtime dari server...');
+          syncAbsensiSuccess = await fetchAndSyncSheet('ABSENSI', 'idAbsensi', (item: any, idx: number) => {
+            const nia = String(getProp(item, 'nia', 'nomorinduk', 'idanggota', 'id')).trim();
+            const tanggalAbsen = String(getProp(item, 'tanggal', 'tanggalAbsen', 'tanggalabsen', 'date') || new Date().toISOString().split('T')[0]).trim();
+            const computedId = String(getProp(item, 'idAbsensi', 'idabsensi', 'id') || (nia && tanggalAbsen ? `${nia}-${tanggalAbsen}` : '') || `ABS-CL-${idx + 10001}`).trim();
+            return {
+              idAbsensi: computedId,
+              nia: nia,
+              namaLengkap: String(getProp(item, 'namaLengkap', 'namalengkap', 'nama', 'fullname')).trim(),
+              kelas: String(getProp(item, 'kelas', 'class')).trim(),
+              tanggalAbsen: tanggalAbsen,
+              waktuAbsen: String(getProp(item, 'waktu', 'waktuAbsen', 'waktuabsen', 'waktu_absen', 'jamMasuk', 'jammasuk', 'jam_masuk', 'jam', 'jamabsen', 'jam_absen') || '--:--').trim(),
+              status: String(getProp(item, 'status', 'kehadiran', 'state') || '').trim(),
+              keterangan: String(getProp(item, 'keterangan', 'notes', 'catatan', 'keteranganabsen', 'remarks') || '').trim(),
+              jenisKegiatan: String(getProp(item, 'jenisKegiatan', 'jeniskegiatan', 'kegiatan') || '').trim()
+            };
+          });
+        } else {
+          console.warn('Kemungkinan URL Apps Script belum terkonfigurasi untuk menyinkronkan data Anggota.');
+        }
+
+        refreshAllData();
+        onProgress?.('selesai', 'Selesai! Mempersiapkan dashboard sistem...');
+
+        if (syncAnggotaSuccess && syncAbsensiSuccess) {
+          addToast('Lengkap! Data Anggota & Rekap Absensi berhasil diperbarui.', 'success');
+        } else if (syncAnggotaSuccess) {
+          addToast('Lengkap! Database Anggota & operasional berhasil diperbarui.', 'success');
+        } else if (syncAbsensiSuccess) {
+          addToast('Lengkap! Rekap Absensi berhasil diperbarui.', 'success');
+        } else {
+          addToast('Pemeriksaan file data selesai (Tidak ada perubahan baru).', 'info');
+        }
+
+        // Release the lock
+        localStorage.removeItem(lockKey);
+        lastSyncTimestamp = Date.now();
+        return true;
+      } catch (err: any) {
+        console.error('[Sync] Error inside sync logic:', err);
+        addToast('Kesalahan penyelarasan data otomatis: ' + (err.message || err), 'error');
+        // Clean up locks as well to avoid being stuck
+        localStorage.removeItem(lockKey);
+        return false;
+      } finally {
+        setIsLoading(false);
+        activeSyncPromise = null;
+        if (activeSyncRequestId === requestId) {
+          activeSyncRequestId = null;
+        }
       }
-    } catch (err: any) {
-      console.error(err);
-      addToast('Kesalahan penyelarasan data otomatis: ' + (err.message || err), 'error');
-    } finally {
-      setIsLoading(false);
-    }
+    };
+
+    activeSyncPromise = executeSync();
+    return activeSyncPromise;
   };
 
   useEffect(() => {
@@ -890,6 +998,7 @@ export default function App() {
                 let urlAppScript = '';
                 let urlAbsensi = '';
                 let linkProfile = '';
+                let urlKelolaAkun = '';
 
                 Object.keys(item).forEach(key => {
                   const rawKey = key.trim();
@@ -908,6 +1017,8 @@ export default function App() {
                     linkProfile = val;
                   } else if (cleanKey.includes('absensi') || (cleanKey.includes('absen') && !cleanKey.includes('id'))) {
                     urlAbsensi = val;
+                  } else if (cleanKey.includes('kelolaakun') || cleanKey.includes('kelolasubakun') || cleanKey.includes('linkaccounts') || cleanKey.includes('linkuser') || cleanKey.includes('urlkelola') || cleanKey.includes('linkkelola') || cleanKey.includes('kelolaakuun') || cleanKey.includes('linkkelolaakuun') || cleanKey.includes('linkakun')) {
+                    urlKelolaAkun = val;
                   }
                 });
 
@@ -917,8 +1028,9 @@ export default function App() {
                 if (!urlAppScript) urlAppScript = String(item['urlAppScript'] || item['Link_App_script'] || item['Link_App_Script'] || item['url_app_script'] || '').trim();
                 if (!linkProfile) linkProfile = String(item['linkProfile'] || item['profile lembaga'] || item['Profile Lembaga'] || item['link_profile'] || item['profile'] || '').trim();
                 if (!urlAbsensi) urlAbsensi = String(item['urlAbsensi'] || item['url_absensi'] || item['Url Absensi'] || '').trim();
+                if (!urlKelolaAkun) urlKelolaAkun = String(item['urlKelolaAkun'] || item['Link_Kelola_Akun'] || item['Link_Kelola_Akuun'] || item['link_kelola_akun'] || item['Kelola Akun'] || item['KELOLA AKUN'] || item['Link Kelola Akun'] || item['Link Kelola Akuun'] || '').trim();
 
-                return { gmail, pasword, lembaga, urlAppScript, urlAbsensi, linkProfile };
+                return { gmail, pasword, lembaga, urlAppScript, urlAbsensi, linkProfile, urlKelolaAkun };
               }).filter(acc => acc.gmail || acc.lembaga);
               setAkunList(localAkunList);
             }
@@ -937,29 +1049,62 @@ export default function App() {
         match.urlAppScript = customAppsScriptUrlInput.trim();
       }
 
-      if (!match.urlAppScript) {
-        throw new Error('Konfigurasi URL Google Apps Script untuk lembaga ini belum lengkap.');
-      }
-
-      // Fetch user sub-accounts from 'KELOLA AKUN' sheet via Google Apps Script
-      setLoginProgressText('Membuka koneksi & mengunduh database akun...');
-      const targetUrl = match.urlAppScript + (match.urlAppScript.includes('?') ? '&' : '?') + 'action=read&sheetName=' + encodeURIComponent('KELOLA AKUN');
-      
-      const response = await fetch(targetUrl);
-      if (!response.ok) {
-        throw new Error('Gagal berkomunikasi dengan server App Script lembaga.');
-      }
-
-      const resText = await response.text();
+      let dataFetched = false;
       let parsedJson: any = null;
-      try {
-        parsedJson = JSON.parse(resText);
-      } catch (e) {
-        throw new Error('Data user dari server tidak berformat JSON valid.');
+
+      // 1. Try Apps Script Web App first if available
+      if (match.urlAppScript) {
+        setLoginProgressText('Membuka koneksi & mengunduh database akun via Web App...');
+        try {
+          const targetUrl = match.urlAppScript + (match.urlAppScript.includes('?') ? '&' : '?') + 'action=read&sheetName=' + encodeURIComponent('KELOLA AKUN');
+          const response = await fetch(targetUrl);
+          if (response.ok) {
+            const resText = await response.text();
+            try {
+              const parsed = JSON.parse(resText);
+              if (parsed && !parsed.error) {
+                parsedJson = parsed;
+                dataFetched = true;
+              } else {
+                console.warn('Apps Script returned error or invalid format, trying CSV fallback...');
+              }
+            } catch (e) {
+              console.warn('Apps Script response not JSON, trying as CSV if possible...');
+              const parsed = parseCSV(resText);
+              if (parsed && parsed.length > 0) {
+                parsedJson = parsed;
+                dataFetched = true;
+              }
+            }
+          }
+        } catch (appScriptErr) {
+          console.warn('Gagal memverifikasi via Apps Script:', appScriptErr);
+        }
       }
 
-      if (parsedJson && parsedJson.error) {
-        throw new Error(parsedJson.message || 'Error internal Google Sheets App Script.');
+      // 2. Try direct published CSV URL for KELOLA AKUN if Apps Script fails or is not set
+      if (!dataFetched && match.urlKelolaAkun) {
+        setLoginProgressText('Membuka koneksi & mengunduh database akun via direct Google Sheet CSV...');
+        try {
+          const targetGidMatch = match.urlKelolaAkun.match(/gid=(\d+)/);
+          const targetGid = targetGidMatch && targetGidMatch[1] ? targetGidMatch[1] : '0';
+          const csvUrl = getCSVUrlForGid(match.urlKelolaAkun, targetGid);
+          const response = await fetch(csvUrl);
+          if (response.ok) {
+            const csvText = await response.text();
+            const parsed = parseCSV(csvText);
+            if (parsed && parsed.length > 0) {
+              parsedJson = parsed;
+              dataFetched = true;
+            }
+          }
+        } catch (sheetErr) {
+          console.warn('Gagal memverifikasi via direct Google Sheet URL:', sheetErr);
+        }
+      }
+
+      if (!dataFetched) {
+        throw new Error('Konfigurasi server/tautan Kelola Akun lembaga belum diset atau tidak dapat diakses.');
       }
 
       if (Array.isArray(parsedJson)) {
@@ -975,7 +1120,7 @@ export default function App() {
             const val = String(item[key] || '').trim();
             if (lowerK === 'nama' || lowerK === 'name' || lowerK.includes('nama lengkap') || lowerK.includes('fullname')) {
               nama = val;
-            } else if (lowerK === 'username' || lowerK === 'user' || lowerK === 'login') {
+            } else if (lowerK === 'username' || lowerK === 'usernmae' || lowerK === 'user' || lowerK === 'login') {
               username = val;
             } else if (lowerK === 'pasword' || lowerK === 'password' || lowerK.includes('pass') || lowerK.includes('word')) {
               pasword = val;
@@ -987,7 +1132,7 @@ export default function App() {
           });
 
           if (!nama) nama = String(item['nama'] || item['name'] || '').trim();
-          if (!username) username = String(item['username'] || item['user'] || '').trim();
+          if (!username) username = String(item['username'] || item['usernmae'] || item['user'] || '').trim();
           if (!pasword) pasword = String(item['pasword'] || item['password'] || '').trim();
           if (!menu) menu = String(item['menu'] || item['aksesMenu'] || item['akses_menu'] || '').trim();
           if (!removeMenu) removeMenu = String(item['remove_menu'] || item['remove menu'] || item['hapus_menu'] || item['hapus menu'] || '').trim();
@@ -1104,6 +1249,7 @@ export default function App() {
 
         localStorage.setItem('LINK_SCRIPT_UTAMA', match.urlAppScript || '');
         localStorage.setItem('LINK_ABSENSI', match.urlAbsensi || '');
+        localStorage.setItem('LINK_KELOLA_AKUN', match.urlKelolaAkun || '');
         localStorage.setItem('G-MAIL_LOGIN', match.gmail);
         localStorage.setItem('LEMBAGA_LOGIN', match.lembaga);
         localStorage.setItem('LINK_PROFILE', match.linkProfile || '');
@@ -1115,6 +1261,7 @@ export default function App() {
         localStorage.setItem('USER_REMOVE_MENU', matchedUser.removeMenu || '');
 
         localStorage.setItem('google_sheets_absensi_csv_url', formattedAbsensiUrl);
+        localStorage.setItem('google_sheets_kelola_akun_csv_url', match.urlKelolaAkun || '');
         localStorage.setItem('google_apps_script_url', match.urlAppScript);
 
         // Wipe default dummy offline sandbox data to avoid mixing with real custom Google Sheets data
@@ -1127,6 +1274,7 @@ export default function App() {
 
         setAppsScriptUrl(match.urlAppScript);
         setAbsensiCsvPublishUrl(formattedAbsensiUrl);
+        setKelolaAkunCsvPublishUrl(match.urlKelolaAkun || '');
         setGmailLogin(match.gmail);
         setLembagaLogin(match.lembaga);
         setInstitusiProfileUrl(match.linkProfile || '');
@@ -2909,12 +3057,12 @@ export default function App() {
 
                     {(() => {
                       const selectedLembagaConfig = selectedLembaga ? akunList.find(acc => acc.lembaga.toLowerCase() === selectedLembaga.toLowerCase()) : null;
-                      const isLembagaConfigIncomplete = selectedLembagaConfig && !selectedLembagaConfig.urlAppScript;
+                      const isLembagaConfigIncomplete = selectedLembagaConfig && !selectedLembagaConfig.urlAppScript && !selectedLembagaConfig.urlKelolaAkun;
                       if (!isLembagaConfigIncomplete) return null;
                       return (
                         <div className="bg-amber-950/25 border border-amber-900/40 rounded-xl p-3.5 space-y-2 animate-fade-in text-left">
                           <p className="text-[10px] font-bold text-amber-300 leading-normal font-sans">
-                            ⚠️ Tautan Google Apps Script belum diset di basis data utama untuk lembaga ini. Masukkan Web App URL secara manual di bawah ini untuk melanjutkan:
+                            ⚠️ Tautan konfigurasi Google Apps Script utama belum diset di basis data utama untuk lembaga ini. Masukkan Web App URL secara manual di bawah ini untuk melanjutkan:
                           </p>
                           <div className="space-y-1.5">
                             <label className="text-[9px] font-bold text-slate-400 block pl-0.5 uppercase tracking-wide">Tautan Apps Script Utama (Web App)</label>
@@ -5533,6 +5681,25 @@ export default function App() {
                     />
                     <span className="text-[9px] text-slate-400 block leading-tight">
                       URL Publikasi CSV dari spreadsheet lembaga Anda. Digunakan untuk sinkronisasi data absensi secara real-time.
+                    </span>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-700 block">Tautan CSV Google Sheets (Kelola Akun)</label>
+                    <input
+                      type="text"
+                      value={kelolaAkunCsvPublishUrl || ''}
+                      onChange={(e) => {
+                        const val = e.target.value.trim();
+                        setKelolaAkunCsvPublishUrl(val);
+                        localStorage.setItem('google_sheets_kelola_akun_csv_url', val);
+                        localStorage.setItem('LINK_KELOLA_AKUN', val);
+                      }}
+                      placeholder="https://docs.google.com/spreadsheets/d/e/.../pub?gid=...&single=true&output=csv"
+                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs font-mono outline-none focus:border-indigo-500 bg-slate-50/50 text-[#0f172a]"
+                    />
+                    <span className="text-[9px] text-slate-400 block leading-tight">
+                      URL Publikasi CSV dari sheet KELOLA AKUN spreadsheet lembaga Anda. Digunakan untuk sinkronisasi data sub-akun/operator secara real-time.
                     </span>
                   </div>
 

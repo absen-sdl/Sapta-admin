@@ -44,13 +44,19 @@ import {
   Moon,
   UserCheck,
   Printer,
-  Download
+  Download,
+  Sparkles,
+  Bot
 } from 'lucide-react';
 
 import { initializeDatabase } from './dataSdk';
 import { parseCSV, generateId, formatRupiah, formatDateString, getProp, terbilang } from './utils';
 import { Anggota, Pembayaran, Prestasi, Pelanggaran, Absensi, Informasi, Surat, Peraturan, ActiveTab, ToastMessage } from './types';
 import { GOOGLE_APPS_SCRIPT_CODE } from './googleAppsScriptCode';
+import { jsPDF } from 'jspdf';
+import autoTable from 'jspdf-autotable';
+import * as XLSX from 'xlsx';
+import html2canvas from 'html2canvas';
 
 // Local fetch override to transparently proxy external requests and bypass iframe sandbox CORS limitations
 const originalFetch = window.fetch;
@@ -381,7 +387,10 @@ export default function App() {
   // --- STATES FOR CETAK & SIMPAN DATA TAB ---
   const [isInIframe, setIsInIframe] = useState<boolean>(false);
   const [printNotification, setPrintNotification] = useState<string | null>(null);
-  const [cetakActiveSubTab, setCetakActiveSubTab] = useState<'kartu' | 'absensi' | 'pelanggaran'>('kartu');
+  const [cetakActiveSubTab, setCetakActiveSubTab] = useState<'biodata_massal' | 'daftar_anggota' | 'kartu' | 'absensi' | 'pelanggaran'>('biodata_massal');
+  const [bulkSelectionMode, setBulkSelectionMode] = useState<'all' | 'selected'>('all');
+  const [bulkSelectedNias, setBulkSelectedNias] = useState<Record<string, boolean>>({});
+  const [bulkPdfSearchTerm, setBulkPdfSearchTerm] = useState<string>('');
   const [cetakSelectedNia, setCetakSelectedNia] = useState<string>('');
   const [cetakSelectedClass, setCetakSelectedClass] = useState<string>('Semua');
   const [cetakSelectedStatus, setCetakSelectedStatus] = useState<string>('Semua');
@@ -395,6 +404,37 @@ export default function App() {
   const [cetakCardHideHeader, setCetakCardHideHeader] = useState<boolean>(() => localStorage.getItem('CETAK_CARD_HIDE_HEADER') === 'true');
   const [cetakCardHideFooter, setCetakCardHideFooter] = useState<boolean>(() => localStorage.getItem('CETAK_CARD_HIDE_FOOTER') === 'true');
   const [printElementId, setPrintElementId] = useState<string | null>(null);
+
+  const [cetakCardKetentuan, setCetakCardKetentuan] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('CETAK_CARD_KETENTUAN');
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return [
+      "1. Kartu ini milik sah lembaga.",
+      "2. Kartu wajib dibawa dan ditunjukkan pada setiap jenis kegiatan formal.",
+      "3. Dilarang keras menyalahgunakan atau merusak fisik kartu ini.",
+      "4. Jika menemukan kartu ini, harap hubungi pengelola sekretariat."
+    ];
+  });
+
+  // --- GEMINI AI STATES ---
+  const [aiIsGenerating, setAiIsGenerating] = useState<boolean>(false);
+  const [aiChatMessages, setAiChatMessages] = useState<{ sender: 'user' | 'ai', text: string, timestamp: string }[]>(() => {
+    try {
+      const saved = localStorage.getItem('GEMINI_AI_CHAT_MESSAGES');
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return [
+      {
+        sender: 'ai',
+        text: "Halo! Saya adalah **Asisten Gemini AI**. Saya bisa membantu Anda merancang desain kartu anggota, menulis ketentuan kartu, menyusun analisis laporan/rekap absensi, rekap pelanggaran, dan pembayaran dari data lembaga Anda secara real-time. Apa yang bisa saya bantu hari ini?",
+        timestamp: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })
+      }
+    ];
+  });
+  const [aiChatInput, setAiChatInput] = useState<string>('');
+  const [isAiChatOpen, setIsAiChatOpen] = useState<boolean>(false);
 
   const isMenuAllowed = (tab: ActiveTab): boolean => {
     if (tab === 'dashboard' || tab === 'pengaturan' || tab === 'cetak_data') return true;
@@ -450,23 +490,103 @@ export default function App() {
     return true;
   };
 
-  const executeDevicePrint = (elementId: string) => {
+  const executeDeviceSavePdf = async (elementId: string) => {
     setPrintElementId(elementId);
-    setPrintNotification("Menginisialisasi modul pencetakan perangkat...");
-    const timeout = setTimeout(() => {
-      try {
-        window.print();
-        setPrintNotification("Perintah cetak dikirim ke printer perangkat!");
-      } catch (error) {
-        console.error("Gagal meluncurkan print dialog:", error);
-        setPrintNotification("Gagal mencetak. Silakan buka aplikasi pada Tab Baru demi compatibility penuh.");
-      }
-      setTimeout(() => setPrintNotification(null), 5000);
+    setPrintNotification("Sedang memproses dokumen menjadi file PDF...");
+    
+    // Allow state to update and layout elements to render if any conditional print-styles exist
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    
+    const element = document.getElementById(elementId);
+    if (!element) {
+      addToast("Elemen dokumen tidak ditemukan.", "error");
+      setPrintNotification(null);
       setPrintElementId(null);
-    }, 450);
+      return;
+    }
+
+    try {
+      const canvas = await html2canvas(element, {
+        scale: 2, // High resolution crisp PDF rendering
+        useCORS: true,
+        logging: false,
+        backgroundColor: "#ffffff",
+      });
+
+      const imgData = canvas.toDataURL('image/png');
+      
+      let filename = 'dokumen.pdf';
+      let docWidth = 210;
+      let docHeight = 297;
+      let orientation: 'p' | 'l' = 'p';
+
+      if (elementId === 'area-kartu-identitas') {
+        const activeAnggota = anggotaList.find(a => String(a.nia) === String(cetakSelectedNia));
+        const nameSuffix = activeAnggota ? `_${activeAnggota.namaLengkap.replace(/\s+/g, '_')}` : '';
+        filename = `KTA${nameSuffix}.pdf`;
+        orientation = 'l';
+        docWidth = 297;
+        docHeight = 210;
+      } else if (elementId === 'area-rekap-absensi') {
+        filename = `Rekap_Absensi_${new Date().toISOString().slice(0, 10)}.pdf`;
+      } else if (elementId === 'area-laporan-pelanggaran') {
+        filename = `Laporan_Pelanggaran_${cetakSelectedNia !== 'Semua' ? cetakSelectedNia : 'Semua'}.pdf`;
+      } else if (elementId === 'area-struk-pembayaran') {
+        filename = `Struk_Pembayaran_${receiptData ? receiptData.idTransaksi : 'Transaksi'}.pdf`;
+        orientation = 'p';
+        docWidth = 100;
+        docHeight = 150;
+      }
+
+      const pdf = new jsPDF({
+        orientation: orientation,
+        unit: 'mm',
+        format: elementId === 'area-struk-pembayaran' ? [docWidth, docHeight] : 'a4'
+      });
+
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = pdf.internal.pageSize.getHeight();
+
+      const imgWidth = pdfWidth;
+      const imgHeight = (canvas.height * imgWidth) / canvas.width;
+
+      if (elementId === 'area-kartu-identitas') {
+        // Center card neatly in landscape A4 page
+        const cardWidth = 210; // Slightly smaller to leave nice margins
+        const cardHeight = (canvas.height * cardWidth) / canvas.width;
+        const x = (pdfWidth - cardWidth) / 2;
+        const y = (pdfHeight - cardHeight) / 2;
+        pdf.addImage(imgData, 'PNG', x, y, cardWidth, cardHeight);
+      } else {
+        // Multi-page layout for tall documents
+        let heightLeft = imgHeight;
+        let position = 0;
+
+        pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+        heightLeft -= pdfHeight;
+
+        while (heightLeft >= 0) {
+          position = heightLeft - imgHeight;
+          pdf.addPage();
+          pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+          heightLeft -= pdfHeight;
+        }
+      }
+
+      pdf.save(filename);
+      setPrintNotification("File PDF berhasil disimpan!");
+      addToast("Berhasil menyimpan PDF!", "success");
+    } catch (error) {
+      console.error("Gagal menyimpan PDF:", error);
+      setPrintNotification("Gagal memproses file PDF.");
+      addToast("Gagal memproses file PDF.", "error");
+    } finally {
+      setTimeout(() => setPrintNotification(null), 3000);
+      setPrintElementId(null);
+    }
   };
 
-  const handleAutoPrint = (
+  const handleAutoSavePdf = (
     subTab: 'kartu' | 'absensi' | 'pelanggaran', 
     primaryKey: string, 
     elementId: string
@@ -480,7 +600,7 @@ export default function App() {
     } else if (subTab === 'pelanggaran') {
       setCetakSelectedNia(primaryKey);
     }
-    executeDevicePrint(elementId);
+    executeDeviceSavePdf(elementId);
   };
 
   const fetchSubAccounts = async () => {
@@ -957,6 +1077,1069 @@ export default function App() {
 
     activeSyncPromise = executeSync();
     return activeSyncPromise;
+  };
+
+  // --- GEMINI AI CORE FUNCTIONS ---
+  const callGeminiChat = async (prompt: string, systemInstruction?: string): Promise<string> => {
+    try {
+      const response = await originalFetch("/api/gemini/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt, systemInstruction }),
+      });
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.message || errData.error || "Gagal menghubungi server Gemini AI.");
+      }
+      const data = await response.json();
+      return data.text || "Tidak ada respon dari model.";
+    } catch (e: any) {
+      console.error("callGeminiChat error:", e);
+      throw e;
+    }
+  };
+
+  const handleSendAiChatMessage = async (textToSend?: string) => {
+    const text = (textToSend || aiChatInput).trim();
+    if (!text) return;
+
+    if (!textToSend) setAiChatInput('');
+
+    // Append user message
+    const userMsg = {
+      sender: 'user' as const,
+      text,
+      timestamp: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })
+    };
+    const updatedMessages = [...aiChatMessages, userMsg];
+    setAiChatMessages(updatedMessages);
+    localStorage.setItem('GEMINI_AI_CHAT_MESSAGES', JSON.stringify(updatedMessages));
+
+    setAiIsGenerating(true);
+
+    try {
+      const systemInstruction = "Anda adalah Asisten Gemini AI yang cerdas untuk SAPTA ADMIN, sebuah panel manajemen lembaga sekolah, asrama, atau organisasi. Anda membantu admin menganalisis data, memberikan rekomendasi desain kartu tanda anggota (KTA), dan menjawab pertanyaan dengan bahasa Indonesia yang ramah, profesional, dan ringkas. Gunakan Markdown yang rapi untuk tanggapan Anda.";
+      
+      const responseText = await callGeminiChat(text, systemInstruction);
+
+      const aiMsg = {
+        sender: 'ai' as const,
+        text: responseText,
+        timestamp: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })
+      };
+      const finalMessages = [...updatedMessages, aiMsg];
+      setAiChatMessages(finalMessages);
+      localStorage.setItem('GEMINI_AI_CHAT_MESSAGES', JSON.stringify(finalMessages));
+    } catch (err: any) {
+      console.error("AI failed to reply:", err);
+      const errMsg = {
+        sender: 'ai' as const,
+        text: `⚠️ **Gagal memproses permintaan:** ${err.message}. Pastikan kunci API \`GEMINI_API_KEY\` telah dikonfigurasi di pengaturan Secrets.`,
+        timestamp: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })
+      };
+      const finalMessages = [...updatedMessages, errMsg];
+      setAiChatMessages(finalMessages);
+      localStorage.setItem('GEMINI_AI_CHAT_MESSAGES', JSON.stringify(finalMessages));
+    } finally {
+      setAiIsGenerating(false);
+    }
+  };
+
+  const handleClearAiChat = () => {
+    const defaultMsg = [
+      {
+        sender: 'ai' as const,
+        text: "Halo! Saya adalah **Asisten Gemini AI**. Saya bisa membantu Anda merancang desain kartu anggota, menulis ketentuan kartu, menyusun analisis laporan/rekap absensi, rekap pelanggaran, dan pembayaran dari data lembaga Anda secara real-time. Apa yang bisa saya bantu hari ini?",
+        timestamp: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })
+      }
+    ];
+    setAiChatMessages(defaultMsg);
+    localStorage.removeItem('GEMINI_AI_CHAT_MESSAGES');
+    addToast("Riwayat obrolan AI dibersihkan.", "info");
+  };
+
+  const handleDownloadAnggotaExcel = () => {
+    try {
+      if (filteredAnggota.length === 0) {
+        addToast("Tidak ada data anggota untuk diunduh.", "error");
+        return;
+      }
+      const dataToExport = filteredAnggota.map((m) => ({
+        'NIA': m.nia || '',
+        'Nama Lengkap': m.namaLengkap || '',
+        'Tempat Lahir': m.tempatLahir || '',
+        'Tanggal Lahir': m.tanggalLahir || '',
+        'Jenis Kelamin': m.jenisKelamin || '',
+        'Jenjang Pendidikan': m.jenjangPendidikan || '',
+        'Nama Sekolah': m.namaSekolah || '',
+        'Kelas': m.kelas || '',
+        'Alamat': m.alamat || '',
+        'No HP': m.noHp || '',
+        'Email': m.email || '',
+        'Status': m.status || '',
+        'Tanggal Daftar': m.tanggalDaftar || ''
+      }));
+
+      const worksheet = XLSX.utils.json_to_sheet(dataToExport);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Data Anggota');
+      
+      // Auto-fit columns
+      const maxLens = Object.keys(dataToExport[0] || {}).reduce((acc: any, key) => {
+        let maxLen = key.length;
+        dataToExport.forEach((row: any) => {
+          const valStr = String(row[key as keyof typeof row] || '');
+          if (valStr.length > maxLen) maxLen = valStr.length;
+        });
+        acc[key] = maxLen;
+        return acc;
+      }, {});
+      worksheet['!cols'] = Object.keys(maxLens).map(key => ({ wch: (maxLens as any)[key] + 2 }));
+
+      XLSX.writeFile(workbook, `Rekap_Anggota_${lembagaLogin || 'Lembaga'}_${new Date().toISOString().slice(0,10)}.xlsx`);
+      addToast("Berhasil mengunduh laporan Excel anggota!", "success");
+    } catch (error) {
+      console.error(error);
+      addToast("Gagal mengunduh laporan Excel anggota", "error");
+    }
+  };
+
+  const handleDownloadAnggotaPdf = () => {
+    try {
+      if (filteredAnggota.length === 0) {
+        addToast("Tidak ada data anggota untuk diunduh.", "error");
+        return;
+      }
+      const doc = new jsPDF();
+      const title = `REKAPITULASI DATA ANGGOTA`;
+      const subtitle = `Lembaga: ${lembagaLogin || 'Lembaga Umum'} | Total: ${filteredAnggota.length} Anggota`;
+      const dateStr = `Dicetak pada: ${new Date().toLocaleDateString('id-ID')} ${new Date().toLocaleTimeString('id-ID')}`;
+
+      // Page design header
+      doc.setFont('Helvetica', 'bold');
+      doc.setFontSize(16);
+      doc.setTextColor(30, 41, 59); // slate-800
+      doc.text(title, 14, 20);
+
+      doc.setFont('Helvetica', 'normal');
+      doc.setFontSize(10);
+      doc.setTextColor(100, 116, 139); // slate-500
+      doc.text(subtitle, 14, 26);
+      doc.text(dateStr, 14, 31);
+
+      // Draw a line
+      doc.setDrawColor(226, 232, 240); // slate-200
+      doc.setLineWidth(0.5);
+      doc.line(14, 35, 196, 35);
+
+      const tableRows = filteredAnggota.map((m) => [
+        m.nia || '',
+        m.namaLengkap || '',
+        m.jenisKelamin || '',
+        m.kelas || '',
+        m.namaSekolah || '',
+        m.noHp || '',
+        m.status || ''
+      ]);
+
+      autoTable(doc, {
+        startY: 38,
+        head: [['NIA', 'Nama Lengkap', 'JK', 'Kelas', 'Sekolah', 'No HP', 'Status']],
+        body: tableRows,
+        theme: 'striped',
+        headStyles: { fillColor: [79, 70, 229] }, // indigo-600
+        styles: { fontSize: 8, cellPadding: 2 },
+        columnStyles: {
+          1: { cellWidth: 45 }, // Nama Lengkap
+          4: { cellWidth: 35 }, // Sekolah
+        },
+      });
+
+      doc.save(`Rekap_Anggota_${lembagaLogin || 'Lembaga'}_${new Date().toISOString().slice(0,10)}.pdf`);
+      addToast("Berhasil mengunduh laporan PDF anggota!", "success");
+    } catch (error) {
+      console.error(error);
+      addToast("Gagal mengunduh laporan PDF anggota", "error");
+    }
+  };
+
+  const handleDownloadBiodataPdf = async (member: Anggota) => {
+    try {
+      addToast(`Sedang memproses biodata ${member.namaLengkap}...`, "info");
+      const doc = new jsPDF();
+      
+      const title = `BIODATA LENGKAP ANGGOTA`;
+      const subtitle = `Lembaga: ${lembagaLogin || 'Lembaga Umum'}`;
+      const dateStr = `Dicetak pada: ${new Date().toLocaleDateString('id-ID')} ${new Date().toLocaleTimeString('id-ID')}`;
+
+      // Modern Page Design Header with deep indigo colors
+      doc.setFillColor(30, 41, 59); // Deep Slate (Primary header block)
+      doc.rect(14, 14, 182, 28, 'F');
+      
+      // Luxury Left Accent Bar (Golden color)
+      doc.setFillColor(245, 158, 11); // Amber / Gold
+      doc.rect(14, 14, 4, 28, 'F');
+
+      // Header Title & Left Subtitle Info
+      doc.setFont('Helvetica', 'bold');
+      doc.setFontSize(14);
+      doc.setTextColor(255, 255, 255);
+      doc.text("BIODATA RESMI ANGGOTA", 24, 24);
+
+      doc.setFont('Helvetica', 'normal');
+      doc.setFontSize(9);
+      doc.setTextColor(203, 213, 225); // slate-300
+      doc.text(`Lembaga: ${lembagaLogin || 'Sistem Informasi Keanggotaan'}`, 24, 30);
+      doc.setFont('Helvetica', 'italic');
+      doc.setFontSize(8);
+      doc.text("Dokumen Keanggotaan Sah Terverifikasi Sistem", 24, 35);
+
+      // Header Right Side Info
+      doc.setFont('Helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.setTextColor(203, 213, 225);
+      doc.text("Hari & Tanggal Cetak:", 190, 22, { align: 'right' });
+      doc.setFont('Helvetica', 'bold');
+      doc.text(`${new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}`, 190, 26, { align: 'right' });
+      doc.setFont('Helvetica', 'normal');
+      doc.text(`Pukul: ${new Date().toLocaleTimeString('id-ID')} WIB`, 190, 31, { align: 'right' });
+      doc.text(`Status Data: AKTIF`, 190, 36, { align: 'right' });
+
+      // Biodata values rows
+      const biodataRows = [
+        ['Nomor Induk Anggota (NIA)', `:  ${member.nia || '-'}`],
+        ['Nama Lengkap', `:  ${member.namaLengkap || '-'}`],
+        ['Tempat, Tanggal Lahir', `:  ${member.tempatLahir || '-'}, ${member.tanggalLahir || '-'}`],
+        ['Jenis Kelamin', `:  ${member.jenisKelamin || '-'}`],
+        ['Alamat Lengkap', `:  ${member.alamat || '-'}`],
+        ['No. HP / WhatsApp', `:  ${member.noHp || '-'}`],
+        ['Alamat Email', `:  ${member.email || '-'}`],
+        ['Jenjang Pendidikan', `:  ${member.jenjangPendidikan || '-'}`],
+        ['Nama Sekolah / Instansi', `:  ${member.namaSekolah || '-'}`],
+        ['Kelas / Tingkat', `:  ${member.kelas || '-'}`],
+        ['Status Keanggotaan', `:  ${member.status || '-'}`],
+        ['Tanggal Terdaftar', `:  ${member.tanggalDaftar ? formatDateString(member.tanggalDaftar) : '-'}`],
+      ];
+
+      // Beautiful Property Table on the Left
+      autoTable(doc, {
+        startY: 50,
+        margin: { left: 14, right: 72 }, // Elegant spacing to reserve room for the right panel
+        body: biodataRows,
+        theme: 'plain',
+        styles: { 
+          fontSize: 9.5, 
+          cellPadding: 4.5, 
+          textColor: [30, 41, 59], // slate-800
+          lineColor: [241, 245, 249], // slate-100 thin border
+          lineWidth: 0.5,
+          valign: 'middle'
+        },
+        columnStyles: {
+          0: { fontStyle: 'bold', cellWidth: 46, textColor: [67, 56, 202] }, // Indigo-700
+          1: { cellWidth: 'auto', textColor: [15, 23, 42] } // Dark slate-900
+        },
+        alternateRowStyles: {
+          fillColor: [250, 250, 250] // slate-50 alternating rows
+        }
+      });
+
+      // Right Sidebar Container Panel (Modern layout card)
+      const sidebarX = 144;
+      const sidebarY = 50;
+      const sidebarW = 52;
+      const sidebarH = 144;
+
+      doc.setFillColor(248, 250, 252); // slate-50
+      doc.setDrawColor(226, 232, 240); // slate-200
+      doc.setLineWidth(0.5);
+      doc.rect(sidebarX, sidebarY, sidebarW, sidebarH, 'FD'); // Elegant rounded panel fill & draw
+
+      // Top sidebar divider banner
+      doc.setFillColor(67, 56, 202); // indigo-700
+      doc.rect(sidebarX, sidebarY, sidebarW, 1.5, 'F');
+
+      // Photo frame position (Centered in the sidebar panel)
+      const photoW = 38;
+      const photoH = 48;
+      const photoX = sidebarX + (sidebarW - photoW) / 2; // 144 + (52 - 38)/2 = 151
+      const photoY = sidebarY + 8;
+
+      // Draw elegant picture border
+      doc.setDrawColor(67, 56, 202); // indigo-700
+      doc.setLineWidth(0.75);
+      doc.setFillColor(255, 255, 255);
+      doc.rect(photoX, photoY, photoW, photoH, 'FD');
+
+      // Load profile image or fallback to placeholder
+      let imgLoaded = false;
+      if (member.linkProfile) {
+        try {
+          // Attempt to load via the local backend proxy to guarantee CORS bypass
+          const proxyUrl = `/api/proxy?url=${encodeURIComponent(member.linkProfile)}`;
+          const response = await originalFetch(proxyUrl);
+          if (response.ok) {
+            const blob = await response.blob();
+            const base64Img = await new Promise<string>((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onloadend = () => resolve(reader.result as string);
+              reader.onerror = reject;
+              reader.readAsDataURL(blob);
+            });
+            doc.addImage(base64Img, 'PNG', photoX + 0.5, photoY + 0.5, photoW - 1, photoH - 1);
+            imgLoaded = true;
+          } else {
+            throw new Error(`Proxy status: ${response.status}`);
+          }
+        } catch (proxyError) {
+          console.warn("Failed to load photo via proxy, trying direct fallback:", proxyError);
+          try {
+            // Fallback to direct download with CORS if proxy didn't work
+            const base64Img = await new Promise<string>((resolve, reject) => {
+              const img = new Image();
+              img.crossOrigin = 'Anonymous';
+              img.onload = () => {
+                const canvas = document.createElement('canvas');
+                canvas.width = img.width;
+                canvas.height = img.height;
+                const ctx = canvas.getContext('2d');
+                if (ctx) {
+                  ctx.drawImage(img, 0, 0);
+                  resolve(canvas.toDataURL('image/png'));
+                } else {
+                  reject(new Error('Canvas ctx is null'));
+                }
+              };
+              img.onerror = () => reject(new Error('Error loading image'));
+              img.src = member.linkProfile;
+            });
+            doc.addImage(base64Img, 'PNG', photoX + 0.5, photoY + 0.5, photoW - 1, photoH - 1);
+            imgLoaded = true;
+          } catch (directError) {
+            console.warn("Direct fallback failed as well:", directError);
+          }
+        }
+      }
+
+      if (!imgLoaded) {
+        // Draw elegant placeholder text/icon inside photo box
+        doc.setFont('Helvetica', 'normal');
+        doc.setFontSize(8);
+        doc.setTextColor(148, 163, 184); // slate-400
+        doc.text("PAS FOTO", photoX + 11, photoY + 22);
+        doc.text("3 x 4", photoX + 15, photoY + 28);
+      }
+
+      // Elegant official text badge under the photo
+      doc.setFillColor(67, 56, 202); // indigo-700
+      doc.rect(photoX, photoY + photoH, photoW, 6, 'F');
+      doc.setFont('Helvetica', 'bold');
+      doc.setFontSize(7.5);
+      doc.setTextColor(255, 255, 255);
+      doc.text("PAS FOTO RESMI", photoX + photoW / 2, photoY + photoH + 4.2, { align: 'center' });
+
+      // QR Code position (Centered in lower half of the sidebar panel)
+      const qrSize = 34;
+      const qrX = sidebarX + (sidebarW - qrSize) / 2; // 144 + (52 - 34)/2 = 153
+      const qrY = photoY + photoH + 14;
+
+      // Label above QR
+      doc.setFont('Helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.setTextColor(100, 116, 139);
+      doc.text("KODE VERIFIKASI", sidebarX + sidebarW / 2, qrY - 3, { align: 'center' });
+
+      doc.setDrawColor(226, 232, 240);
+      doc.setFillColor(255, 255, 255);
+      doc.rect(qrX, qrY, qrSize, qrSize, 'FD');
+
+      let qrLoaded = false;
+      try {
+        const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(member.nia || '')}`;
+        const proxyQrUrl = `/api/proxy?url=${encodeURIComponent(qrUrl)}`;
+        const response = await originalFetch(proxyQrUrl);
+        if (response.ok) {
+          const blob = await response.blob();
+          const base64Qr = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result as string);
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+          });
+          doc.addImage(base64Qr, 'PNG', qrX + 0.5, qrY + 0.5, qrSize - 1, qrSize - 1);
+          qrLoaded = true;
+        } else {
+          throw new Error(`Proxy status for QR: ${response.status}`);
+        }
+      } catch (proxyError) {
+        console.warn("Failed to load QR via proxy, trying direct fallback:", proxyError);
+        try {
+          const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(member.nia || '')}`;
+          const base64Qr = await new Promise<string>((resolve, reject) => {
+            const img = new Image();
+            img.crossOrigin = 'Anonymous';
+            img.onload = () => {
+              const canvas = document.createElement('canvas');
+              canvas.width = img.width;
+              canvas.height = img.height;
+              const ctx = canvas.getContext('2d');
+              if (ctx) {
+                ctx.drawImage(img, 0, 0);
+                resolve(canvas.toDataURL('image/png'));
+              } else {
+                reject(new Error('Canvas ctx is null'));
+              }
+            };
+            img.onerror = () => reject(new Error('Error loading QR code'));
+            img.src = qrUrl;
+          });
+          doc.addImage(base64Qr, 'PNG', qrX + 0.5, qrY + 0.5, qrSize - 1, qrSize - 1);
+          qrLoaded = true;
+        } catch (directError) {
+          console.warn("Direct QR fallback failed:", directError);
+        }
+      }
+
+      if (!qrLoaded) {
+        // Draw elegant mockup qr-code lines inside placeholder box
+        doc.setFont('Helvetica', 'normal');
+        doc.setFontSize(8);
+        doc.setTextColor(148, 163, 184);
+        doc.text("SCAN QR CODE", qrX + 6, qrY + qrSize / 2 + 2);
+      }
+
+      // Add signature block & notes at bottom of the page
+      const footerY = 202;
+
+      // Draw thin elegant separator line
+      doc.setDrawColor(226, 232, 240);
+      doc.setLineWidth(0.5);
+      doc.line(14, footerY + 2, 196, footerY + 2);
+      
+      // Notes (Left Bottom)
+      doc.setFont('Helvetica', 'bold');
+      doc.setFontSize(8.5);
+      doc.setTextColor(71, 85, 105);
+      doc.text("CATATAN & LEGALITAS:", 14, footerY + 11);
+
+      doc.setFont('Helvetica', 'italic');
+      doc.setFontSize(7.5);
+      doc.setTextColor(148, 163, 184); // slate-400
+      doc.text("1. Dokumen ini adalah biodata resmi yang sah secara digital.", 14, footerY + 17);
+      doc.text("2. Harap laporkan ke admin jika terdapat kekeliruan data.", 14, footerY + 22);
+      doc.text("3. Dicetak otomatis oleh Sistem Informasi Keanggotaan.", 14, footerY + 27);
+      doc.text(`ID Referensi: REF-${member.nia || 'NEW'}-${Date.now().toString().substring(7)}`, 14, footerY + 32);
+
+      // Signature (Right Bottom)
+      doc.setFont('Helvetica', 'normal');
+      doc.setFontSize(9.5);
+      doc.setTextColor(71, 85, 105);
+      doc.text(`${lembagaLogin || 'Lembaga Umum'}, ${new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}`, 140, footerY + 11);
+      doc.text("Pengelola Keanggotaan,", 140, footerY + 16);
+      
+      // Signature divider line
+      doc.setDrawColor(203, 213, 225);
+      doc.line(140, footerY + 35, 190, footerY + 35);
+      
+      doc.setFont('Helvetica', 'bold');
+      doc.setTextColor(30, 41, 59);
+      doc.text("ADMINISTRATOR", 140, footerY + 39);
+
+      // Save document
+      const fileSafeName = member.namaLengkap.replace(/\s+/g, '_');
+      doc.save(`Biodata_${fileSafeName}.pdf`);
+      addToast("Berhasil mengunduh biodata lengkap PDF!", "success");
+    } catch (error) {
+      console.error("Gagal membuat biodata PDF:", error);
+      addToast("Gagal mengunduh biodata lengkap PDF", "error");
+    }
+  };
+
+  const handleDownloadMultipleBiodataPdf = async (members: Anggota[], filename: string = "Gabungan_Biodata_Anggota.pdf") => {
+    if (members.length === 0) {
+      addToast("Tidak ada anggota yang dipilih.", "error");
+      return;
+    }
+    
+    try {
+      addToast(`Sedang memproses ${members.length} biodata ke dalam satu file PDF...`, "info");
+      const doc = new jsPDF();
+      
+      for (let index = 0; index < members.length; index++) {
+        const member = members[index];
+        if (index > 0) {
+          doc.addPage();
+        }
+        
+        // --- RENDER member's biodata page ---
+        // Modern Page Design Header with deep indigo colors
+        doc.setFillColor(30, 41, 59); // Deep Slate (Primary header block)
+        doc.rect(14, 14, 182, 28, 'F');
+        
+        // Luxury Left Accent Bar (Golden color)
+        doc.setFillColor(245, 158, 11); // Amber / Gold
+        doc.rect(14, 14, 4, 28, 'F');
+
+        // Header Title & Left Subtitle Info
+        doc.setFont('Helvetica', 'bold');
+        doc.setFontSize(14);
+        doc.setTextColor(255, 255, 255);
+        doc.text("BIODATA RESMI ANGGOTA", 24, 24);
+
+        doc.setFont('Helvetica', 'normal');
+        doc.setFontSize(9);
+        doc.setTextColor(203, 213, 225); // slate-300
+        doc.text(`Lembaga: ${lembagaLogin || 'Sistem Informasi Keanggotaan'}`, 24, 30);
+        doc.setFont('Helvetica', 'italic');
+        doc.setFontSize(8);
+        doc.text("Dokumen Keanggotaan Sah Terverifikasi Sistem", 24, 35);
+
+        // Header Right Side Info
+        doc.setFont('Helvetica', 'normal');
+        doc.setFontSize(8);
+        doc.setTextColor(203, 213, 225);
+        doc.text("Hari & Tanggal Cetak:", 190, 22, { align: 'right' });
+        doc.setFont('Helvetica', 'bold');
+        doc.text(`${new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}`, 190, 26, { align: 'right' });
+        doc.setFont('Helvetica', 'normal');
+        doc.text(`Pukul: ${new Date().toLocaleTimeString('id-ID')} WIB`, 190, 31, { align: 'right' });
+        doc.text(`Status Data: AKTIF`, 190, 36, { align: 'right' });
+
+        // Biodata values rows
+        const biodataRows = [
+          ['Nomor Induk Anggota (NIA)', `:  ${member.nia || '-'}`],
+          ['Nama Lengkap', `:  ${member.namaLengkap || '-'}`],
+          ['Tempat / Tanggal Lahir', `:  ${member.tempatLahir || '-'}, ${member.tanggalLahir ? formatDateString(member.tanggalLahir) : '-'}`],
+          ['Jenis Kelamin', `:  ${member.jenisKelamin || '-'}`],
+          ['Nomor Telepon / WA', `:  ${member.noHp || '-'}`],
+          ['E-Mail', `:  ${member.email || '-'}`],
+          ['Alamat Rumah', `:  ${member.alamat || '-'}`],
+          ['Nama Sekolah / Instansi', `:  ${member.namaSekolah || '-'}`],
+          ['Kelas / Tingkat', `:  ${member.kelas || '-'}`],
+          ['Status Keanggotaan', `:  ${member.status || '-'}`],
+          ['Tanggal Terdaftar', `:  ${member.tanggalDaftar ? formatDateString(member.tanggalDaftar) : '-'}`],
+        ];
+
+        // Beautiful Property Table on the Left
+        autoTable(doc, {
+          startY: 50,
+          margin: { left: 14, right: 72 }, // Elegant spacing to reserve room for the right panel
+          body: biodataRows,
+          theme: 'plain',
+          styles: { 
+            fontSize: 9.5, 
+            cellPadding: 4.5, 
+            textColor: [30, 41, 59], // slate-800
+            lineColor: [241, 245, 249], // slate-100 thin border
+            lineWidth: 0.5,
+            valign: 'middle'
+          },
+          columnStyles: {
+            0: { fontStyle: 'bold', cellWidth: 46, textColor: [67, 56, 202] }, // Indigo-700
+            1: { cellWidth: 'auto', textColor: [15, 23, 42] } // Dark slate-900
+          },
+          alternateRowStyles: {
+            fillColor: [250, 250, 250] // slate-50 alternating rows
+          }
+        });
+
+        // Right Sidebar Container Panel (Modern layout card)
+        const sidebarX = 144;
+        const sidebarY = 50;
+        const sidebarW = 52;
+        const sidebarH = 144;
+
+        doc.setFillColor(248, 250, 252); // slate-50
+        doc.setDrawColor(226, 232, 240); // slate-200
+        doc.setLineWidth(0.5);
+        doc.rect(sidebarX, sidebarY, sidebarW, sidebarH, 'FD'); // Elegant rounded panel fill & draw
+
+        // Top sidebar divider banner
+        doc.setFillColor(67, 56, 202); // indigo-700
+        doc.rect(sidebarX, sidebarY, sidebarW, 1.5, 'F');
+
+        // Photo frame position (Centered in the sidebar panel)
+        const photoW = 38;
+        const photoH = 48;
+        const photoX = sidebarX + (sidebarW - photoW) / 2; // 144 + (52 - 38)/2 = 151
+        const photoY = sidebarY + 8;
+
+        // Draw elegant picture border
+        doc.setDrawColor(67, 56, 202); // indigo-700
+        doc.setLineWidth(0.75);
+        doc.setFillColor(255, 255, 255);
+        doc.rect(photoX, photoY, photoW, photoH, 'FD');
+
+        // Load profile image or fallback to placeholder
+        let imgLoaded = false;
+        if (member.linkProfile) {
+          try {
+            // Attempt to load via the local backend proxy to guarantee CORS bypass
+            const proxyUrl = `/api/proxy?url=${encodeURIComponent(member.linkProfile)}`;
+            const response = await originalFetch(proxyUrl);
+            if (response.ok) {
+              const blob = await response.blob();
+              const base64Img = await new Promise<string>((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(reader.result as string);
+                reader.onerror = reject;
+                reader.readAsDataURL(blob);
+              });
+              doc.addImage(base64Img, 'PNG', photoX + 0.5, photoY + 0.5, photoW - 1, photoH - 1);
+              imgLoaded = true;
+            } else {
+              throw new Error(`Proxy status: ${response.status}`);
+            }
+          } catch (proxyError) {
+            console.warn("Failed to load photo via proxy, trying direct fallback:", proxyError);
+            try {
+              // Fallback to direct download with CORS if proxy didn't work
+              const base64Img = await new Promise<string>((resolve, reject) => {
+                const img = new Image();
+                img.crossOrigin = 'Anonymous';
+                img.onload = () => {
+                  const canvas = document.createElement('canvas');
+                  canvas.width = img.width;
+                  canvas.height = img.height;
+                  const ctx = canvas.getContext('2d');
+                  if (ctx) {
+                    ctx.drawImage(img, 0, 0);
+                    resolve(canvas.toDataURL('image/png'));
+                  } else {
+                    reject(new Error('Canvas ctx is null'));
+                  }
+                };
+                img.onerror = () => reject(new Error('Error loading image'));
+                img.src = member.linkProfile;
+              });
+              doc.addImage(base64Img, 'PNG', photoX + 0.5, photoY + 0.5, photoW - 1, photoH - 1);
+              imgLoaded = true;
+            } catch (directError) {
+              console.warn("Direct fallback failed as well:", directError);
+            }
+          }
+        }
+
+        if (!imgLoaded) {
+          // Draw a soft modern photo frame placeholder
+          doc.setFillColor(241, 245, 249); // slate-100
+          doc.rect(photoX + 0.5, photoY + 0.5, photoW - 1, photoH - 1, 'F');
+          
+          doc.setFont('Helvetica', 'normal');
+          doc.setFontSize(8);
+          doc.setTextColor(148, 163, 184); // slate-400
+          doc.text("PAS FOTO", photoX + 11, photoY + 22);
+          doc.text("3 x 4", photoX + 15, photoY + 28);
+        }
+
+        // Elegant official text badge under the photo
+        doc.setFillColor(67, 56, 202); // indigo-700
+        doc.rect(photoX, photoY + photoH, photoW, 6, 'F');
+        doc.setFont('Helvetica', 'bold');
+        doc.setFontSize(7.5);
+        doc.setTextColor(255, 255, 255);
+        doc.text("PAS FOTO RESMI", photoX + photoW / 2, photoY + photoH + 4.2, { align: 'center' });
+
+        // QR Code position (Centered in lower half of the sidebar panel)
+        const qrSize = 34;
+        const qrX = sidebarX + (sidebarW - qrSize) / 2; // 144 + (52 - 34)/2 = 153
+        const qrY = photoY + photoH + 14;
+
+        // Label above QR
+        doc.setFont('Helvetica', 'bold');
+        doc.setFontSize(7);
+        doc.setTextColor(100, 116, 139);
+        doc.text("KODE VERIFIKASI", sidebarX + sidebarW / 2, qrY - 3, { align: 'center' });
+
+        doc.setDrawColor(226, 232, 240);
+        doc.setFillColor(255, 255, 255);
+        doc.rect(qrX, qrY, qrSize, qrSize, 'FD');
+
+        let qrLoaded = false;
+        try {
+          const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(member.nia || '')}`;
+          const proxyQrUrl = `/api/proxy?url=${encodeURIComponent(qrUrl)}`;
+          const response = await originalFetch(proxyQrUrl);
+          if (response.ok) {
+            const blob = await response.blob();
+            const base64Qr = await new Promise<string>((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onloadend = () => resolve(reader.result as string);
+              reader.onerror = reject;
+              reader.readAsDataURL(blob);
+            });
+            doc.addImage(base64Qr, 'PNG', qrX + 0.5, qrY + 0.5, qrSize - 1, qrSize - 1);
+            qrLoaded = true;
+          } else {
+            throw new Error(`Proxy status for QR: ${response.status}`);
+          }
+        } catch (proxyError) {
+          console.warn("Failed to load QR via proxy, trying direct fallback:", proxyError);
+          try {
+            const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(member.nia || '')}`;
+            const base64Qr = await new Promise<string>((resolve, reject) => {
+              const img = new Image();
+              img.crossOrigin = 'Anonymous';
+              img.onload = () => {
+                const canvas = document.createElement('canvas');
+                canvas.width = img.width;
+                canvas.height = img.height;
+                const ctx = canvas.getContext('2d');
+                if (ctx) {
+                  ctx.drawImage(img, 0, 0);
+                  resolve(canvas.toDataURL('image/png'));
+                } else {
+                  reject(new Error('Canvas ctx is null'));
+                }
+              };
+              img.onerror = () => reject(new Error('Error loading QR code'));
+              img.src = qrUrl;
+            });
+            doc.addImage(base64Qr, 'PNG', qrX + 0.5, qrY + 0.5, qrSize - 1, qrSize - 1);
+            qrLoaded = true;
+          } catch (directError) {
+            console.warn("Direct QR fallback failed:", directError);
+          }
+        }
+
+        if (!qrLoaded) {
+          doc.setFont('Helvetica', 'normal');
+          doc.setFontSize(8);
+          doc.setTextColor(148, 163, 184);
+          doc.text("SCAN QR CODE", qrX + 6, qrY + qrSize / 2 + 2);
+        }
+
+        // Add signature block & notes at bottom of the page
+        const footerY = 202;
+
+        // Draw thin elegant separator line
+        doc.setDrawColor(226, 232, 240);
+        doc.setLineWidth(0.5);
+        doc.line(14, footerY + 2, 196, footerY + 2);
+        
+        // Notes (Left Bottom)
+        doc.setFont('Helvetica', 'bold');
+        doc.setFontSize(8.5);
+        doc.setTextColor(71, 85, 105);
+        doc.text("CATATAN & LEGALITAS:", 14, footerY + 11);
+
+        doc.setFont('Helvetica', 'italic');
+        doc.setFontSize(7.5);
+        doc.setTextColor(148, 163, 184); // slate-400
+        doc.text("1. Dokumen ini adalah biodata resmi yang sah secara digital.", 14, footerY + 17);
+        doc.text("2. Harap laporkan ke admin jika terdapat kekeliruan data.", 14, footerY + 22);
+        doc.text("3. Dicetak otomatis oleh Sistem Informasi Keanggotaan.", 14, footerY + 27);
+        doc.text(`ID Referensi: REF-${member.nia || 'NEW'}-${Date.now().toString().substring(7)}`, 14, footerY + 32);
+
+        // Signature (Right Bottom)
+        doc.setFont('Helvetica', 'normal');
+        doc.setFontSize(9.5);
+        doc.setTextColor(71, 85, 105);
+        doc.text(`${lembagaLogin || 'Lembaga Umum'}, ${new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}`, 140, footerY + 11);
+        doc.text("Pengelola Keanggotaan,", 140, footerY + 16);
+        
+        // Signature divider line
+        doc.setDrawColor(203, 213, 225);
+        doc.line(140, footerY + 35, 190, footerY + 35);
+        
+        doc.setFont('Helvetica', 'bold');
+        doc.setTextColor(30, 41, 59);
+        doc.text("ADMINISTRATOR", 140, footerY + 39);
+      }
+
+      doc.save(filename);
+      addToast(`Berhasil menyimpan ${members.length} biodata gabungan ke dalam satu file PDF!`, "success");
+    } catch (error) {
+      console.error("Gagal menggabungkan biodata PDF:", error);
+      addToast("Gagal menyimpan gabungan biodata PDF", "error");
+    }
+  };
+
+  const handleDownloadPembayaranExcel = () => {
+    try {
+      if (filteredPembayaran.length === 0) {
+        addToast("Tidak ada data transaksi untuk diunduh.", "error");
+        return;
+      }
+      const dataToExport = filteredPembayaran.map((p) => ({
+        'ID Transaksi': p.idTransaksi || '',
+        'Tanggal': p.tanggal || '',
+        'NIA': p.nia || '',
+        'Nama Lengkap': p.namaLengkap || '',
+        'Nama Tagihan': p.namaTagihan || '',
+        'Keterangan': p.keterangan || '',
+        'Nominal': p.nominal || 0,
+        'Status': p.status || ''
+      }));
+
+      const worksheet = XLSX.utils.json_to_sheet(dataToExport);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Data Transaksi');
+
+      // Auto-fit columns
+      const maxLens = Object.keys(dataToExport[0] || {}).reduce((acc: any, key) => {
+        let maxLen = key.length;
+        dataToExport.forEach((row: any) => {
+          const valStr = String(row[key as keyof typeof row] || '');
+          if (valStr.length > maxLen) maxLen = valStr.length;
+        });
+        acc[key] = maxLen;
+        return acc;
+      }, {});
+      worksheet['!cols'] = Object.keys(maxLens).map(key => ({ wch: (maxLens as any)[key] + 2 }));
+
+      XLSX.writeFile(workbook, `Laporan_Transaksi_${lembagaLogin || 'Lembaga'}_${new Date().toISOString().slice(0,10)}.xlsx`);
+      addToast("Berhasil mengunduh laporan Excel transaksi!", "success");
+    } catch (error) {
+      console.error(error);
+      addToast("Gagal mengunduh laporan Excel transaksi", "error");
+    }
+  };
+
+  const handleDownloadPembayaranPdf = () => {
+    try {
+      if (filteredPembayaran.length === 0) {
+        addToast("Tidak ada data transaksi untuk diunduh.", "error");
+        return;
+      }
+      const doc = new jsPDF();
+      const title = `LAPORAN TRANSAKSI PEMBAYARAN / TAGIHAN`;
+      const totalSum = filteredPembayaran.reduce((sum, p) => sum + (p.nominal || 0), 0);
+      const subtitle = `Lembaga: ${lembagaLogin || 'Lembaga Umum'} | Total: ${filteredPembayaran.length} Transaksi`;
+      const dateStr = `Dicetak pada: ${new Date().toLocaleDateString('id-ID')} ${new Date().toLocaleTimeString('id-ID')}`;
+      const sumStr = `Total Akumulasi Nominal: ${formatRupiah(totalSum)}`;
+
+      // Header design
+      doc.setFont('Helvetica', 'bold');
+      doc.setFontSize(16);
+      doc.setTextColor(30, 41, 59);
+      doc.text(title, 14, 20);
+
+      doc.setFont('Helvetica', 'normal');
+      doc.setFontSize(10);
+      doc.setTextColor(100, 116, 139);
+      doc.text(subtitle, 14, 26);
+      doc.text(dateStr, 14, 31);
+      
+      doc.setFont('Helvetica', 'bold');
+      doc.setTextColor(16, 185, 129); // emerald-500
+      doc.text(sumStr, 14, 36);
+
+      // Draw horizontal line
+      doc.setDrawColor(226, 232, 240);
+      doc.setLineWidth(0.5);
+      doc.line(14, 40, 196, 40);
+
+      const tableRows = filteredPembayaran.map((p) => [
+        p.idTransaksi || '',
+        formatDateString(p.tanggal),
+        p.nia || '',
+        p.namaLengkap || '',
+        p.namaTagihan || '',
+        formatRupiah(p.nominal || 0),
+        p.status || ''
+      ]);
+
+      autoTable(doc, {
+        startY: 43,
+        head: [['ID Transaksi', 'Tanggal', 'NIA', 'Nama Anggota', 'Nama Tagihan', 'Nominal', 'Status']],
+        body: tableRows,
+        theme: 'striped',
+        headStyles: { fillColor: [99, 102, 241] }, // indigo-500
+        styles: { fontSize: 8, cellPadding: 2 },
+        columnStyles: {
+          3: { cellWidth: 40 }, // Nama Anggota
+          4: { cellWidth: 35 }, // Nama Tagihan
+        },
+      });
+
+      doc.save(`Laporan_Transaksi_${lembagaLogin || 'Lembaga'}_${new Date().toISOString().slice(0,10)}.pdf`);
+      addToast("Berhasil mengunduh laporan PDF transaksi!", "success");
+    } catch (error) {
+      console.error(error);
+      addToast("Gagal mengunduh laporan PDF transaksi", "error");
+    }
+  };
+
+  // Automated Data Analyzer
+  const handleAiAnalyzeData = async (type: 'absensi' | 'pelanggaran' | 'pembayaran' | 'anggota' | 'keseluruhan') => {
+    let dataContext = "";
+    if (type === 'anggota' || type === 'keseluruhan') {
+      dataContext += `\nDATA ANGGOTA:\nTotal: ${anggotaList.length} orang\n`;
+      const perGender = anggotaList.reduce((acc: any, curr) => {
+        acc[curr.jenisKelamin] = (acc[curr.jenisKelamin] || 0) + 1;
+        return acc;
+      }, {});
+      dataContext += `Laki-laki: ${perGender['Laki-laki'] || 0}, Perempuan: ${perGender['Perempuan'] || 0}\n`;
+      const perJenjang = anggotaList.reduce((acc: any, curr) => {
+        acc[curr.jenjangPendidikan] = (acc[curr.jenjangPendidikan] || 0) + 1;
+        return acc;
+      }, {});
+      dataContext += `Jenjang Pendidikan: ${JSON.stringify(perJenjang)}\n`;
+    }
+    if (type === 'absensi' || type === 'keseluruhan') {
+      dataContext += `\nDATA ABSENSI:\nTotal Record: ${absensiList.length}\n`;
+      const perStatus = absensiList.reduce((acc: any, curr) => {
+        acc[curr.keterangan] = (acc[curr.keterangan] || 0) + 1;
+        return acc;
+      }, {});
+      dataContext += `Hadir/Sakit/Izin/Alpha: ${JSON.stringify(perStatus)}\n`;
+    }
+    if (type === 'pembayaran' || type === 'keseluruhan') {
+      const totalPaid = pembayaranList.filter(p => p.status === 'Lunas').reduce((sum, p) => sum + p.nominal, 0);
+      const totalPending = pembayaranList.filter(p => p.status !== 'Lunas').reduce((sum, p) => sum + p.nominal, 0);
+      dataContext += `\nDATA PEMBAYARAN:\nTotal Transaksi: ${pembayaranList.length}\n`;
+      dataContext += `Total Terbayar (Lunas): ${formatRupiah(totalPaid)}\n`;
+      dataContext += `Total Belum Terbayar: ${formatRupiah(totalPending)}\n`;
+    }
+    if (type === 'pelanggaran' || type === 'keseluruhan') {
+      dataContext += `\nDATA PELANGGARAN:\nTotal Kasus: ${pelanggaranList.length}\n`;
+      const perLevel = pelanggaranList.reduce((acc: any, curr) => {
+        acc[curr.jenisPelanggaran] = (acc[curr.jenisPelanggaran] || 0) + 1;
+        return acc;
+      }, {});
+      dataContext += `Tingkat Ringan/Sedang/Berat: ${JSON.stringify(perLevel)}\n`;
+    }
+
+    const prompt = `Analisis data operasional lembaga ini untuk kategori: ${type.toUpperCase()}.\nBerikut adalah data statistik mentah saat ini:\n${dataContext}\n\nBuatlah laporan ringkas eksekutif, temuan menarik, dan rekomendasi praktis bagi pengelola dalam Bahasa Indonesia dengan format markdown yang rapi, informatif, dan profesional.`;
+    
+    // Open floating AI chat window
+    setIsAiChatOpen(true);
+    handleSendAiChatMessage(prompt);
+  };
+
+  // Card Design Generator (AI Auto-Design KTA)
+  const [aiCardDesignGenerating, setAiCardDesignGenerating] = useState<boolean>(false);
+  const handleAiDesignCard = async (userDesignPrompt: string) => {
+    if (!userDesignPrompt.trim()) return;
+
+    setAiCardDesignGenerating(true);
+    addToast("Sedang merancang desain kartu bersama Gemini AI...", "info");
+
+    try {
+      const systemInstruction = `You are an expert graphic designer and brand consultant for membership ID cards. Select the best design parameters for a membership ID card based on the user's prompt in Indonesian. Return ONLY a raw JSON string matching the specified schema, without markdown code block formatting or any backticks.
+
+Schema requirements:
+{
+  "theme": "blue" | "gold" | "red" | "emerald",
+  "orientation": "horizontal" | "vertical",
+  "hideHeader": boolean,
+  "hideFooter": boolean,
+  "textColorFront": "white" | "black",
+  "textColorBack": "white" | "black",
+  "ketentuan": string[] (MUST be exactly 4 strings for rules on the back of the card, numbered like "1. ...", "2. ...", "3. ...", "4. ..."),
+  "explanation": string (brief indonesian design concept description)
+}`;
+
+      const responseText = await callGeminiChat(
+        `Rancang kartu berdasarkan permintaan berikut: "${userDesignPrompt}"`,
+        systemInstruction
+      );
+
+      // Extract JSON from response text
+      let jsonText = responseText.trim();
+      // Handle potential markdown block wraps
+      if (jsonText.includes("```")) {
+        const parts = jsonText.split("```");
+        for (const p of parts) {
+          const cleanP = p.trim();
+          if (cleanP.startsWith("json") || cleanP.startsWith("{")) {
+            jsonText = cleanP.replace(/^json/, "").trim();
+            break;
+          }
+        }
+      }
+
+      const designResult = JSON.parse(jsonText);
+      
+      // Apply states
+      if (designResult.theme) {
+        setCetakCardTheme(designResult.theme);
+        localStorage.setItem('CETAK_CARD_THEME', designResult.theme);
+      }
+      if (designResult.orientation) {
+        setCetakCardOrientation(designResult.orientation);
+        localStorage.setItem('CETAK_CARD_ORIENTATION', designResult.orientation);
+      }
+      if (designResult.textColorFront) {
+        setCetakCardTextColorFront(designResult.textColorFront);
+        localStorage.setItem('CETAK_CARD_TEXT_COLOR_FRONT', designResult.textColorFront);
+      }
+      if (designResult.textColorBack) {
+        setCetakCardTextColorBack(designResult.textColorBack);
+        localStorage.setItem('CETAK_CARD_TEXT_COLOR_BACK', designResult.textColorBack);
+      }
+      
+      setCetakCardHideHeader(!!designResult.hideHeader);
+      localStorage.setItem('CETAK_CARD_HIDE_HEADER', String(!!designResult.hideHeader));
+
+      setCetakCardHideFooter(!!designResult.hideFooter);
+      localStorage.setItem('CETAK_CARD_HIDE_FOOTER', String(!!designResult.hideFooter));
+
+      if (Array.isArray(designResult.ketentuan) && designResult.ketentuan.length > 0) {
+        setCetakCardKetentuan(designResult.ketentuan);
+        localStorage.setItem('CETAK_CARD_KETENTUAN', JSON.stringify(designResult.ketentuan));
+      }
+
+      addToast("✨ AI berhasil menerapkan desain kartu kustom!", "success");
+
+      // Log to AI Chat as well
+      const aiExplainMsg = {
+        sender: 'ai' as const,
+        text: `🎨 **Desain Kartu Terapkan Otomatis!**\n\n**Konsep Desain:** ${designResult.explanation}\n\n* **Tema Warna:** ${designResult.theme}\n* **Orientasi:** ${designResult.orientation === 'horizontal' ? 'Landscape' : 'Portrait'}\n* **Warna Teks (Depan):** ${designResult.textColorFront}\n* **Sembunyikan Header:** ${designResult.hideHeader ? 'Ya' : 'Tidak'}\n* **Sembunyikan Footer:** ${designResult.hideFooter ? 'Ya' : 'Tidak'}\n\n*Ketentuan kartu telah disesuaikan secara dinamis.*`,
+        timestamp: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })
+      };
+      setAiChatMessages(prev => [...prev, aiExplainMsg]);
+    } catch (err: any) {
+      console.error("AI card design failed:", err);
+      addToast("AI gagal menerapkan desain otomatis: " + err.message, "error");
+    } finally {
+      setAiCardDesignGenerating(false);
+    }
+  };
+
+  // AI Image Background Generator (KTA Background)
+  const [aiBgGenerating, setAiBgGenerating] = useState<boolean>(false);
+  const handleAiGenerateBg = async (bgPrompt: string, side: 'front' | 'back') => {
+    if (!bgPrompt.trim()) return;
+
+    setAiBgGenerating(true);
+    addToast("Sedang memproses latar gambar dengan Gemini Image AI...", "info");
+
+    try {
+      const isHorizontal = cetakCardOrientation === 'horizontal';
+      const aspectRatio = isHorizontal ? '4:3' : '3:4'; // standard card ratios supported by image model
+
+      const response = await originalFetch("/api/gemini/generate-image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: bgPrompt, aspectRatio }),
+      });
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.message || errData.error || "Gagal menggambar grafis background.");
+      }
+
+      const data = await response.json();
+      if (data.imageUrl) {
+        if (side === 'front') {
+          setCetakCardBgFront(data.imageUrl);
+          localStorage.setItem('CETAK_CARD_BG_FRONT', data.imageUrl);
+        } else {
+          setCetakCardBgBack(data.imageUrl);
+          localStorage.setItem('CETAK_CARD_BG_BACK', data.imageUrl);
+        }
+        addToast(`Background ${side === 'front' ? 'depan' : 'belakang'} berhasil dipasang!`, "success");
+      } else {
+        throw new Error("Format gambar dari server tidak valid.");
+      }
+    } catch (err: any) {
+      console.error("Image generation failed:", err);
+      addToast("Gagal menggambar: " + err.message + " (Fitur ini membutuhkan GEMINI_API_KEY paid level)", "error");
+    } finally {
+      setAiBgGenerating(false);
+    }
   };
 
   useEffect(() => {
@@ -2897,7 +4080,7 @@ export default function App() {
     );
 
     return (
-      <div className="min-h-screen w-full bg-[#070a13] text-slate-100 flex flex-col justify-between p-4 md:p-8 relative font-sans select-none overflow-y-auto">
+      <div className="min-h-screen w-full bg-[#070a13] text-slate-100 flex flex-col justify-between p-4 md:p-8 relative font-sans select-none overflow-x-hidden overflow-y-auto">
         {/* Soft, beautiful organic light orbs in the background */}
         <div className="absolute inset-0 bg-[radial-gradient(#1e293b_1px,transparent_1px)] [background-size:24px_24px] opacity-15 pointer-events-none"></div>
         <div className="absolute top-[-10%] left-[-10%] w-[500px] h-[500px] bg-gradient-to-tr from-indigo-500/10 to-violet-500/5 rounded-full filter blur-[100px] pointer-events-none"></div>
@@ -3559,8 +4742,8 @@ export default function App() {
                     : 'text-[#94a3b8] hover:bg-slate-800/40 hover:text-slate-100 border-transparent hover:translate-x-0.5'
                 }`}
               >
-                <Printer className={`w-4 h-4 shrink-0 ${activeTab === 'cetak_data' ? 'text-indigo-400' : 'text-[#94a3b8]'}`} />
-                <span>Cetak & Simpan Data</span>
+                <FileText className={`w-4 h-4 shrink-0 ${activeTab === 'cetak_data' ? 'text-indigo-400' : 'text-[#94a3b8]'}`} />
+                <span>Simpan PDF & Data</span>
               </button>
             )}
 
@@ -3617,7 +4800,7 @@ export default function App() {
                  activeTab === 'surat' ? 'Surat' :
                  activeTab === 'peraturan' ? 'Peraturan' :
                  activeTab === 'kelola_akun' ? 'Kelola Akun' :
-                 activeTab === 'cetak_data' ? 'Cetak & Simpan Data' :
+                 activeTab === 'cetak_data' ? 'Simpan PDF & Data' :
                  activeTab.replace('-', ' ')}
               </h2>
             )}
@@ -4517,12 +5700,12 @@ export default function App() {
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    handleAutoPrint('kartu', member.nia, 'area-kartu-identitas');
+                                    handleDownloadBiodataPdf(member);
                                   }}
                                   className="p-1.5 rounded bg-indigo-50 text-indigo-600 hover:bg-indigo-100 transition cursor-pointer"
-                                  title="Cetak Kartu Tanda Anggota (KTA)"
+                                  title="Simpan PDF Biodata Lengkap"
                                 >
-                                  <Printer className="w-3.5 h-3.5" />
+                                  <FileText className="w-3.5 h-3.5" />
                                 </button>
                               )}
                               <button
@@ -4558,6 +5741,24 @@ export default function App() {
                 <div>
                   <h3 className="font-bold text-[#0f172a] text-sm">Transaksi Pembayaran / Tagihan</h3>
                   <p className="text-xs text-[#64748b]">Ditemukan {filteredPembayaran.length} transaksi di dalam filter</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleDownloadPembayaranExcel}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-700 text-xs font-bold rounded-lg transition duration-150 active:scale-95 cursor-pointer"
+                    title="Unduh laporan Transaksi format Excel (.xlsx)"
+                  >
+                    <Download className="w-3.5 h-3.5 shrink-0" />
+                    <span>Unduh Excel</span>
+                  </button>
+                  <button
+                    onClick={handleDownloadPembayaranPdf}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 text-xs font-bold rounded-lg transition duration-150 active:scale-95 cursor-pointer"
+                    title="Unduh laporan Transaksi format PDF (.pdf)"
+                  >
+                    <FileText className="w-3.5 h-3.5 shrink-0" />
+                    <span>Unduh PDF</span>
+                  </button>
                 </div>
               </div>
 
@@ -4613,9 +5814,9 @@ export default function App() {
                                     setIsReceiptModalOpen(true);
                                   }}
                                   className="p-1.5 rounded bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition cursor-pointer"
-                                  title="Cetak Struk Resmi"
+                                  title="Simpan PDF Struk Resmi"
                                 >
-                                  <Printer className="w-3.5 h-3.5" />
+                                  <FileText className="w-3.5 h-3.5" />
                                 </button>
                               )}
                               <button
@@ -4792,11 +5993,11 @@ export default function App() {
                             <div className="flex items-center justify-end space-x-2">
                               {isMenuAllowed('cetak_data') && (
                                 <button
-                                  onClick={() => handleAutoPrint('pelanggaran', caseRow.nia, 'area-laporan-pelanggaran')}
+                                  onClick={() => handleAutoSavePdf('pelanggaran', caseRow.nia, 'area-laporan-pelanggaran')}
                                   className="p-1.5 rounded bg-indigo-50 text-indigo-600 hover:bg-indigo-100 transition cursor-pointer"
-                                  title="Cetak Surat Laporan Pelanggaran"
+                                  title="Simpan PDF Laporan Pelanggaran"
                                 >
-                                  <Printer className="w-3.5 h-3.5" />
+                                  <FileText className="w-3.5 h-3.5" />
                                 </button>
                               )}
                               <button
@@ -6013,6 +7214,48 @@ export default function App() {
                   </p>
                 </div>
 
+                {/* ✨ Gemini AI Card Designer prompt card */}
+                <div className="bg-gradient-to-r from-purple-50 to-indigo-50/50 border border-purple-200 rounded-xl p-4 text-left space-y-3">
+                  <div className="flex items-center gap-1.5 text-xs font-black text-purple-950 uppercase tracking-wide">
+                    <Sparkles className="w-4 h-4 text-purple-650 animate-pulse" />
+                    <span>✨ Desainer Kartu Tanda Anggota (Gemini AI)</span>
+                  </div>
+                  <p className="text-[11px] text-purple-900 leading-normal">
+                    Tulis konsep desain kartu Anda dalam Bahasa Indonesia. Gemini AI akan otomatis merancang warna tema, tata letak, orientasi, serta teks ketentuan pemegang kartu secara real-time!
+                  </p>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      id="ai-card-prompt-input"
+                      disabled={aiCardDesignGenerating}
+                      placeholder="Contoh: 'Tema merah membara, portrait, sembunyikan kop header, teks putih'"
+                      className="flex-1 px-3 py-2 bg-white border border-purple-200 rounded-lg text-xs outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-400 transition"
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          const val = (e.currentTarget as HTMLInputElement).value;
+                          if (val) handleAiDesignCard(val);
+                        }
+                      }}
+                    />
+                    <button
+                      type="button"
+                      disabled={aiCardDesignGenerating}
+                      onClick={() => {
+                        const input = document.getElementById('ai-card-prompt-input') as HTMLInputElement;
+                        if (input && input.value.trim()) {
+                          handleAiDesignCard(input.value.trim());
+                        } else {
+                          addToast("Silakan tulis konsep desain kartu Anda terlebih dahulu.", "info");
+                        }
+                      }}
+                      className="px-4 py-2 bg-gradient-to-r from-purple-600 to-indigo-650 hover:from-purple-500 hover:to-indigo-550 disabled:from-slate-300 disabled:to-slate-400 text-white font-bold text-xs rounded-lg transition-all active:scale-95 cursor-pointer shadow-sm select-none"
+                    >
+                      {aiCardDesignGenerating ? "Merancang..." : "Terapkan"}
+                    </button>
+                  </div>
+                </div>
+
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
                   {/* Left controls */}
                   <div className="lg:col-span-7 space-y-5 text-left">
@@ -6157,6 +7400,55 @@ export default function App() {
                               />
                             </label>
                           </div>
+                        </div>
+                      </div>
+
+                      {/* AI Background Generator prompt box */}
+                      <div className="bg-purple-50/50 border border-purple-200/60 rounded-xl p-3 text-left space-y-2">
+                        <div className="flex items-center gap-1.5 text-[10px] font-extrabold text-purple-950 uppercase">
+                          <Sparkles className="w-3.5 h-3.5 text-purple-650 animate-pulse" />
+                          <span>🎨 Lukis Background (Gemini Image AI)</span>
+                        </div>
+                        <p className="text-[10px] text-purple-800 leading-normal font-normal">
+                          Gunakan deskripsi teks untuk menggambar pola latar belakang yang unik (misal: "Pola batik emas mewah elegan abstrak latar gelap").
+                        </p>
+                        <div className="flex gap-2">
+                          <input
+                            type="text"
+                            id="ai-bg-prompt"
+                            placeholder="Deskripsi background abstrak..."
+                            className="flex-1 px-2.5 py-1.5 bg-white border border-purple-200/50 rounded-lg text-[11px] outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-450 transition"
+                          />
+                          <button
+                            type="button"
+                            disabled={aiBgGenerating}
+                            onClick={() => {
+                              const input = document.getElementById('ai-bg-prompt') as HTMLInputElement;
+                              if (input && input.value.trim()) {
+                                handleAiGenerateBg(input.value.trim(), 'front');
+                              } else {
+                                addToast("Masukkan deskripsi background terlebih dahulu.", "info");
+                              }
+                            }}
+                            className="px-2.5 py-1.5 bg-purple-600 hover:bg-purple-700 disabled:bg-slate-300 text-white font-bold text-[10px] rounded-lg transition cursor-pointer select-none"
+                          >
+                            Depan
+                          </button>
+                          <button
+                            type="button"
+                            disabled={aiBgGenerating}
+                            onClick={() => {
+                              const input = document.getElementById('ai-bg-prompt') as HTMLInputElement;
+                              if (input && input.value.trim()) {
+                                handleAiGenerateBg(input.value.trim(), 'back');
+                              } else {
+                                addToast("Masukkan deskripsi background terlebih dahulu.", "info");
+                              }
+                            }}
+                            className="px-2.5 py-1.5 bg-indigo-650 hover:bg-indigo-750 disabled:bg-slate-300 text-white font-bold text-[10px] rounded-lg transition cursor-pointer select-none"
+                          >
+                            Belakang
+                          </button>
                         </div>
                       </div>
 
@@ -6596,7 +7888,7 @@ export default function App() {
                         { key: 'informasi', label: 'Informasi / Kabar' },
                         { key: 'surat', label: 'Surat Resmi' },
                         { key: 'peraturan', label: 'Peraturan & Regulasi' },
-                        { key: 'cetak_data', label: 'Cetak & Simpan Data' },
+                        { key: 'cetak_data', label: 'Simpan PDF & Data' },
                         { key: 'pengaturan', label: 'Pengaturan Sistem' },
                       ].map((menuItem) => {
                         const isBlocked = subAccountFormValues.remove_menu
@@ -6648,7 +7940,6 @@ export default function App() {
                       )}
                     </button>
                   </div>
-
                 </form>
               </div>
             </div>
@@ -6660,7 +7951,7 @@ export default function App() {
             <div className="space-y-6 animate-fade-in p-6">
               {printNotification && (
                 <div className="fixed bottom-6 right-6 z-50 bg-slate-900/95 text-white text-xs font-semibold px-4 py-3 rounded-xl shadow-lg border border-slate-700/50 flex items-center space-x-2 animate-bounce print-exclude">
-                  <Printer className="w-4 h-4 text-indigo-400 animate-pulse animate-spin" />
+                  <FileText className="w-4 h-4 text-indigo-400 animate-pulse animate-spin" />
                   <span>{printNotification}</span>
                 </div>
               )}
@@ -6671,7 +7962,7 @@ export default function App() {
                   <div className="space-y-1 text-left">
                     <p className="font-bold">Mode Preview Terdeteksi</p>
                     <p className="leading-relaxed font-normal text-amber-700">
-                      Jika tombol cetak tidak memunculkan dialog pencetakan di perangkat Anda, silakan klik tombol <strong>"Buka Tab Baru"</strong> di pojok kanan atas untuk menghindari pemblokiran iframe oleh browser Anda.
+                      Jika browser Anda memblokir unduhan PDF di dalam frame ini, silakan klik tombol <strong>"Buka Tab Baru"</strong> di pojok kanan atas agar proses pengunduhan dokumen PDF berjalan dengan sempurna.
                     </p>
                   </div>
                 </div>
@@ -6682,6 +7973,28 @@ export default function App() {
               {/* Sub Navigation Tabs */}
               <div className="bg-white p-2 rounded-xl border border-[#e2e8f0] flex flex-wrap gap-1 print-exclude shadow-sm">
                 <button
+                  onClick={() => setCetakActiveSubTab('biodata_massal')}
+                  className={`px-4 py-2 rounded-lg text-xs font-bold transition flex items-center space-x-1.5 cursor-pointer ${
+                    cetakActiveSubTab === 'biodata_massal'
+                      ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/15'
+                      : 'text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  <FileText className="w-3.5 h-3.5" />
+                  <span>1. Simpan PDF Biodata</span>
+                </button>
+                <button
+                  onClick={() => setCetakActiveSubTab('daftar_anggota')}
+                  className={`px-4 py-2 rounded-lg text-xs font-bold transition flex items-center space-x-1.5 cursor-pointer ${
+                    cetakActiveSubTab === 'daftar_anggota'
+                      ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/15'
+                      : 'text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  <Printer className="w-3.5 h-3.5" />
+                  <span>2. Cetak Daftar Anggota</span>
+                </button>
+                <button
                   onClick={() => setCetakActiveSubTab('kartu')}
                   className={`px-4 py-2 rounded-lg text-xs font-bold transition flex items-center space-x-1.5 cursor-pointer ${
                     cetakActiveSubTab === 'kartu'
@@ -6690,7 +8003,7 @@ export default function App() {
                   }`}
                 >
                   <User className="w-3.5 h-3.5" />
-                  <span>1. Kartu Identitas Anggota</span>
+                  <span>3. Kartu Identitas Anggota</span>
                 </button>
                 <button
                   onClick={() => setCetakActiveSubTab('absensi')}
@@ -6701,7 +8014,7 @@ export default function App() {
                   }`}
                 >
                   <Calendar className="w-3.5 h-3.5" />
-                  <span>2. Rekap Absensi</span>
+                  <span>4. Rekap Absensi</span>
                 </button>
                 <button
                   onClick={() => setCetakActiveSubTab('pelanggaran')}
@@ -6712,9 +8025,257 @@ export default function App() {
                   }`}
                 >
                   <AlertTriangle className="w-3.5 h-3.5" />
-                  <span>3. Laporan Pelanggaran</span>
+                  <span>5. Laporan Pelanggaran</span>
                 </button>
               </div>
+
+              {/* ======================= SUB VIEW: SIMPAN PDF BIODATA MASSAL ======================= */}
+              {cetakActiveSubTab === 'biodata_massal' && (() => {
+                return (
+                  <div className="bg-white rounded-xl border border-[#e2e8f0] p-6 shadow-sm space-y-6 text-left">
+                    <div>
+                      <h4 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                        <FileText className="w-5 h-5 text-indigo-600" />
+                        Simpan Gabungan Biodata Anggota
+                      </h4>
+                      <p className="text-xs text-slate-500 mt-1">
+                        Gabungkan beberapa atau seluruh biodata lengkap anggota (lengkap dengan pas foto dan QR code) ke dalam satu file PDF multi-halaman.
+                      </p>
+                    </div>
+
+                    {/* Mode Selection Cards */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div 
+                        onClick={() => setBulkSelectionMode('all')}
+                        className={`p-4 rounded-xl border-2 transition duration-150 cursor-pointer flex items-start space-x-3.5 ${
+                          bulkSelectionMode === 'all' 
+                            ? 'border-indigo-600 bg-indigo-50/20' 
+                            : 'border-slate-200 hover:border-slate-300'
+                        }`}
+                      >
+                        <div className="mt-0.5">
+                          <input 
+                            type="radio" 
+                            name="bulk_mode" 
+                            checked={bulkSelectionMode === 'all'} 
+                            onChange={() => setBulkSelectionMode('all')} 
+                            className="text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                          />
+                        </div>
+                        <div>
+                          <h5 className="text-xs font-bold text-slate-900">Semua Anggota ({filteredAnggota.length})</h5>
+                          <p className="text-[11px] text-slate-500 mt-0.5">Mengekspor seluruh biodata anggota yang saat ini aktif di daftar filter.</p>
+                        </div>
+                      </div>
+
+                      <div 
+                        onClick={() => setBulkSelectionMode('selected')}
+                        className={`p-4 rounded-xl border-2 transition duration-150 cursor-pointer flex items-start space-x-3.5 ${
+                          bulkSelectionMode === 'selected' 
+                            ? 'border-indigo-600 bg-indigo-50/20' 
+                            : 'border-slate-200 hover:border-slate-300'
+                        }`}
+                      >
+                        <div className="mt-0.5">
+                          <input 
+                            type="radio" 
+                            name="bulk_mode" 
+                            checked={bulkSelectionMode === 'selected'} 
+                            onChange={() => setBulkSelectionMode('selected')} 
+                            className="text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                          />
+                        </div>
+                        <div>
+                          <h5 className="text-xs font-bold text-slate-900">Pilih Anggota Tertentu</h5>
+                          <p className="text-[11px] text-slate-500 mt-0.5">Memilih secara spesifik anggota mana saja yang ingin digabungkan ke dalam PDF.</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* If selected mode is active */}
+                    {bulkSelectionMode === 'selected' && (
+                      <div className="space-y-3.5 border-t border-slate-100 pt-4">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                          <div className="relative max-w-md w-full">
+                            <span className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                              <Search className="w-3.5 h-3.5" />
+                            </span>
+                            <input
+                              type="text"
+                              value={bulkPdfSearchTerm}
+                              onChange={(e) => setBulkPdfSearchTerm(e.target.value)}
+                              placeholder="Cari anggota berdasarkan nama atau NIA..."
+                              className="w-full text-xs pl-9 pr-3 py-2 border border-slate-200 rounded-lg outline-none focus:border-indigo-500"
+                            />
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const next = {};
+                                filteredAnggota.forEach(m => { next[m.nia] = true; });
+                                setBulkSelectedNias(next);
+                              }}
+                              className="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 hover:underline cursor-pointer bg-transparent border-none"
+                            >
+                              Pilih Semua
+                            </button>
+                            <span className="text-slate-300 text-xs">|</span>
+                            <button
+                              type="button"
+                              onClick={() => setBulkSelectedNias({})}
+                              className="text-[11px] font-bold text-rose-600 hover:text-rose-800 hover:underline cursor-pointer bg-transparent border-none"
+                            >
+                              Hapus Pilihan
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* List of members to check */}
+                        <div className="max-h-72 overflow-y-auto border border-slate-200 rounded-xl divide-y divide-slate-100 shadow-inner">
+                          {filteredAnggota
+                            .filter(m => {
+                              const q = bulkPdfSearchTerm.toLowerCase();
+                              return (
+                                m.namaLengkap.toLowerCase().includes(q) ||
+                                (m.nia || '').toLowerCase().includes(q)
+                              );
+                            })
+                            .map((member) => {
+                              const isChecked = !!bulkSelectedNias[member.nia];
+                              return (
+                                <div 
+                                  key={member.nia}
+                                  onClick={() => {
+                                    setBulkSelectedNias(prev => ({
+                                      ...prev,
+                                      [member.nia]: !prev[member.nia]
+                                    }));
+                                  }}
+                                  className={`flex items-center justify-between p-3 cursor-pointer hover:bg-slate-50 transition ${
+                                    isChecked ? 'bg-indigo-50/10' : ''
+                                  }`}
+                                >
+                                  <div className="flex items-center space-x-3">
+                                    <input 
+                                      type="checkbox"
+                                      checked={isChecked}
+                                      onChange={() => {}} // Handled by row click
+                                      className="rounded text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5 cursor-pointer"
+                                    />
+                                    <div className="w-8 h-8 rounded-full overflow-hidden shrink-0 border border-slate-200 bg-slate-100 flex items-center justify-center font-bold text-slate-500 text-xs">
+                                      <MemberAvatar linkProfile={member.linkProfile} namaLengkap={member.namaLengkap} />
+                                    </div>
+                                    <div>
+                                      <p className="text-xs font-bold text-slate-800">{member.namaLengkap}</p>
+                                      <p className="text-[10px] text-slate-500 font-mono">NIA: {member.nia} | {member.kelas || member.namaSekolah || '-'}</p>
+                                    </div>
+                                  </div>
+                                  <div className="text-right">
+                                    <span className="text-[10px] font-bold bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full border border-slate-200">
+                                      {member.status || 'Aktif'}
+                                    </span>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          {filteredAnggota.length === 0 && (
+                            <div className="p-8 text-center text-slate-400 text-xs">
+                              Tidak ada data anggota terdaftar.
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Action button */}
+                    <div className="flex justify-end pt-2">
+                      <button
+                        onClick={async () => {
+                          let targetMembers: Anggota[] = [];
+                          if (bulkSelectionMode === 'all') {
+                            targetMembers = filteredAnggota;
+                          } else {
+                            targetMembers = filteredAnggota.filter(m => !!bulkSelectedNias[m.nia]);
+                          }
+
+                          if (targetMembers.length === 0) {
+                            addToast("Silakan pilih minimal 1 anggota untuk membuat biodata PDF.", "error");
+                            return;
+                          }
+
+                          const fName = `Gabungan_Biodata_Anggota_${Date.now()}.pdf`;
+                          await handleDownloadMultipleBiodataPdf(targetMembers, fName);
+                        }}
+                        className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-md transition duration-150 active:scale-95 cursor-pointer"
+                      >
+                        <FileText className="w-4 h-4 shrink-0" />
+                        <span>Simpan Gabungan Biodata ({
+                          bulkSelectionMode === 'all' 
+                            ? filteredAnggota.length 
+                            : filteredAnggota.filter(m => !!bulkSelectedNias[m.nia]).length
+                        } PDF)</span>
+                      </button>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* ======================= SUB VIEW: CETAK DAFTAR ANGGOTA ======================= */}
+              {cetakActiveSubTab === 'daftar_anggota' && (() => {
+                return (
+                  <div className="bg-white rounded-xl border border-[#e2e8f0] p-6 shadow-sm space-y-6 text-left">
+                    <div>
+                      <h4 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                        <Printer className="w-5 h-5 text-indigo-600" />
+                        Cetak Laporan Daftar Anggota Terdaftar
+                      </h4>
+                      <p className="text-xs text-slate-500 mt-1">
+                        Cetak laporan formal tabel berisi seluruh daftar anggota aktif sesuai dengan filter yang saat ini Anda gunakan.
+                      </p>
+                    </div>
+
+                    <div className="bg-slate-50 rounded-xl p-4 border border-slate-200/60 grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div className="space-y-1">
+                        <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400">Total Anggota</span>
+                        <p className="text-lg font-extrabold text-slate-800">{filteredAnggota.length} Orang</p>
+                      </div>
+                      <div className="space-y-1">
+                        <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400">Saringan Kelas</span>
+                        <p className="text-xs font-semibold text-slate-700 bg-white border border-slate-200 px-2.5 py-1 rounded inline-block">
+                          {selectedKelasAnggota === 'Semua' ? 'Semua Kelas' : `Kelas ${selectedKelasAnggota}`}
+                        </p>
+                      </div>
+                      <div className="space-y-1">
+                        <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400">Format Hasil</span>
+                        <p className="text-xs font-semibold text-slate-700">Dokumen Cetak PDF (Lanskap)</p>
+                      </div>
+                    </div>
+
+                    <div className="border border-slate-100 rounded-xl p-4 bg-slate-50/30 flex items-center space-x-3.5">
+                      <div className="w-10 h-10 rounded-full bg-indigo-50 flex items-center justify-center shrink-0">
+                        <FileText className="w-5 h-5 text-indigo-600" />
+                      </div>
+                      <div>
+                        <h5 className="text-xs font-bold text-slate-800">Preview Kolom Laporan</h5>
+                        <p className="text-[11px] text-slate-500 mt-0.5">
+                          Tabel laporan PDF akan secara otomatis mencakup kolom: No, NIA, Nama Lengkap, Jenis Kelamin, Kelas, Sekolah, No Telepon, dan Status.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex justify-end">
+                      <button
+                        onClick={handleDownloadAnggotaPdf}
+                        className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-md transition duration-150 active:scale-95 cursor-pointer"
+                      >
+                        <Printer className="w-4 h-4 shrink-0" />
+                        <span>Unduh Daftar Anggota (PDF)</span>
+                      </button>
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* SECTION 1: KARTU IDENTITAS ANGGOTA */}
               {cetakActiveSubTab === 'kartu' && (() => {
@@ -6986,12 +8547,12 @@ export default function App() {
 
                       <div className="pt-2 border-t">
                         <button
-                          onClick={() => executeDevicePrint('area-kartu-identitas')}
+                          onClick={() => executeDeviceSavePdf('area-kartu-identitas')}
                           disabled={!selectedAnggota}
                           className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition flex items-center justify-center space-x-1.5 disabled:opacity-50 cursor-pointer shadow-md hover:-translate-y-0.5 active:translate-y-0"
                         >
-                          <Printer className="w-4 h-4" />
-                          <span>Cetak Kartu Tanda Anggota</span>
+                          <FileText className="w-4 h-4" />
+                          <span>Simpan PDF Kartu Tanda Anggota</span>
                         </button>
                       </div>
                     </div>
@@ -7208,10 +8769,9 @@ export default function App() {
                               <div className={`p-3.5 space-y-1 text-left text-[7px] leading-relaxed z-10 font-bold flex-1 ${
                                 cetakCardBgBack && cetakCardTextColorBack === 'white' ? 'text-slate-100' : 'text-slate-600'
                               }`}>
-                                <p>1. Kartu ini milik sah lembaga {lembagaLogin || "Portal Sapta"}.</p>
-                                <p>2. Kartu wajib dibawa dan ditunjukkan pada setiap jenis kegiatan formal.</p>
-                                <p>3. Dilarang keras menyalahgunakan atau merusak fisik kartu ini.</p>
-                                <p>4. Jika menemukan kartu ini, harap hubungi pengelola sekretariat.</p>
+                                {cetakCardKetentuan.map((item, idx) => (
+                                  <p key={idx}>{item.replace('[Lembaga]', lembagaLogin || 'Portal Sapta')}</p>
+                                ))}
                               </div>
 
                               {/* QR Code representation zone */}
@@ -7324,11 +8884,11 @@ export default function App() {
 
                       <div>
                         <button
-                          onClick={() => executeDevicePrint('area-rekap-absensi')}
+                          onClick={() => executeDeviceSavePdf('area-rekap-absensi')}
                           className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition flex items-center justify-center space-x-1.5 cursor-pointer shadow-md hover:-translate-y-0.5 active:translate-y-0"
                         >
-                          <Printer className="w-4 h-4 text-white" />
-                          <span>Cetak Rekap Absensi</span>
+                          <FileText className="w-4 h-4 text-white" />
+                          <span>Simpan PDF Rekap Absensi</span>
                         </button>
                       </div>
                     </div>
@@ -7484,11 +9044,11 @@ export default function App() {
 
                       <div className="md:col-span-2 text-right">
                         <button
-                          onClick={() => executeDevicePrint('area-laporan-pelanggaran')}
+                          onClick={() => executeDeviceSavePdf('area-laporan-pelanggaran')}
                           className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition flex items-center space-x-1.5 cursor-pointer max-w-max ml-auto shadow-md hover:-translate-y-0.5 active:translate-y-0"
                         >
-                          <Printer className="w-4 h-4" />
-                          <span>Cetak Laporan Ketertiban</span>
+                          <FileText className="w-4 h-4" />
+                          <span>Simpan PDF Laporan Ketertiban</span>
                         </button>
                       </div>
                     </div>
@@ -8692,11 +10252,11 @@ export default function App() {
               <div className="flex gap-2 w-full mt-1 print-exclude">
                 <button
                   type="button"
-                  onClick={() => executeDevicePrint('area-struk-pembayaran')}
+                  onClick={() => executeDeviceSavePdf('area-struk-pembayaran')}
                   className="flex-1 py-2 bg-indigo-650 hover:bg-indigo-750 text-white rounded-xl text-xs font-bold transition flex items-center justify-center space-x-1.5 cursor-pointer shadow-md hover:-translate-y-0.5 active:translate-y-0"
                 >
-                  <Printer className="w-4 h-4 text-white" />
-                  <span>Cetak Struk</span>
+                  <FileText className="w-4 h-4 text-white" />
+                  <span>Simpan PDF Struk</span>
                 </button>
                 <button
                   type="button"
@@ -8715,6 +10275,265 @@ export default function App() {
           </div>
         );
       })()}
+
+      {/* ======================= FLOATING LIVE CHAT WIDGET: GEMINI AI ======================= */}
+      <div className="fixed bottom-6 right-6 z-50 print-exclude flex flex-col items-end gap-4 font-sans">
+        {/* Chat window panel */}
+        {isAiChatOpen && (
+          <div className="bg-white w-[360px] sm:w-[420px] h-[550px] rounded-2xl border border-[#e2e8f0] shadow-2xl flex flex-col overflow-hidden text-left animate-fade-in relative">
+            {/* Header */}
+            <div className="bg-gradient-to-r from-purple-900 to-indigo-950 p-4 text-white flex items-center justify-between shadow-sm">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-8 h-8 rounded-full bg-purple-500/20 border border-purple-400/20 flex items-center justify-center animate-pulse">
+                  <Bot className="w-4 h-4 text-purple-300" />
+                </div>
+                <div>
+                  <h3 className="text-xs font-black tracking-wide uppercase flex items-center gap-1.5">
+                    Asisten Gemini AI
+                    <span className="text-[7.5px] px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-bold uppercase tracking-wider">Online</span>
+                  </h3>
+                  <p className="text-[9px] text-slate-300 leading-normal">Bertenaga Gemini 2.5 Flash</p>
+                </div>
+              </div>
+              <div className="flex items-center space-x-2">
+                <button
+                  type="button"
+                  onClick={handleClearAiChat}
+                  title="Bersihkan riwayat chat"
+                  className="p-1.5 text-slate-300 hover:text-white hover:bg-white/10 rounded-lg transition cursor-pointer active:scale-95"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsAiChatOpen(false)}
+                  className="p-1.5 text-slate-300 hover:text-white hover:bg-white/10 rounded-lg transition cursor-pointer active:scale-95"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* Quick action info banner */}
+            <div className="bg-purple-50/50 border-b border-purple-100 p-3 text-left">
+              <p className="text-[10px] text-purple-950 font-semibold leading-relaxed flex items-center gap-1">
+                <Sparkles className="w-3.5 h-3.5 text-purple-600 shrink-0" />
+                <span>Instruksi cepat untuk analisis data realtime lembaga:</span>
+              </p>
+              <div className="flex flex-wrap gap-1 mt-1.5 select-none">
+                <button
+                  type="button"
+                  onClick={() => handleAiAnalyzeData('keseluruhan')}
+                  disabled={aiIsGenerating}
+                  className="px-2 py-1 bg-white hover:bg-purple-50 border border-slate-200 hover:border-purple-200 text-[9px] font-bold text-slate-700 hover:text-purple-700 rounded-md transition cursor-pointer"
+                >
+                  📊 Analisis Lembaga
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleAiAnalyzeData('absensi')}
+                  disabled={aiIsGenerating}
+                  className="px-2 py-1 bg-white hover:bg-purple-50 border border-slate-200 hover:border-purple-200 text-[9px] font-bold text-slate-700 hover:text-purple-700 rounded-md transition cursor-pointer"
+                >
+                  📅 Absensi
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleAiAnalyzeData('pembayaran')}
+                  disabled={aiIsGenerating}
+                  className="px-2 py-1 bg-white hover:bg-purple-50 border border-slate-200 hover:border-purple-200 text-[9px] font-bold text-slate-700 hover:text-purple-700 rounded-md transition cursor-pointer"
+                >
+                  💳 Keuangan
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleAiAnalyzeData('pelanggaran')}
+                  disabled={aiIsGenerating}
+                  className="px-2 py-1 bg-white hover:bg-purple-50 border border-slate-200 hover:border-purple-200 text-[9px] font-bold text-slate-700 hover:text-purple-700 rounded-md transition cursor-pointer"
+                >
+                  ⚠️ Pelanggaran
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleAiAnalyzeData('anggota')}
+                  disabled={aiIsGenerating}
+                  className="px-2 py-1 bg-white hover:bg-purple-50 border border-slate-200 hover:border-purple-200 text-[9px] font-bold text-slate-700 hover:text-purple-700 rounded-md transition cursor-pointer"
+                >
+                  👥 Anggota
+                </button>
+              </div>
+            </div>
+
+            {/* Chat Messages */}
+            <div className="flex-1 p-4 overflow-y-auto space-y-3.5 min-h-[220px] bg-slate-50/50">
+              {aiChatMessages.map((msg, i) => (
+                <div
+                  key={i}
+                  className={`flex gap-2.5 max-w-[85%] ${
+                    msg.sender === 'user' ? 'ml-auto flex-row-reverse' : 'mr-auto'
+                  }`}
+                >
+                  {/* Avatar */}
+                  <div className={`w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 shadow-sm border ${
+                    msg.sender === 'user'
+                      ? 'bg-slate-100 text-slate-700 border-slate-200'
+                      : 'bg-purple-50 text-purple-600 border-purple-200'
+                  }`}>
+                    {msg.sender === 'user' ? 'AD' : '♊'}
+                  </div>
+
+                  {/* Text Bubble */}
+                  <div className="space-y-0.5">
+                    <div className={`px-3.5 py-2.5 rounded-2xl text-[11px] leading-relaxed shadow-xs text-left ${
+                      msg.sender === 'user'
+                        ? 'bg-indigo-600 text-white rounded-tr-none'
+                        : 'bg-white border border-[#e2e8f0] text-slate-800 rounded-tl-none'
+                    }`}>
+                      {msg.sender === 'user' ? (
+                        <p className="whitespace-pre-line m-0 font-normal">{msg.text}</p>
+                      ) : (
+                        <div className="prose prose-xs max-w-none text-left leading-relaxed">
+                          {msg.text.split("\n").map((line, lIdx) => {
+                            let rendered = line;
+                            let isBullet = false;
+                            let isHeader = false;
+
+                            if (line.trim().startsWith("* ") || line.trim().startsWith("- ")) {
+                              isBullet = true;
+                              rendered = rendered.replace(/^[\*\-]\s+/, "");
+                            }
+                            
+                            if (line.trim().startsWith("### ")) {
+                              isHeader = true;
+                              rendered = rendered.replace(/^###\s+/, "");
+                            } else if (line.trim().startsWith("## ")) {
+                              isHeader = true;
+                              rendered = rendered.replace(/^##\s+/, "");
+                            }
+
+                            const parts = rendered.split("**");
+                            const elements = parts.map((part, pIdx) => {
+                              if (pIdx % 2 === 1) {
+                                return <strong key={pIdx} className="font-extrabold text-[#0f172a]">{part}</strong>;
+                              }
+                              return part;
+                            });
+
+                            if (isHeader) {
+                              return <h4 key={lIdx} className="text-[11px] font-black text-[#0f172a] mt-2 mb-1 border-b pb-0.5">{elements}</h4>;
+                            }
+                            if (isBullet) {
+                              return (
+                                <div key={lIdx} className="flex items-start gap-1 pl-1 mt-0.5 animate-fade-in">
+                                  <span className="text-purple-500 text-[10px] shrink-0 mt-1">•</span>
+                                  <p className="flex-1 m-0 text-[11px] text-slate-700 font-normal leading-relaxed">{elements}</p>
+                                </div>
+                              );
+                            }
+                            return <p key={lIdx} className="m-0 text-[11px] text-slate-700 font-normal leading-relaxed mt-0.5">{elements}</p>;
+                          })}
+                        </div>
+                      )}
+                    </div>
+                    <span className={`text-[8px] font-semibold text-slate-400 block px-1 ${
+                      msg.sender === 'user' ? 'text-right' : 'text-left'
+                    }`}>
+                      {msg.timestamp}
+                    </span>
+                  </div>
+                </div>
+              ))}
+
+              {/* Loading thinking state */}
+              {aiIsGenerating && (
+                <div className="flex gap-2.5 max-w-[85%] mr-auto items-start animate-pulse">
+                  <div className="w-7 h-7 rounded-full bg-purple-50 border border-purple-200 text-purple-600 flex items-center justify-center text-[10px] font-bold shrink-0">
+                    ♊
+                  </div>
+                  <div className="space-y-1">
+                    <div className="px-3 py-2 rounded-2xl bg-white border border-slate-100 rounded-tl-none flex items-center space-x-1 shadow-inner">
+                      <span className="w-1.2 h-1.2 rounded-full bg-purple-400 animate-bounce" style={{ animationDelay: '0ms' }} />
+                      <span className="w-1.2 h-1.2 rounded-full bg-purple-400 animate-bounce" style={{ animationDelay: '150ms' }} />
+                      <span className="w-1.2 h-1.2 rounded-full bg-purple-400 animate-bounce" style={{ animationDelay: '300ms' }} />
+                      <span className="text-[9px] text-slate-400 font-bold pl-1 font-mono">Gemini berpikir...</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Quick Prompts slider */}
+            <div className="bg-slate-50 border-t border-[#e2e8f0] px-3 py-1.5 flex gap-1.5 overflow-x-auto whitespace-nowrap scrollbar-none select-none">
+              <button
+                type="button"
+                onClick={() => setAiChatInput("Bagaimana cara mendesain kartu KTA dengan AI ini?")}
+                className="px-2 py-0.5 bg-white hover:bg-slate-100 border border-slate-200 rounded-full text-[9px] text-slate-600 font-bold transition cursor-pointer shrink-0"
+              >
+                💡 Cara Desain Kartu
+              </button>
+              <button
+                type="button"
+                onClick={() => setAiChatInput("Buatkan format laporan pembayaran bulanan yang baik")}
+                className="px-2 py-0.5 bg-white hover:bg-slate-100 border border-slate-200 rounded-full text-[9px] text-slate-600 font-bold transition cursor-pointer shrink-0"
+              >
+                📈 Format Lap Keuangan
+              </button>
+              <button
+                type="button"
+                onClick={() => setAiChatInput("Apa saja sanksi yang dianjurkan untuk pelanggaran berat?")}
+                className="px-2 py-0.5 bg-white hover:bg-slate-100 border border-slate-200 rounded-full text-[9px] text-slate-600 font-bold transition cursor-pointer shrink-0"
+              >
+                ⚖️ Rekomendasi Sanksi
+              </button>
+            </div>
+
+            {/* Form */}
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleSendAiChatMessage();
+              }}
+              className="border-t border-[#e2e8f0] p-3 bg-slate-50 flex gap-2 items-center"
+            >
+              <input
+                type="text"
+                disabled={aiIsGenerating}
+                value={aiChatInput}
+                onChange={(e) => setAiChatInput(e.target.value)}
+                placeholder="Tanya AI, atau ketik instruksi desain kartu..."
+                className="flex-1 px-3.5 py-2.5 text-[11px] bg-white border border-slate-200 rounded-xl outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-400 transition"
+              />
+              <button
+                type="submit"
+                disabled={aiIsGenerating || !aiChatInput.trim()}
+                className="p-2.5 bg-purple-600 hover:bg-purple-700 disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-xl transition cursor-pointer active:scale-95 shrink-0"
+              >
+                <Send className="w-3.5 h-3.5" />
+              </button>
+            </form>
+          </div>
+        )}
+
+        {/* Circular Floating action button */}
+        <button
+          type="button"
+          onClick={() => setIsAiChatOpen(!isAiChatOpen)}
+          className={`w-14 h-14 rounded-full flex items-center justify-center transition-all duration-350 cursor-pointer shadow-lg shadow-purple-500/20 active:scale-90 select-none relative group border border-purple-400/20 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500`}
+        >
+          {isAiChatOpen ? (
+            <X className="w-6 h-6 text-white animate-scale-up" />
+          ) : (
+            <Bot className="w-6 h-6 text-white animate-pulse" />
+          )}
+          {/* Notification ping badge */}
+          {!isAiChatOpen && (
+            <span className="absolute -top-1.5 -right-1.5 flex h-5 w-5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-purple-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-5 w-5 bg-purple-500 border border-white text-[8px] font-black text-white items-center justify-center uppercase tracking-tighter">AI</span>
+            </span>
+          )}
+        </button>
+      </div>
 
     </div>
   );

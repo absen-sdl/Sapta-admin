@@ -44,6 +44,7 @@ import {
   Moon,
   UserCheck,
   Printer,
+  Usb,
   ExternalLink,
   Download,
   Sparkles,
@@ -628,6 +629,225 @@ export default function App() {
     }
     
     return true;
+  };
+
+  const executeWebUsbThermalPrint = async () => {
+    if (!receiptData) {
+      addToast("Data struk tidak ditemukan.", "error");
+      return;
+    }
+
+    if (!(navigator as any).usb) {
+      addToast("Browser Anda tidak mendukung WebUSB. Silakan gunakan Chrome atau Edge.", "error");
+      return;
+    }
+
+    addToast("Membuka pilihan printer USB...", "info");
+    
+    try {
+      // Collect all paid transactions for the same member on the same calendar day
+      const matchedPayments = pembayaranList.filter(p => {
+        if (p.status !== 'Lunas') return false;
+        if (!p.tanggal || !receiptData.tanggal) return false;
+        if (!isSameDay(p.tanggal, receiptData.tanggal)) return false;
+        
+        if (receiptData.nia && receiptData.nia !== 'ALL_MEMBERS') {
+          return p.nia === receiptData.nia;
+        }
+        return p.namaLengkap && receiptData.namaLengkap && p.namaLengkap.toLowerCase() === receiptData.namaLengkap.toLowerCase();
+      });
+
+      const finalPaymentsForReceipt = matchedPayments.length > 0 ? matchedPayments : [receiptData];
+      
+      const totalOriginalNominal = finalPaymentsForReceipt.reduce((acc, curr) => acc + (Number(curr.nominal) || 0), 0);
+      const discountAmount = (totalOriginalNominal * receiptDiscountPercent) / 100;
+      const taxableTotal = totalOriginalNominal - discountAmount;
+      const ppnAmount = (taxableTotal * receiptPpnPercent) / 100;
+      const grandTotal = Math.ceil(taxableTotal + ppnAmount);
+      
+      const actualTunai = receiptCashPaid > 0 ? receiptCashPaid : grandTotal;
+      const kembalian = Math.max(0, actualTunai - grandTotal);
+
+      const device = await (navigator as any).usb.requestDevice({ filters: [] });
+      await device.open();
+      await device.selectConfiguration(1);
+      await device.claimInterface(0);
+
+      const encoder = new TextEncoder();
+      const chunks: Uint8Array[] = [];
+
+      const addBytes = (bytes: number[]) => {
+        chunks.push(new Uint8Array(bytes));
+      };
+
+      const addText = (text: string) => {
+        chunks.push(encoder.encode(text));
+      };
+
+      // 1. Initialize printer
+      addBytes([0x1B, 0x40]);
+
+      // 2. Left margin 4mm
+      addBytes([0x1D, 0x4C, 0x04, 0x00]);
+
+      // 3. Set line spacing
+      addBytes([0x1B, 0x33, 0x18]);
+
+      // 4. Print Header (Centered, bold)
+      addBytes([0x1B, 0x61, 0x01]);
+      addBytes([0x1B, 0x45, 0x01]);
+      
+      addBytes([0x1B, 0x21, 0x10]);
+      const headerTitle = (receiptHeaderTitle || lembagaLogin || "PORTAL SEKTOR BERSAMA").toUpperCase();
+      addText(headerTitle + "\n");
+      
+      addBytes([0x1B, 0x21, 0x00]);
+      addBytes([0x1B, 0x45, 0x00]);
+      
+      if (receiptHeaderAddress) {
+        addText(receiptHeaderAddress.toUpperCase() + "\n");
+      }
+      if (receiptHeaderEmail) {
+        addText(receiptHeaderEmail.toLowerCase() + "\n");
+      }
+      
+      addBytes([0x1B, 0x61, 0x00]);
+      addText("-".repeat(32) + "\n");
+
+      const padLine = (left: string, right: string, width = 32): string => {
+        const spaceCount = width - left.length - right.length;
+        if (spaceCount <= 0) return left + " " + right;
+        return left + " ".repeat(spaceCount) + right;
+      };
+
+      const idTrx = receiptData.idTransaksi || receiptData.id || '-';
+      addText(padLine(`No: #${idTrx}`, formatDateString(receiptData.tanggal)) + "\n");
+      addText(padLine(`Kasir: @${userUsername || 'admin'}`, `STATUS: ${(receiptData.status || 'LUNAS').toUpperCase()}`) + "\n");
+      
+      addText("-".repeat(32) + "\n");
+
+      addBytes([0x1B, 0x45, 0x01]);
+      addText("ANGGOTA: " + (receiptData.namaLengkap || 'Semua Anggota').toUpperCase() + "\n");
+      addBytes([0x1B, 0x45, 0x00]);
+      if (receiptData.nia && receiptData.nia !== 'ALL_MEMBERS') {
+        addText(`NIA: ${receiptData.nia}\n`);
+      }
+
+      addText("-".repeat(32) + "\n");
+
+      addBytes([0x1B, 0x45, 0x01]);
+      addText(padLine("RINCIAN ITEM", "TOTAL") + "\n");
+      addBytes([0x1B, 0x45, 0x00]);
+      addText("-".repeat(32) + "\n");
+
+      finalPaymentsForReceipt.forEach((p, idx) => {
+        const numLabel = `${idx + 1}. `;
+        const itemTitle = p.namaTagihan || 'Tanpa Kategori';
+        const formattedPrice = formatRupiah(Number(p.nominal) || 0);
+        
+        addBytes([0x1B, 0x45, 0x01]);
+        addText(numLabel + itemTitle + "\n");
+        addBytes([0x1B, 0x45, 0x00]);
+        if (p.keterangan) {
+          addText(`   (${p.keterangan})\n`);
+        }
+        addText(padLine("   1x", formattedPrice) + "\n");
+      });
+
+      addText("-".repeat(32) + "\n");
+
+      addText(padLine("Sub-Total:", formatRupiah(totalOriginalNominal)) + "\n");
+      if (receiptDiscountPercent > 0) {
+        addText(padLine(`Diskon (${receiptDiscountPercent}%):`, `-${formatRupiah(discountAmount)}`) + "\n");
+      }
+      if (receiptPpnPercent > 0) {
+        addText(padLine(`PPN (${receiptPpnPercent}%):`, `+${formatRupiah(ppnAmount)}`) + "\n");
+      }
+      
+      addText("-".repeat(32) + "\n");
+      addBytes([0x1B, 0x45, 0x01]);
+      addText(padLine("GRAND TOTAL:", formatRupiah(grandTotal)) + "\n");
+      addBytes([0x1B, 0x45, 0x00]);
+      
+      addText(padLine("Tunai:", formatRupiah(actualTunai)) + "\n");
+      addBytes([0x1B, 0x45, 0x01]);
+      addText(padLine("Kembali:", formatRupiah(kembalian)) + "\n");
+      addBytes([0x1B, 0x45, 0x00]);
+      
+      addText("-".repeat(32) + "\n");
+
+      addText("TERBILANG:\n");
+      const spellWords = `${terbilang(grandTotal)} RUPIAH`.toUpperCase();
+      for (let i = 0; i < spellWords.length; i += 32) {
+        addText(spellWords.substring(i, i + 32) + "\n");
+      }
+      addText("-".repeat(32) + "\n");
+
+      addBytes([0x1B, 0x61, 0x01]);
+      addBytes([0x1B, 0x45, 0x01]);
+      addText((receiptFooterThankYou || "--- TERIMA KASIH ---").toUpperCase() + "\n\n");
+      addBytes([0x1B, 0x45, 0x00]);
+      
+      if (receiptFooterSub) {
+        addText(receiptFooterSub + "\n");
+      }
+      if (receiptMediaSosial) {
+        addText(receiptMediaSosial + "\n");
+      }
+
+      addText("\n\n\n\n\n");
+      addBytes([0x1D, 0x56, 0x41, 0x08]);
+
+      let totalLength = 0;
+      chunks.forEach(chunk => { totalLength += chunk.length; });
+      const finalData = new Uint8Array(totalLength);
+      let offset = 0;
+      chunks.forEach(chunk => {
+        finalData.set(chunk, offset);
+        offset += chunk.length;
+      });
+
+      await device.transferOut(1, finalData);
+      await device.close();
+
+      addToast("Cetak langsung via WebUSB berhasil!", "success");
+
+      const endpoint = appsScriptUrl || localStorage.getItem('LINK_SCRIPT_UTAMA') || localStorage.getItem('google_apps_script_url') || '';
+
+      await Promise.all(finalPaymentsForReceipt.map(async (pay) => {
+        const updatedPay = { ...pay, tercetak: 'Sudah' };
+        
+        try {
+          window.dataSdk.update('PEMBAYARAN', pay.idTransaksi, updatedPay);
+        } catch (err) {
+          console.warn("Gagal update cetak lokal:", err);
+        }
+
+        if (endpoint) {
+          try {
+            const payload = {
+              action: 'edit',
+              sheetName: 'PEMBAYARAN',
+              data: updatedPay,
+              targetId: pay.idTransaksi
+            };
+            await fetch(endpoint, {
+              method: 'POST',
+              headers: { 'Content-Type': 'text/plain' },
+              body: JSON.stringify(payload)
+            });
+          } catch (cloudErr) {
+            console.error("Gagal sinkronisasi cetak ke Apps Script:", cloudErr);
+          }
+        }
+      }));
+
+      refreshAllData();
+
+    } catch (err: any) {
+      console.error("Gagal cetak direct WebUSB:", err);
+      addToast(`Gagal cetak direct WebUSB: ${err.message || err}`, "error");
+    }
   };
 
   const executeThermalPrint = async () => {
@@ -10960,15 +11180,27 @@ Schema requirements:
               </div>
 
                {/* Print and Close controls */}
-              <div className="flex gap-2 w-full mt-1 print-exclude">
-                <button
-                  type="button"
-                  onClick={executeThermalPrint}
-                  className="flex-1 py-2 bg-indigo-650 hover:bg-indigo-750 text-white rounded-xl text-xs font-bold transition flex items-center justify-center space-x-1.5 cursor-pointer shadow-md hover:-translate-y-0.5 active:translate-y-0"
-                >
-                  <Printer className="w-4 h-4 text-white" />
-                  <span>Cetak Struk Thermal</span>
-                </button>
+              <div className="flex flex-col gap-2 w-full mt-1 print-exclude">
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={executeThermalPrint}
+                    className="flex-1 py-2 bg-indigo-650 hover:bg-indigo-750 text-white rounded-xl text-xs font-bold transition flex items-center justify-center space-x-1.5 cursor-pointer shadow-md hover:-translate-y-0.5 active:translate-y-0"
+                  >
+                    <Printer className="w-4 h-4 text-white" />
+                    <span>Cetak Layar</span>
+                  </button>
+                  
+                  <button
+                    type="button"
+                    onClick={executeWebUsbThermalPrint}
+                    className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition flex items-center justify-center space-x-1.5 cursor-pointer shadow-md hover:-translate-y-0.5 active:translate-y-0"
+                  >
+                    <Usb className="w-4 h-4 text-white" />
+                    <span>Cetak WebUSB</span>
+                  </button>
+                </div>
+
                 <button
                   type="button"
                   onClick={() => {
@@ -10976,7 +11208,7 @@ Schema requirements:
                     setReceiptData(null);
                     setReceiptCashPaid(0);
                   }}
-                  className="flex-1 py-2 bg-white border border-[#e2e8f0] text-slate-700 rounded-xl text-xs font-bold transition flex items-center justify-center space-x-1.5 hover:bg-[#f8fafc] cursor-pointer shadow-sm hover:-translate-y-0.5 active:translate-y-0"
+                  className="w-full py-2 bg-white border border-[#e2e8f0] text-slate-700 rounded-xl text-xs font-bold transition flex items-center justify-center space-x-1.5 hover:bg-[#f8fafc] cursor-pointer shadow-sm hover:-translate-y-0.5 active:translate-y-0"
                 >
                   <X className="w-4 h-4 text-slate-500" />
                   <span>Tutup</span>

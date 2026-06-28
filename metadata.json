@@ -1,6 +1,6 @@
 {
   "name": "SAPTA ADMIN",
   "description": "Panel Admin SPA terintegrasi Google Sheets untuk pengelolaan Anggota, Pembayaran, Prestasi, Pelanggaran, dan Absensi.",
-  "requestFramePermissions": [],
+  "requestFramePermissions": ["usb"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

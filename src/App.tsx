@@ -846,7 +846,14 @@ export default function App() {
 
     } catch (err: any) {
       console.error("Gagal cetak direct WebUSB:", err);
-      addToast(`Gagal cetak direct WebUSB: ${err.message || err}`, "error");
+      const errMsg = String(err);
+      if (errMsg.includes("permissions policy") || errMsg.includes("disallowed")) {
+        addToast("Akses WebUSB dilarang oleh kebijakan iframe. Silakan klik 'Buka di Tab Baru' di pojok kanan atas untuk mencetak!", "error");
+      } else if (errMsg.includes("No device selected") || errMsg.includes("NotFoundError") || errMsg.includes("not selected")) {
+        addToast("Pemilihan printer USB dibatalkan.", "info");
+      } else {
+        addToast(`Gagal cetak direct WebUSB: ${err.message || err}`, "error");
+      }
     }
   };
 
@@ -5052,106 +5059,83 @@ Schema requirements:
       <style>{`
         @media print {
           @page {
+            size: 58mm auto;
             margin: 0 !important;
           }
-          /* Unlock parent scroll boundaries for full page layout flow across multiple sheets */
-          html, body, #root,
-          .flex.h-screen.w-full,
-          main,
-          main > div,
-          .overflow-y-auto,
-          .overflow-hidden {
-            height: auto !important;
-            min-height: 0 !important;
-            max-height: none !important;
-            overflow: visible !important;
-            overflow-y: visible !important;
-            position: static !important;
-          }
-
-          /* Hide controls, banners, tables non-targets & layout panels */
-          .print-exclude, 
-          aside, 
-          header, 
-          nav, 
-          button, 
-          input, 
-          select, 
-          option, 
-          textarea {
-            display: none !important;
+          
+          /* Hide everything by default for clean printing */
+          body * {
             visibility: hidden !important;
+            background-color: transparent !important;
+            background-image: none !important;
           }
-
-          /* Format targets sheet area to display as full relative width blocks */
-          .print-now {
-            display: block !important;
+          
+          /* Display only the receipt paper and its contents */
+          #area-struk-pembayaran,
+          #area-struk-pembayaran * {
             visibility: visible !important;
-            position: relative !important;
+          }
+          
+          #area-struk-pembayaran {
+            position: absolute !important;
             left: 0 !important;
             top: 0 !important;
-            width: 100% !important;
-            max-width: 100% !important;
-            margin: 0px auto !important;
-            padding: 0px !important;
-            background: white !important;
-            box-shadow: none !important;
-            border: none !important;
-            -webkit-print-color-adjust: exact !important;
-            print-color-adjust: exact !important;
-          }
-
-          /* Ensure functional layouts like flex / columns inside printed sheets are supported */
-          .print-now .flex {
-            display: flex !important;
-          }
-          .print-now .grid {
-            display: grid !important;
-          }
-
-          .print-now * {
-            visibility: visible !important;
-            -webkit-print-color-adjust: exact !important;
-            print-color-adjust: exact !important;
-          }
-
-          /* Dedicated parameters styling for physical receipt receipts (Thermal Printer style - 58mm) */
-          #area-struk-pembayaran.print-now {
-            display: block !important;
-            position: static !important;
-            margin: 0 auto !important;
             width: 58mm !important;
             max-width: 58mm !important;
-            background: white !important;
+            margin: 0 !important;
+            padding: 2mm 3mm !important;
+            background: #ffffff !important;
+            background-color: #ffffff !important;
+            color: #000000 !important;
+            box-sizing: border-box !important;
             border: none !important;
             border-radius: 0 !important;
             box-shadow: none !important;
-            padding: 0 !important;
-            visibility: visible !important;
             font-family: 'Courier New', Courier, monospace !important;
-            font-size: 10px !important;
-            color: #000 !important;
+            font-size: 9.5px !important;
+            line-height: 1.3 !important;
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
+            display: block !important;
           }
-
-          #area-struk-pembayaran.print-now * {
-            visibility: visible !important;
+          
+          #area-struk-pembayaran * {
+            background-color: transparent !important;
+            color: #000000 !important;
+            border-color: #000000 !important;
             font-family: 'Courier New', Courier, monospace !important;
-            font-size: 10px !important;
-            color: #000 !important;
+            font-size: 9.5px !important;
           }
 
-          #area-struk-pembayaran.print-now .header h3 {
-            font-size: 14px !important;
+          #area-struk-pembayaran .header h3 {
+            font-size: 11px !important;
             font-weight: bold !important;
+            margin-bottom: 2px !important;
+            color: #000000 !important;
           }
 
-          #area-struk-pembayaran.print-now .items td {
-            font-size: 10px !important;
+          #area-struk-pembayaran .header p {
+            font-size: 8px !important;
+            color: #000000 !important;
+            margin: 1px 0 !important;
           }
 
-          #area-struk-pembayaran.print-now .totals strong {
+          #area-struk-pembayaran table {
+            width: 100% !important;
+            color: #000000 !important;
+          }
+
+          #area-struk-pembayaran td,
+          #area-struk-pembayaran th {
+            color: #000000 !important;
+            font-size: 9px !important;
+          }
+
+          #area-struk-pembayaran .totals td {
+            font-size: 9px !important;
+          }
+
+          #area-struk-pembayaran .totals strong {
             font-size: 10px !important;
             font-weight: bold !important;
           }
@@ -10950,6 +10934,21 @@ Schema requirements:
                 }}
               >
                 <style>{`
+                  /* Extreme high priority rules to enforce solid black text and white paper, bypassing all dark theme overrides */
+                  .dark-theme-main #area-struk-pembayaran,
+                  #area-struk-pembayaran {
+                    background-color: #ffffff !important;
+                    background: #ffffff !important;
+                    color: #000000 !important;
+                  }
+
+                  .dark-theme-main #area-struk-pembayaran *,
+                  #area-struk-pembayaran * {
+                    background-color: transparent !important;
+                    color: #000000 !important;
+                    border-color: #000000 !important;
+                  }
+
                   #area-struk-pembayaran .header, #area-struk-pembayaran .footer {
                     text-align: center !important;
                     margin-bottom: 12px !important;
@@ -10969,20 +10968,20 @@ Schema requirements:
                   }
 
                   #area-struk-pembayaran .transaction-info {
-                    border-bottom: 1px dashed #000 !important;
+                    border-bottom: 1px dashed #000000 !important;
                     padding-bottom: 6px !important;
                     margin-bottom: 8px !important;
                   }
 
                   #area-struk-pembayaran .member-info {
-                    border-bottom: 1px dashed #000 !important;
+                    border-bottom: 1px dashed #000000 !important;
                     padding-bottom: 6px !important;
                     margin-bottom: 8px !important;
                   }
 
                   #area-struk-pembayaran .items {
                     width: 100% !important;
-                    border-bottom: 1px dashed #000 !important;
+                    border-bottom: 1px dashed #000000 !important;
                     margin-bottom: 8px !important;
                     padding-bottom: 6px !important;
                   }
@@ -11056,7 +11055,7 @@ Schema requirements:
                 <div className="items">
                   <table>
                     <thead>
-                      <tr style={{ borderBottom: "1px dashed #000" }}>
+                      <tr style={{ borderBottom: "1px dashed #000000" }}>
                         <th style={{ textAlign: "left", paddingBottom: "4px", fontSize: "9px", fontWeight: "bold" }}>RINCIAN ITEM</th>
                         <th style={{ textAlign: "right", paddingBottom: "4px", fontSize: "9px", fontWeight: "bold" }}>TOTAL</th>
                       </tr>
@@ -11067,7 +11066,7 @@ Schema requirements:
                           <td style={{ textAlign: "left", verticalAlign: "top", paddingTop: "4px", paddingBottom: "4px" }}>
                             <div style={{ fontWeight: "bold" }}>{idx + 1}. {p.namaTagihan || 'Tanpa Kategori'}</div>
                             {p.keterangan && (
-                              <div style={{ fontSize: "8.5px", color: "#333", fontStyle: "italic", paddingLeft: "8px" }}>
+                              <div style={{ fontSize: "8.5px", color: "#000000", fontStyle: "italic", paddingLeft: "8px" }}>
                                 ({p.keterangan})
                               </div>
                             )}
@@ -11082,7 +11081,7 @@ Schema requirements:
                 </div>
 
                 {/* Dynamic aggregations and totals block */}
-                <div className="totals" style={{ borderBottom: "1px dashed #000", paddingBottom: "6px", marginBottom: "8px" }}>
+                <div className="totals" style={{ borderBottom: "1px dashed #000000", paddingBottom: "6px", marginBottom: "8px" }}>
                   <table>
                     <tbody>
                       <tr>
@@ -11092,7 +11091,7 @@ Schema requirements:
                       {receiptDiscountPercent > 0 && (
                         <tr>
                           <td style={{ textAlign: "left" }}>Diskon ({receiptDiscountPercent}%):</td>
-                          <td style={{ textAlign: "right", color: "#ff0000" }}>-{formatRupiah(discountAmount)}</td>
+                          <td style={{ textAlign: "right", color: "#000000" }}>-{formatRupiah(discountAmount)}</td>
                         </tr>
                       )}
                       {receiptPpnPercent > 0 && (
@@ -11101,7 +11100,7 @@ Schema requirements:
                           <td style={{ textAlign: "right" }}>+{formatRupiah(ppnAmount)}</td>
                         </tr>
                       )}
-                      <tr style={{ borderTop: "1px dashed #000" }}>
+                      <tr style={{ borderTop: "1px dashed #000000" }}>
                         <td style={{ textAlign: "left", paddingTop: "4px", fontWeight: "bold" }}>GRAND TOTAL:</td>
                         <td style={{ textAlign: "right", paddingTop: "4px", fontWeight: "bold", fontSize: "12px" }}>{formatRupiah(grandTotal)}</td>
                       </tr>
@@ -11118,7 +11117,7 @@ Schema requirements:
                 </div>
 
                 {/* Spellout block */}
-                <div style={{ fontSize: "8.5px", marginBottom: "8px", borderBottom: "1px dashed #000", paddingBottom: "6px" }}>
+                <div style={{ fontSize: "8.5px", marginBottom: "8px", borderBottom: "1px dashed #000000", paddingBottom: "6px" }}>
                   <div className="uppercase" style={{ fontStyle: "italic", marginBottom: "2px", lineHeight: "1.3" }}>
                     Terbilang: {terbilang(grandTotal)} RUPIAH
                   </div>
@@ -11181,6 +11180,9 @@ Schema requirements:
 
                {/* Print and Close controls */}
               <div className="flex flex-col gap-2 w-full mt-1 print-exclude">
+                <div className="p-2 bg-amber-50 border border-amber-200 rounded-lg text-[10px] text-amber-850 leading-relaxed">
+                  ⚠️ <strong>Tips WebUSB:</strong> Jika muncul galat izin ("disallowed by permissions policy"), harap klik tombol <strong>"Buka di Tab Baru"</strong> di pojok kanan atas layar agar browser mendapatkan izin penuh terhubung ke printer.
+                </div>
                 <div className="flex gap-2">
                   <button
                     type="button"

@@ -25,6 +25,7 @@ export interface Pembayaran {
   keterangan: string;
   nominal: number;
   status: string;
+  tercetak?: string;
 }
 
 export interface Prestasi {

@@ -353,6 +353,7 @@ function getObjectValueByHeaderName(obj, colHeader) {
     "namatagihan": ["namaTagihan", "namatagihan", "tagihan", "keperluan"],
     "nominal": ["nominal", "jumlah", "amount"],
     "status": ["status", "keadaan"],
+    "tercetak": ["tercetak", "isprinted", "printed", "sudahcetak"],
 
     // SURAT
     "idsurat": ["idSurat", "idsurat", "id"],
@@ -400,7 +401,7 @@ function getDefaultHeaders(sheetName) {
     return ["nia", "namaLengkap", "tempatLahir", "tanggalLahir", "jenisKelamin", "jenjangPendidikan", "namaSekolah", "kelas", "alamat", "noHp", "email", "key", "linkProfile", "status"];
   }
   if (sName.indexOf("PEMBAYARAN") !== -1 || sName.indexOf("TRANSAKSI") !== -1 || sName.indexOf("BAYAR") !== -1) {
-    return ["ID Transaksi", "Tanggal", "Nia", " Nama Lengkap", "Nama Tagihan", "Keterangan", "Nominal", "Status"];
+    return ["ID Transaksi", "Tanggal", "Nia", " Nama Lengkap", "Nama Tagihan", "Keterangan", "Nominal", "Status", "Tercetak"];
   }
   if (sName.indexOf("PRESTASI") !== -1) {
     return ["ID Prestasi", "Tanggal", "NIA", "Nama lengkap", "Jenis Prestasi", "Deskripsi", "Link-foto"];

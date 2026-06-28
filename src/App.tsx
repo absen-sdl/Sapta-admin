@@ -640,6 +640,51 @@ export default function App() {
     try {
       window.print();
       addToast("Perintah cetak terkirim!", "success");
+
+      // Mark selected payments as successfully printed to minimize duplications
+      if (receiptData) {
+        const matchedPayments = pembayaranList.filter(p => {
+          if (p.status !== 'Lunas') return false;
+          if (!p.tanggal || !receiptData.tanggal) return false;
+          if (!isSameDay(p.tanggal, receiptData.tanggal)) return false;
+          if (receiptData.nia && receiptData.nia !== 'ALL_MEMBERS') {
+            return p.nia === receiptData.nia;
+          }
+          return p.namaLengkap && receiptData.namaLengkap && p.namaLengkap.toLowerCase() === receiptData.namaLengkap.toLowerCase();
+        });
+        const paymentsToUpdate = matchedPayments.length > 0 ? matchedPayments : [receiptData];
+        const endpoint = appsScriptUrl || localStorage.getItem('LINK_SCRIPT_UTAMA') || localStorage.getItem('google_apps_script_url') || '';
+
+        await Promise.all(paymentsToUpdate.map(async (pay) => {
+          const updatedPay = { ...pay, tercetak: 'Sudah' };
+          
+          try {
+            window.dataSdk.update('PEMBAYARAN', pay.idTransaksi, updatedPay);
+          } catch (err) {
+            console.warn("Gagal update cetak lokal:", err);
+          }
+
+          if (endpoint) {
+            try {
+              const payload = {
+                action: 'edit',
+                sheetName: 'PEMBAYARAN',
+                data: updatedPay,
+                targetId: pay.idTransaksi
+              };
+              await fetch(endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'text/plain' },
+                body: JSON.stringify(payload)
+              });
+            } catch (cloudErr) {
+              console.error("Gagal sinkronisasi cetak ke Apps Script:", cloudErr);
+            }
+          }
+        }));
+
+        refreshAllData();
+      }
     } catch (e) {
       console.error("Gagal mencetak struk:", e);
       addToast("Gagal mencetak struk.", "error");
@@ -1123,7 +1168,8 @@ export default function App() {
             namaTagihan: String(getProp(item, 'namaTagihan', 'namatagihan', 'tagihan', 'keperluan', 'keterangan') || 'Pembayaran Kas/Spp').trim(),
             nominal: Number(getProp(item, 'nominal', 'jumlah', 'nominaltagihan', 'amount') || 0),
             status: String(getProp(item, 'status') || 'Lunas').trim(),
-            keterangan: String(getProp(item, 'keterangan', 'notes', 'catatan')).trim()
+            keterangan: String(getProp(item, 'keterangan', 'notes', 'catatan')).trim(),
+            tercetak: String(getProp(item, 'tercetak', 'isprinted', 'printed', 'sudahcetak') || 'Belum').trim()
           }));
 
           // Sync PRESTASI (Achievements Data)
@@ -2968,6 +3014,13 @@ Schema requirements:
     localStorage.setItem('RECEIPT_MEDIA_SOSIAL', receiptMediaSosial);
   }, [receiptHeaderTitle, receiptHeaderSub, receiptHeaderEmail, receiptHeaderAddress, receiptShowTrxDetails, receiptDiscountPercent, receiptPpnPercent, receiptFooterThankYou, receiptFooterSub, receiptMediaSosial]);
 
+  // Effect to automatically open browser printer prompt when receipt modal opens
+  useEffect(() => {
+    if (isReceiptModalOpen && receiptData) {
+      executeThermalPrint();
+    }
+  }, [isReceiptModalOpen, receiptData]);
+
   // Effect to persist ID Card design settings
   useEffect(() => {
     localStorage.setItem('CETAK_CARD_THEME', cetakCardTheme);
@@ -3652,6 +3705,16 @@ Schema requirements:
     // Auto generate ID based on Type if adding
     let submissionData = { ...formValues };
     let primaryKey = '';
+
+    // Add default tercetak status on creation or preserve existing value
+    if (modalTargetTab === 'pembayaran') {
+      if (modalType === 'add') {
+        submissionData.tercetak = 'Belum';
+      } else {
+        const existingPay = pembayaranList.find(p => p.idTransaksi === editTargetId);
+        submissionData.tercetak = existingPay?.tercetak || 'Belum';
+      }
+    }
     
     if (modalType === 'add') {
       if (modalTargetTab === 'pembayaran') {
@@ -4832,25 +4895,45 @@ Schema requirements:
             print-color-adjust: exact !important;
           }
 
-          /* Dedicated parameters styling for physical receipt receipts (Thermal Printer style) */
+          /* Dedicated parameters styling for physical receipt receipts (Thermal Printer style - 58mm) */
           #area-struk-pembayaran.print-now {
             display: block !important;
             position: static !important;
             margin: 0 auto !important;
-            width: 76mm !important;
-            max-width: 100% !important;
+            width: 58mm !important;
+            max-width: 58mm !important;
             background: white !important;
             border: none !important;
             border-radius: 0 !important;
             box-shadow: none !important;
-            padding: 4mm !important;
+            padding: 0 !important;
             visibility: visible !important;
+            font-family: 'Courier New', Courier, monospace !important;
+            font-size: 10px !important;
+            color: #000 !important;
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
           }
 
           #area-struk-pembayaran.print-now * {
             visibility: visible !important;
+            font-family: 'Courier New', Courier, monospace !important;
+            font-size: 10px !important;
+            color: #000 !important;
+          }
+
+          #area-struk-pembayaran.print-now .header h3 {
+            font-size: 14px !important;
+            font-weight: bold !important;
+          }
+
+          #area-struk-pembayaran.print-now .items td {
+            font-size: 10px !important;
+          }
+
+          #area-struk-pembayaran.print-now .totals strong {
+            font-size: 10px !important;
+            font-weight: bold !important;
           }
         }
       `}</style>
@@ -6085,13 +6168,14 @@ Schema requirements:
                       <th className="py-4 px-6">Keterangan</th>
                       <th className="py-4 px-6">Nominal</th>
                       <th className="py-4 px-6 text-center">Status</th>
+                      <th className="py-4 px-6 text-center">Tercetak</th>
                       <th className="py-4 px-6 text-right">Aksi</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[#f1f5f9] text-xs">
                     {filteredPembayaran.length === 0 ? (
                       <tr>
-                        <td colSpan={9} className="py-10 text-center text-[#94a3b8]">
+                        <td colSpan={10} className="py-10 text-center text-[#94a3b8]">
                           Belum ada transaksi pembayaran yang dicatat.
                         </td>
                       </tr>
@@ -6114,6 +6198,15 @@ Schema requirements:
                                   : 'bg-[#fef2f2] text-[#b91c1c]'
                             }`}>
                               {payment.status.toUpperCase()}
+                            </span>
+                          </td>
+                          <td className="py-4 px-6 text-center">
+                            <span className={`px-2.5 py-1 rounded-md text-[10px] font-bold inline-block ${
+                              payment.tercetak === 'Sudah' || payment.tercetak === 'Ya'
+                                ? 'bg-indigo-50 text-indigo-700 border border-indigo-100/50' 
+                                : 'bg-slate-100 text-slate-500'
+                            }`}>
+                              {(payment.tercetak || 'Belum').toUpperCase()}
                             </span>
                           </td>
                           <td className="py-4 px-6 text-right">
@@ -10623,185 +10716,199 @@ Schema requirements:
               {/* Printable Receipt Area */}
               <div
                 id="area-struk-pembayaran"
-                className={`bg-white rounded-xl border border-slate-200 p-6 shadow-sm mx-auto w-full relative ${
-                  printElementId === 'area-struk-pembayaran' ? 'print-now text-black' : 'text-slate-850'
+                className={`bg-white p-5 mx-auto text-black border border-dashed border-slate-300 rounded-lg shadow-sm ${
+                  printElementId === 'area-struk-pembayaran' ? 'print-now' : ''
                 }`}
-                style={{ fontFamily: 'monospace' }}
+                style={{
+                  fontFamily: "'Courier New', Courier, monospace",
+                  fontSize: "11px",
+                  width: "100%",
+                  maxWidth: "320px",
+                  boxSizing: "border-box",
+                  color: "#000000",
+                  backgroundColor: "#ffffff"
+                }}
               >
-                {/* Receipt Serrated Border Decor at Top */}
-                <div className="absolute top-0 left-0 right-0 h-1.5 bg-repeat-x overflow-hidden rounded-t-xl" 
-                  style={{
-                    backgroundImage: `linear-gradient(-45deg, transparent 4px, white 4px), linear-gradient(45deg, transparent 4px, white 4px)`,
-                    backgroundSize: '8px 8px',
-                    transform: 'translateY(-4px)'
-                  }}
-                />
+                <style>{`
+                  #area-struk-pembayaran .header, #area-struk-pembayaran .footer {
+                    text-align: center !important;
+                    margin-bottom: 12px !important;
+                  }
 
-                {/* Letterhead / Header */}
-                <div className="text-center pb-4 mb-4 border-b border-dashed border-slate-350">
-                  <h4 className="text-xs font-black tracking-wide uppercase text-slate-900 leading-tight">
-                    {receiptHeaderTitle || lembagaLogin || "PORTAL SEKTOR BERSAMA"}
-                  </h4>
-                  {receiptHeaderSub && (
-                    <p className="text-[9px] text-slate-500 font-bold tracking-wider pt-0.5 uppercase">
-                      {receiptHeaderSub}
-                    </p>
-                  )}
-                  {receiptHeaderAddress && (
-                    <p className="text-[8px] text-slate-400 mt-0.5 uppercase leading-snug font-serif font-black">
-                      {receiptHeaderAddress}
-                    </p>
-                  )}
-                  <p className="text-[8px] text-slate-400 mt-0.5 lowercase font-mono">
-                    {receiptHeaderEmail || gmailLogin || 'info@sapta-portal.id'}
-                  </p>
+                  #area-struk-pembayaran .header h3 {
+                    margin: 0 0 4px 0 !important;
+                    font-size: 14px !important;
+                    font-weight: bold !important;
+                    letter-spacing: 0.5px !important;
+                  }
+
+                  #area-struk-pembayaran .header p {
+                    margin: 2px 0 !important;
+                    font-size: 9px !important;
+                    line-height: 1.2 !important;
+                  }
+
+                  #area-struk-pembayaran .transaction-info {
+                    border-bottom: 1px dashed #000 !important;
+                    padding-bottom: 6px !important;
+                    margin-bottom: 8px !important;
+                  }
+
+                  #area-struk-pembayaran .member-info {
+                    border-bottom: 1px dashed #000 !important;
+                    padding-bottom: 6px !important;
+                    margin-bottom: 8px !important;
+                  }
+
+                  #area-struk-pembayaran .items {
+                    width: 100% !important;
+                    border-bottom: 1px dashed #000 !important;
+                    margin-bottom: 8px !important;
+                    padding-bottom: 6px !important;
+                  }
+
+                  #area-struk-pembayaran .items table {
+                    width: 100% !important;
+                    border-collapse: collapse !important;
+                  }
+
+                  #area-struk-pembayaran .items td {
+                    padding: 3px 0 !important;
+                    font-size: 10px !important;
+                  }
+
+                  #area-struk-pembayaran .totals {
+                    margin-bottom: 10px !important;
+                  }
+
+                  #area-struk-pembayaran .totals table {
+                    width: 100% !important;
+                    border-collapse: collapse !important;
+                  }
+                  
+                  #area-struk-pembayaran .totals td {
+                    padding: 2px 0 !important;
+                    font-size: 10px !important;
+                  }
+                `}</style>
+
+                <div className="header">
+                  <h3 className="uppercase">{receiptHeaderTitle || lembagaLogin || "PORTAL SEKTOR BERSAMA"}</h3>
+                  {receiptHeaderAddress && <p className="uppercase">{receiptHeaderAddress}</p>}
+                  {receiptHeaderEmail && <p className="lowercase">{receiptHeaderEmail}</p>}
                 </div>
 
-                {/* Receipt Details */}
-                <div className="space-y-2 text-[10.5px] leading-relaxed">
-                  {receiptShowTrxDetails && (
-                    <>
-                      <div className="flex justify-between gap-1">
-                        <span className="text-slate-400 uppercase font-bold text-[9px] shrink-0">Kode Struk</span>
-                        <span className="font-extrabold text-slate-900 truncate font-mono text-[10px]">{receiptData.idTransaksi || receiptData.id || '-'}</span>
-                      </div>
-                      <div className="flex justify-between gap-1">
-                        <span className="text-slate-400 uppercase font-bold text-[9px] shrink-0">Tanggal</span>
-                        <span className="font-bold text-slate-800">{formatDateString(receiptData.tanggal)}</span>
-                      </div>
-                      <div className="flex justify-between gap-1">
-                        <span className="text-slate-400 uppercase font-bold text-[9px] shrink-0">Admin</span>
-                        <span className="font-semibold text-slate-800 font-mono text-[9px]">@{userUsername || 'admin'} (Otomatis)</span>
-                      </div>
-                      <div className="border-b border-dashed border-slate-200 my-1.5" />
-                    </>
-                  )}
+                {/* Transaction metadata */}
+                <div className="transaction-info">
+                  <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                    <tbody>
+                      <tr>
+                        <td style={{ textAlign: "left", padding: "1px 0", fontSize: "9px" }}>No: #{receiptData.idTransaksi || receiptData.id || '-'}</td>
+                        <td style={{ textAlign: "right", padding: "1px 0", fontSize: "9px" }}>{formatDateString(receiptData.tanggal)}</td>
+                      </tr>
+                      <tr>
+                        <td style={{ textAlign: "left", padding: "1px 0", fontSize: "9px" }}>Kasir: @{userUsername || 'admin'}</td>
+                        <td style={{ textAlign: "right", padding: "1px 0", fontSize: "9px", fontWeight: "bold" }}>STATUS: {receiptData.status || 'LUNAS'}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
 
-                  <div className="flex justify-between gap-2">
-                    <span className="text-slate-400 uppercase font-bold text-[9px] shrink-0">Anggota</span>
-                    <span className="font-black text-slate-900 uppercase text-right max-w-[180px] break-words">
-                      {receiptData.namaLengkap || 'Semua Anggota'}
-                    </span>
-                  </div>
-                  <div className="flex justify-between gap-1">
-                    <span className="text-slate-400 uppercase font-bold text-[9px] shrink-0">NIA</span>
-                    <span className="font-bold text-slate-800 font-mono">{receiptData.nia === 'ALL_MEMBERS' ? 'Semua Anggota' : receiptData.nia}</span>
-                  </div>
+                {/* Member information */}
+                <div className="member-info">
+                  <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                    <tbody>
+                      <tr>
+                        <td style={{ textAlign: "left", padding: "1px 0", fontSize: "9.5px", fontWeight: "bold" }}>ANGGOTA:</td>
+                        <td style={{ textAlign: "right", padding: "1px 0", fontSize: "9.5px", fontWeight: "bold", textTransform: "uppercase" }}>{receiptData.namaLengkap || 'Semua Anggota'}</td>
+                      </tr>
+                      {receiptData.nia && receiptData.nia !== 'ALL_MEMBERS' && (
+                        <tr>
+                          <td style={{ textAlign: "left", padding: "1px 0", fontSize: "9px" }}>NIA Anggota:</td>
+                          <td style={{ textAlign: "right", padding: "1px 0", fontSize: "9px" }}>{receiptData.nia}</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
 
-                  {/* Rincian Item Pembayaran (Grouped) */}
-                  <div className="border-t border-b border-dashed border-slate-200 py-2 my-2 space-y-1.5">
-                    <div className="text-[8px] font-black text-slate-450 uppercase tracking-wider mb-1">Rincian Keperluan ({finalPaymentsForReceipt.length} Item):</div>
-                    {finalPaymentsForReceipt.map((p, idx) => (
-                      <div key={p.idTransaksi || idx} className="flex justify-between items-start gap-2 text-[10px] leading-snug">
-                        <div className="flex flex-col text-left">
-                          <span className="font-bold text-slate-800">
-                            {idx + 1}. {p.namaTagihan || 'Tanpa Kategori'}
-                          </span>
-                          {p.keterangan && (
-                            <span className="text-[8px] text-slate-500 font-mono pl-3">
-                              ({p.keterangan})
-                            </span>
-                          )}
-                          <span className="text-[7.5px] text-slate-400 font-mono pl-3">
-                            ID: {p.idTransaksi}
-                          </span>
-                        </div>
-                        <span className="font-bold text-slate-700 font-mono text-[10.5px] shrink-0">
-                          {formatRupiah(Number(p.nominal) || 0)}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
+                {/* Items and descriptions list */}
+                <div className="items">
+                  <table>
+                    <thead>
+                      <tr style={{ borderBottom: "1px dashed #000" }}>
+                        <th style={{ textAlign: "left", paddingBottom: "4px", fontSize: "9px", fontWeight: "bold" }}>RINCIAN ITEM</th>
+                        <th style={{ textAlign: "right", paddingBottom: "4px", fontSize: "9px", fontWeight: "bold" }}>TOTAL</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {finalPaymentsForReceipt.map((p, idx) => (
+                        <tr key={p.idTransaksi || idx}>
+                          <td style={{ textAlign: "left", verticalAlign: "top", paddingTop: "4px", paddingBottom: "4px" }}>
+                            <div style={{ fontWeight: "bold" }}>{idx + 1}. {p.namaTagihan || 'Tanpa Kategori'}</div>
+                            {p.keterangan && (
+                              <div style={{ fontSize: "8.5px", color: "#333", fontStyle: "italic", paddingLeft: "8px" }}>
+                                ({p.keterangan})
+                              </div>
+                            )}
+                          </td>
+                          <td style={{ textAlign: "right", verticalAlign: "top", paddingTop: "4px", paddingBottom: "4px", fontWeight: "bold", whiteSpace: "nowrap" }}>
+                            {formatRupiah(Number(p.nominal) || 0)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
 
-                  <div className="border-b border-dashed border-slate-355 my-2" />
+                {/* Dynamic aggregations and totals block */}
+                <div className="totals" style={{ borderBottom: "1px dashed #000", paddingBottom: "6px", marginBottom: "8px" }}>
+                  <table>
+                    <tbody>
+                      <tr>
+                        <td style={{ textAlign: "left" }}>Sub-Total:</td>
+                        <td style={{ textAlign: "right" }}>{formatRupiah(totalOriginalNominal)}</td>
+                      </tr>
+                      {receiptDiscountPercent > 0 && (
+                        <tr>
+                          <td style={{ textAlign: "left" }}>Diskon ({receiptDiscountPercent}%):</td>
+                          <td style={{ textAlign: "right", color: "#ff0000" }}>-{formatRupiah(discountAmount)}</td>
+                        </tr>
+                      )}
+                      {receiptPpnPercent > 0 && (
+                        <tr>
+                          <td style={{ textAlign: "left" }}>PPN ({receiptPpnPercent}%):</td>
+                          <td style={{ textAlign: "right" }}>+{formatRupiah(ppnAmount)}</td>
+                        </tr>
+                      )}
+                      <tr style={{ borderTop: "1px dashed #000" }}>
+                        <td style={{ textAlign: "left", paddingTop: "4px", fontWeight: "bold" }}>GRAND TOTAL:</td>
+                        <td style={{ textAlign: "right", paddingTop: "4px", fontWeight: "bold", fontSize: "12px" }}>{formatRupiah(grandTotal)}</td>
+                      </tr>
+                      <tr>
+                        <td style={{ textAlign: "left" }}>Tunai:</td>
+                        <td style={{ textAlign: "right" }}>{formatRupiah(actualTunai)}</td>
+                      </tr>
+                      <tr>
+                        <td style={{ textAlign: "left", fontWeight: "bold" }}>Kembali:</td>
+                        <td style={{ textAlign: "right", fontWeight: "bold" }}>{formatRupiah(kembalian)}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
 
-                  {/* Sub-total */}
-                  <div className="flex justify-between items-center text-[10.5px]">
-                    <span className="text-slate-400 font-bold uppercase text-[9px]">Sub-Total</span>
-                    <span className="font-bold text-slate-800 font-mono">
-                      {formatRupiah(totalOriginalNominal)}
-                    </span>
-                  </div>
-
-                  {receiptDiscountPercent > 0 && (
-                    <div className="flex justify-between items-center text-[10.5px] mt-1 text-rose-600 font-bold">
-                      <span className="text-rose-400 font-bold uppercase text-[9px]">Diskon ({receiptDiscountPercent}%)</span>
-                      <span className="font-mono">
-                        -{formatRupiah(discountAmount)}
-                      </span>
-                    </div>
-                  )}
-
-                  {receiptPpnPercent > 0 && (
-                    <div className="flex justify-between items-center text-[10.5px] mt-1 text-[#4f46e5] font-bold">
-                      <span className="text-indigo-400 font-bold uppercase text-[9px]">PPN ({receiptPpnPercent}%)</span>
-                      <span className="font-mono">
-                        +{formatRupiah(ppnAmount)}
-                      </span>
-                    </div>
-                  )}
-
-                  {/* Total Section */}
-                  <div className="flex justify-between items-center bg-slate-50 p-2 rounded border border-slate-100 mt-2">
-                    <span className="text-[10px] font-extrabold text-[#334155] uppercase">TOTAL</span>
-                    <span className="text-sm font-black text-emerald-600 font-mono">
-                      {formatRupiah(grandTotal)}
-                    </span>
-                  </div>
-
-                  {/* Cash Paid and Change */}
-                  <div className="flex justify-between items-center text-[10.5px] mt-2">
-                    <span className="text-slate-400 font-bold uppercase text-[9px]">Tunai</span>
-                    <span className="font-bold text-slate-850 font-mono">
-                      {formatRupiah(actualTunai)}
-                    </span>
-                  </div>
-
-                  <div className="flex justify-between items-center text-[10.5px] mt-1">
-                    <span className="text-slate-400 font-bold uppercase text-[9px]">Kembali</span>
-                    <span className="font-black text-indigo-600 font-mono">
-                      {formatRupiah(kembalian)}
-                    </span>
-                  </div>
-
-                  {/* Terbilang block */}
-                  <div className="text-[8.5px] text-slate-500 italic mt-2 text-left leading-relaxed bg-[#f8fafc] p-2 rounded border border-slate-100 uppercase tracking-tight font-bold">
-                    Terbilang: {terbilang(grandTotal)} rupiah
-                  </div>
-
-                  <div className="flex justify-between items-center pt-2">
-                    <span className="text-slate-400 uppercase font-bold text-[9px]">Status</span>
-                    <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded font-black text-[9px] uppercase border border-emerald-200">
-                      {receiptData.status || 'Lunas'}
-                    </span>
+                {/* Spellout block */}
+                <div style={{ fontSize: "8.5px", marginBottom: "8px", borderBottom: "1px dashed #000", paddingBottom: "6px" }}>
+                  <div className="uppercase" style={{ fontStyle: "italic", marginBottom: "2px", lineHeight: "1.3" }}>
+                    Terbilang: {terbilang(grandTotal)} RUPIAH
                   </div>
                 </div>
 
-                {/* Thank you foot decoration */}
-                <div className="text-center pt-5 mt-5 border-t border-dashed border-slate-300 space-y-1.5">
-                  <p className="text-[9px] text-slate-400 leading-normal font-black uppercase">
-                    {receiptFooterThankYou}
-                  </p>
-                  {receiptFooterSub && (
-                    <p className="text-[7.5px] text-slate-400 font-normal lowercase italic">
-                      {receiptFooterSub}
-                    </p>
-                  )}
-                  {receiptMediaSosial && (
-                    <p className="text-[8px] text-slate-400 leading-normal font-bold lowercase italic border-t border-slate-100 pt-1 font-mono">
-                      {receiptMediaSosial}
-                    </p>
-                  )}
+                <div className="footer">
+                  <p className="uppercase font-bold" style={{ margin: "0 0 3px 0", fontSize: "10px" }}>{receiptFooterThankYou || "--- TERIMA KASIH ---"}</p>
+                  {receiptFooterSub && <p style={{ fontSize: "8.5px", margin: "0 0 2px 0" }}>{receiptFooterSub}</p>}
+                  {receiptMediaSosial && <p style={{ fontSize: "8.5px", margin: "0" }}>{receiptMediaSosial}</p>}
                 </div>
-
-                {/* Receipt Serrated Border Decor at Bottom */}
-                <div className="absolute bottom-0 left-0 right-0 h-1.5 bg-repeat-x overflow-hidden rounded-b-xl" 
-                  style={{
-                    backgroundImage: `linear-gradient(45deg, transparent 4px, white 4px), linear-gradient(-45deg, transparent 4px, white 4px)`,
-                    backgroundSize: '8px 8px',
-                    transform: 'translateY(4px)'
-                  }}
-                />
               </div>
 
               {/* Tunai / Cash Payment Keyboard (print-exclude) */}

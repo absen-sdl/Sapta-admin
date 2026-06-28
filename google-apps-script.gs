@@ -10,7 +10,7 @@
 var SHEET_SCHEMAS = {
   "KELOLA AKUN": ["Nama", "username", "pasword", "remove menu"],
   "DATA ANGGOTA": ["NIA", "Nama Lengkap", "Tempat Lahir", "Tanggal Lahir", "Jenis Kelamin", "Jenjang Pendidikan", "Nama Sekolah", "Kelas", "Alamat", "No Hp", "E-Mail", "PIN", "Link-Profile", "Status"],
-  "PEMBAYARAN": ["ID Transaksi", "Tanggal", "Nia", "Nama Lengkap", "Nama Tagihan", "Keterangan", "Nominal", "Status"],
+  "PEMBAYARAN": ["ID Transaksi", "Tanggal", "Nia", "Nama Lengkap", "Nama Tagihan", "Keterangan", "Nominal", "Status", "Tercetak"],
   "PRESTASI": ["ID Prestasi", "Tanggal", "NIA", "Nama lengkap", "Jenis Prestasi", "Deskripsi", "Link-foto"],
   "PELANGGARAN": ["ID Pelanggaran", "Tanggal", "NIA", "Nama", "Jenis Pelanggaran", "Nama Pelanggaran", "Keterangan", "Ada Denda", "Nominal Denda", "Jenis Hukuman", "Status Tindak Lanjut"],
   "ABSENSI": ["NIA", "Nama Lengkap", "Kelas", "Tanggal", "Waktu", "Status", "Keterangan"], // Hanya Baca
@@ -354,6 +354,7 @@ function getObjectValueCaseInsensitive(obj, keyToFind) {
     "key": ["pin", "key", "password", "pasword", "sandi", "kunci"],
     "tingkat": ["status", "tingkat", "level"],
     "status": ["status", "tingkat", "level"],
+    "tercetak": ["tercetak", "isprinted", "printed", "sudahcetak"],
     "removemenu": ["removemenu", "removemenu", "remove_menu", "remove menu"]
   };
 

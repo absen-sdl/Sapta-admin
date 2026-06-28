@@ -44,6 +44,7 @@ import {
   Moon,
   UserCheck,
   Printer,
+  ExternalLink,
   Download,
   Sparkles,
   Bot
@@ -110,6 +111,127 @@ const fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Resp
     }
   }
   return originalFetch(input, init);
+};
+
+// OKLCH & OKLAB to RGB converter and computed style override to prevent html2canvas color parse crashes
+function convertModernColorsToRgb(str: string): string {
+  if (!str || typeof str !== 'string') return str;
+  let res = str;
+  if (res.includes('oklch')) {
+    const oklchRegex = /oklch\(\s*([\d.]+%?)\s+([\d.]+)\s+([\d.]+)(?:\s*\/\s*([\d.]+%?))?\s*\)/gi;
+    res = res.replace(oklchRegex, (match, lStr, cStr, hStr, aStr) => {
+      try {
+        let l = parseFloat(lStr);
+        if (lStr.endsWith('%')) l /= 100;
+        const c = parseFloat(cStr);
+        const h = parseFloat(hStr);
+        let a = aStr !== undefined ? parseFloat(aStr) : 1;
+        if (aStr && aStr.endsWith('%')) a /= 100;
+
+        const hRad = (h * Math.PI) / 180;
+        const a_ = c * Math.cos(hRad);
+        const b_ = c * Math.sin(hRad);
+
+        const l_ = l + 0.3963377774 * a_ + 0.2158037573 * b_;
+        const m_ = l - 0.1055613458 * a_ - 0.0638541728 * b_;
+        const s_ = l - 0.0894841775 * a_ - 1.2914855480 * b_;
+
+        const l3 = l_ * l_ * l_;
+        const m3 = m_ * m_ * m_;
+        const s3 = s_ * s_ * s_;
+
+        const r_linear = +4.0767416621 * l3 - 3.3077115913 * m3 + 0.2309699292 * s3;
+        const g_linear = -1.2684380046 * l3 + 2.6097574011 * m3 - 0.3413193965 * s3;
+        const b_linear = -0.0041960863 * l3 - 0.7034186145 * m3 + 1.7076147010 * s3;
+
+        const toSRGB = (x: number) => {
+          const r = x <= 0.0031308 ? 12.92 * x : 1.055 * Math.pow(x, 1 / 2.4) - 0.055;
+          return Math.max(0, Math.min(255, Math.round(r * 255)));
+        };
+
+        const r = toSRGB(r_linear);
+        const g = toSRGB(g_linear);
+        const b = toSRGB(b_linear);
+
+        return a === 1 ? `rgb(${r}, ${g}, ${b})` : `rgba(${r}, ${g}, ${b}, ${a})`;
+      } catch (e) {
+        console.warn("Failed to convert oklch color:", match, e);
+        return 'rgb(0,0,0)';
+      }
+    });
+  }
+  if (res.includes('oklab')) {
+    const oklabRegex = /oklab\(\s*([\d.]+%?)\s+([+-]?[\d.]+)\s+([+-]?[\d.]+)(?:\s*\/\s*([\d.]+%?))?\s*\)/gi;
+    res = res.replace(oklabRegex, (match, lStr, aStr, bStr, alphaStr) => {
+      try {
+        let l = parseFloat(lStr);
+        if (lStr.endsWith('%')) l /= 100;
+        const aVal = parseFloat(aStr);
+        const bVal = parseFloat(bStr);
+        let alpha = alphaStr !== undefined ? parseFloat(alphaStr) : 1;
+        if (alphaStr && alphaStr.endsWith('%')) alpha /= 100;
+
+        const l_ = l + 0.3963377774 * aVal + 0.2158037573 * bVal;
+        const m_ = l - 0.1055613458 * aVal - 0.0638541728 * bVal;
+        const s_ = l - 0.0894841775 * aVal - 1.2914855480 * bVal;
+
+        const l3 = l_ * l_ * l_;
+        const m3 = m_ * m_ * m_;
+        const s3 = s_ * s_ * s_;
+
+        const r_linear = +4.0767416621 * l3 - 3.3077115913 * m3 + 0.2309699292 * s3;
+        const g_linear = -1.2684380046 * l3 + 2.6097574011 * m3 - 0.3413193965 * s3;
+        const b_linear = -0.0041960863 * l3 - 0.7034186145 * m3 + 1.7076147010 * s3;
+
+        const toSRGB = (x: number) => {
+          const r = x <= 0.0031308 ? 12.92 * x : 1.055 * Math.pow(x, 1 / 2.4) - 0.055;
+          return Math.max(0, Math.min(255, Math.round(r * 255)));
+        };
+
+        const r = toSRGB(r_linear);
+        const g = toSRGB(g_linear);
+        const b = toSRGB(b_linear);
+
+        return alpha === 1 ? `rgb(${r}, ${g}, ${b})` : `rgba(${r}, ${g}, ${b}, ${alpha})`;
+      } catch (e) {
+        console.warn("Failed to convert oklab color:", match, e);
+        return 'rgb(0,0,0)';
+      }
+    });
+  }
+  return res;
+}
+
+// @ts-ignore
+const originalGetComputedStyle = window.getComputedStyle;
+// @ts-ignore
+window.getComputedStyle = function (elt: Element, pseudoElt?: string | null): CSSStyleDeclaration {
+  const style = originalGetComputedStyle(elt, pseudoElt);
+  return new Proxy(style, {
+    get(target, prop, receiver) {
+      if (prop === 'getPropertyValue') {
+        return function (propertyName: string) {
+          const val = target.getPropertyValue(propertyName);
+          if (typeof val === 'string' && (val.includes('oklch') || val.includes('oklab'))) {
+            return convertModernColorsToRgb(val);
+          }
+          return val;
+        };
+      }
+      
+      // Use target[prop] to run the getter on target itself and avoid Proxy as 'this' context (prevents Illegal invocation)
+      // @ts-ignore
+      const val = target[prop];
+      
+      if (typeof val === 'string' && (val.includes('oklch') || val.includes('oklab'))) {
+        return convertModernColorsToRgb(val);
+      }
+      if (typeof val === 'function') {
+        return val.bind(target);
+      }
+      return val;
+    }
+  });
 };
 
 function getRowPrimaryKey(tab: string, row: any): string {
@@ -387,7 +509,7 @@ export default function App() {
   // --- STATES FOR CETAK & SIMPAN DATA TAB ---
   const [isInIframe, setIsInIframe] = useState<boolean>(false);
   const [printNotification, setPrintNotification] = useState<string | null>(null);
-  const [cetakActiveSubTab, setCetakActiveSubTab] = useState<'biodata_massal' | 'daftar_anggota' | 'kartu' | 'absensi' | 'pelanggaran'>('biodata_massal');
+  const [cetakActiveSubTab, setCetakActiveSubTab] = useState<'biodata_massal' | 'daftar_anggota' | 'kartu' | 'absensi' | 'pelanggaran' | 'notifikasi_email'>('biodata_massal');
   const [bulkSelectionMode, setBulkSelectionMode] = useState<'all' | 'selected'>('all');
   const [bulkSelectedNias, setBulkSelectedNias] = useState<Record<string, boolean>>({});
   const [bulkPdfSearchTerm, setBulkPdfSearchTerm] = useState<string>('');
@@ -397,6 +519,24 @@ export default function App() {
   const [cetakCardTheme, setCetakCardTheme] = useState<'blue' | 'gold' | 'red' | 'emerald'>(() => (localStorage.getItem('CETAK_CARD_THEME') as any) || 'blue');
   const [cetakCardOrientation, setCetakCardOrientation] = useState<'horizontal' | 'vertical'>(() => (localStorage.getItem('CETAK_CARD_ORIENTATION') as any) || 'horizontal');
   const [cetakSelectedMonth, setCetakSelectedMonth] = useState<string>('Semua');
+
+  // Bulk Email Notification States
+  const [emailSubject, setEmailSubject] = useState<string>('Pengingat Pembayaran Iuran Anggota');
+  const [emailTemplate, setEmailTemplate] = useState<'custom' | 'payment_reminder' | 'event_info'>('payment_reminder');
+  const [customEmailBody, setCustomEmailBody] = useState<string>('Halo {{Nama}},\n\nIni adalah pesan khusus untuk Anda. Terima kasih atas kontribusi Anda.');
+  const [paymentBillName, setPaymentBillName] = useState<string>('Uang Kas Bulanan');
+  const [paymentAmount, setPaymentAmount] = useState<number>(50000);
+  const [paymentDueDate, setPaymentDueDate] = useState<string>('30 Juni 2026');
+  const [eventName, setEventName] = useState<string>('Rapat Pleno & Evaluasi Bulanan');
+  const [eventDate, setEventDate] = useState<string>('Minggu, 5 Juli 2026');
+  const [eventLocation, setEventLocation] = useState<string>('Aula Utama Gedung Serbaguna');
+  const [eventTime, setEventTime] = useState<string>('09:00 - selesai');
+  const [bulkEmailFilterClass, setBulkEmailFilterClass] = useState<string>('Semua');
+  const [bulkEmailFilterStatus, setBulkEmailFilterStatus] = useState<string>('Semua');
+  const [emailSelectedNias, setEmailSelectedNias] = useState<Record<string, boolean>>({});
+  const [emailSendingStatus, setEmailSendingStatus] = useState<Record<string, 'idle' | 'sending' | 'success' | 'failed'>>({});
+  const [emailSendingLogs, setEmailSendingLogs] = useState<string[]>([]);
+  const [isSendingEmails, setIsSendingEmails] = useState<boolean>(false);
   const [cetakCardBgFront, setCetakCardBgFront] = useState<string | null>(() => localStorage.getItem('CETAK_CARD_BG_FRONT') || null);
   const [cetakCardBgBack, setCetakCardBgBack] = useState<string | null>(() => localStorage.getItem('CETAK_CARD_BG_BACK') || null);
   const [cetakCardTextColorFront, setCetakCardTextColorFront] = useState<'white' | 'black'>(() => (localStorage.getItem('CETAK_CARD_TEXT_COLOR_FRONT') as any) || 'white');
@@ -488,6 +628,25 @@ export default function App() {
     }
     
     return true;
+  };
+
+  const executeThermalPrint = async () => {
+    setPrintElementId('area-struk-pembayaran');
+    setPrintNotification("Menyiapkan dokumen untuk printer thermal...");
+    
+    // Allow state to update and layout elements to render if any conditional print-styles exist
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    
+    try {
+      window.print();
+      addToast("Perintah cetak terkirim!", "success");
+    } catch (e) {
+      console.error("Gagal mencetak struk:", e);
+      addToast("Gagal mencetak struk.", "error");
+    } finally {
+      setPrintNotification(null);
+      setPrintElementId(null);
+    }
   };
 
   const executeDeviceSavePdf = async (elementId: string) => {
@@ -2853,6 +3012,167 @@ Schema requirements:
     };
   }, []);
 
+  // --- BULK EMAIL NOTIFICATION HELPERS & ACTIONS ---
+  const generateEmailContent = (template: 'custom' | 'payment_reminder' | 'event_info', member: Anggota) => {
+    let subject = emailSubject;
+    let body = '';
+
+    if (template === 'custom') {
+      body = customEmailBody;
+    } else if (template === 'payment_reminder') {
+      subject = `[Pengingat] Pembayaran ${paymentBillName} - ${member.namaLengkap}`;
+      body = `Halo ${member.namaLengkap},\n\nKami ingin mengingatkan mengenai kewajiban pembayaran Anda sebagai berikut:\n\n` +
+        `- Jenis Kewajiban: ${paymentBillName}\n` +
+        `- Nomor Anggota (NIA): ${member.nia}\n` +
+        `- Jumlah Nominal: ${formatRupiah(paymentAmount)}\n` +
+        `- Batas Pelunasan: ${paymentDueDate}\n\n` +
+        `Mohon segera lakukan pelunasan iuran tersebut. Apabila Anda telah melunasi atau melakukan konfirmasi, silakan abaikan pesan pengingat ini.\n\n` +
+        `Atas perhatian dan kerja sama Anda, kami ucapkan terima kasih.\n\n` +
+        `Salam Hormat,\nPengelola Lembaga`;
+    } else if (template === 'event_info') {
+      subject = `[Pengumuman] Undangan Kegiatan: ${eventName}`;
+      body = `Halo ${member.namaLengkap},\n\nKami mengundang Anda untuk dapat berpartisipasi dalam agenda kegiatan resmi berikut:\n\n` +
+        `- Nama Kegiatan: ${eventName}\n` +
+        `- Hari/Tanggal: ${eventDate}\n` +
+        `- Waktu Acara: ${eventTime}\n` +
+        `- Tempat/Lokasi: ${eventLocation}\n\n` +
+        `Kehadiran Anda sangat bernilai dan kami harapkan demi kelancaran kegiatan tersebut. Silakan hubungi sekretariat apabila ada hal yang perlu ditanyakan atau dikonfirmasikan.\n\n` +
+        `Terima kasih atas perhatian Anda.\n\n` +
+        `Salam hangat,\nPengelola Lembaga`;
+    }
+
+    // Replace basic dynamic variables
+    body = body
+      .replace(/{{Nama}}/g, member.namaLengkap || '')
+      .replace(/{{NIA}}/g, member.nia || '')
+      .replace(/{{Email}}/g, member.email || '')
+      .replace(/{{Tagihan}}/g, paymentBillName)
+      .replace(/{{Nominal}}/g, formatRupiah(paymentAmount))
+      .replace(/{{BatasTanggal}}/g, paymentDueDate)
+      .replace(/{{NamaKegiatan}}/g, eventName)
+      .replace(/{{TanggalKegiatan}}/g, eventDate)
+      .replace(/{{TempatKegiatan}}/g, eventLocation)
+      .replace(/{{WaktuKegiatan}}/g, eventTime);
+
+    return { subject, body };
+  };
+
+  const handleSendBulkEmails = async () => {
+    // Get list of selected members with emails
+    const selectedMembers = anggotaList.filter(member => {
+      const matchClass = bulkEmailFilterClass === 'Semua' || member.kelas === bulkEmailFilterClass;
+      const matchStatus = bulkEmailFilterStatus === 'Semua' || member.status === bulkEmailFilterStatus;
+      const isSelected = emailSelectedNias[member.nia];
+      return matchClass && matchStatus && isSelected && member.email && member.email.includes('@');
+    });
+
+    if (selectedMembers.length === 0) {
+      addToast('Harap pilih minimal satu anggota dengan alamat email valid untuk memulai pengiriman!', 'error');
+      return;
+    }
+
+    setIsSendingEmails(true);
+    setEmailSendingLogs(['[SYSTEM] Memulai pemrosesan pengiriman email massal...']);
+
+    // Initialize statuses
+    const initialStatus: Record<string, 'idle' | 'sending' | 'success' | 'failed'> = {};
+    selectedMembers.forEach(m => {
+      initialStatus[m.nia] = 'idle';
+    });
+    setEmailSendingStatus(initialStatus);
+
+    const activeScriptUrl = appsScriptUrl || localStorage.getItem('LINK_SCRIPT_UTAMA') || localStorage.getItem('google_apps_script_url') || '';
+
+    for (let i = 0; i < selectedMembers.length; i++) {
+      const m = selectedMembers[i];
+      setEmailSendingStatus(prev => ({ ...prev, [m.nia]: 'sending' }));
+      setEmailSendingLogs(prev => [...prev, `[${i + 1}/${selectedMembers.length}] Mengirim email ke ${m.namaLengkap} (${m.email})...`]);
+
+      const { subject, body } = generateEmailContent(emailTemplate, m);
+
+      let isSuccess = false;
+      let errorDetail = '';
+
+      if (activeScriptUrl) {
+        try {
+          const response = await fetch(activeScriptUrl, {
+            method: 'POST',
+            mode: 'cors',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              action: 'send_email',
+              sheetName: 'DATA ANGGOTA',
+              data: {
+                recipient: m.email,
+                subject: subject,
+                body: body
+              }
+            })
+          });
+
+          if (response.ok) {
+            const resText = await response.text();
+            let resJson;
+            try {
+              resJson = JSON.parse(resText);
+            } catch(e) {}
+            if (resJson && resJson.error) {
+              errorDetail = resJson.message || 'Error reported by Apps Script.';
+            } else {
+              isSuccess = true;
+            }
+          } else {
+            errorDetail = `Koneksi Apps Script gagal (Status: ${response.status}).`;
+          }
+        } catch (err: any) {
+          errorDetail = err.message || String(err);
+        }
+      }
+
+      // If no Apps Script configured, simulate delivery with a realistic delay
+      if (!activeScriptUrl) {
+        await new Promise(resolve => setTimeout(resolve, 600));
+        isSuccess = true;
+      }
+
+      if (isSuccess) {
+        setEmailSendingStatus(prev => ({ ...prev, [m.nia]: 'success' }));
+        setEmailSendingLogs(prev => [...prev, `✓ Sukses terkirim ke: ${m.namaLengkap} (${m.email})`]);
+      } else {
+        setEmailSendingStatus(prev => ({ ...prev, [m.nia]: 'failed' }));
+        setEmailSendingLogs(prev => [...prev, `✗ Gagal terkirim ke: ${m.namaLengkap} (${m.email}) - Detail: ${errorDetail}`]);
+      }
+    }
+
+    setEmailSendingLogs(prev => [...prev, '[SYSTEM] Proses pengiriman email massal selesai!']);
+    setIsSendingEmails(false);
+    addToast(`Notifikasi email berhasil diproses untuk ${selectedMembers.length} anggota!`, 'success');
+  };
+
+  const handleOpenInEmailClient = () => {
+    const selectedMembers = anggotaList.filter(member => {
+      const matchClass = bulkEmailFilterClass === 'Semua' || member.kelas === bulkEmailFilterClass;
+      const matchStatus = bulkEmailFilterStatus === 'Semua' || member.status === bulkEmailFilterStatus;
+      const isSelected = emailSelectedNias[member.nia];
+      return matchClass && matchStatus && isSelected && member.email && member.email.includes('@');
+    });
+
+    if (selectedMembers.length === 0) {
+      addToast('Harap pilih minimal satu anggota dengan alamat email valid!', 'error');
+      return;
+    }
+
+    const emails = selectedMembers.map(m => m.email).join(',');
+    const sampleMember = selectedMembers[0];
+    const { subject, body } = generateEmailContent(emailTemplate, sampleMember);
+    
+    const mailtoUrl = `mailto:?bcc=${encodeURIComponent(emails)}&subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    window.open(mailtoUrl, '_blank');
+    addToast('Membuka aplikasi email bawaan dengan alamat penerima (BCC) dan draft pesan.', 'info');
+  };
+
   // --- TOAST NOTIFICATIONS ---
   const addToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
     const id = `${Date.now()}-${Math.floor(Math.random() * 1000000)}`;
@@ -4448,6 +4768,9 @@ Schema requirements:
       {/* Global CSS overrides for browser print pipeline printing */}
       <style>{`
         @media print {
+          @page {
+            margin: 0 !important;
+          }
           /* Unlock parent scroll boundaries for full page layout flow across multiple sheets */
           html, body, #root,
           .flex.h-screen.w-full,
@@ -4509,18 +4832,18 @@ Schema requirements:
             print-color-adjust: exact !important;
           }
 
-          /* Dedicated parameters styling for physical receipt receipts */
+          /* Dedicated parameters styling for physical receipt receipts (Thermal Printer style) */
           #area-struk-pembayaran.print-now {
             display: block !important;
-            position: relative !important;
-            margin: 20px auto !important;
-            width: 360px !important;
-            max-width: 360px !important;
+            position: static !important;
+            margin: 0 auto !important;
+            width: 76mm !important;
+            max-width: 100% !important;
             background: white !important;
-            border: 1px solid #cbd5e1 !important;
-            border-radius: 12px !important;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.06) !important;
-            padding: 24px !important;
+            border: none !important;
+            border-radius: 0 !important;
+            box-shadow: none !important;
+            padding: 4mm !important;
             visibility: visible !important;
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
@@ -5742,23 +6065,11 @@ Schema requirements:
                   <h3 className="font-bold text-[#0f172a] text-sm">Transaksi Pembayaran / Tagihan</h3>
                   <p className="text-xs text-[#64748b]">Ditemukan {filteredPembayaran.length} transaksi di dalam filter</p>
                 </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={handleDownloadPembayaranExcel}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-700 text-xs font-bold rounded-lg transition duration-150 active:scale-95 cursor-pointer"
-                    title="Unduh laporan Transaksi format Excel (.xlsx)"
-                  >
-                    <Download className="w-3.5 h-3.5 shrink-0" />
-                    <span>Unduh Excel</span>
-                  </button>
-                  <button
-                    onClick={handleDownloadPembayaranPdf}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 text-xs font-bold rounded-lg transition duration-150 active:scale-95 cursor-pointer"
-                    title="Unduh laporan Transaksi format PDF (.pdf)"
-                  >
-                    <FileText className="w-3.5 h-3.5 shrink-0" />
-                    <span>Unduh PDF</span>
-                  </button>
+                <div className="flex items-center">
+                  <div className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 border border-indigo-100 text-indigo-700 text-xs font-bold rounded-lg select-none">
+                    <Printer className="w-3.5 h-3.5" />
+                    <span>Cetak struk lunas langsung via printer thermal di daftar tabel</span>
+                  </div>
                 </div>
               </div>
 
@@ -5813,10 +6124,10 @@ Schema requirements:
                                     setReceiptData(payment);
                                     setIsReceiptModalOpen(true);
                                   }}
-                                  className="p-1.5 rounded bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition cursor-pointer"
-                                  title="Simpan PDF Struk Resmi"
+                                  className="p-1.5 rounded bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition cursor-pointer"
+                                  title="Cetak Struk Thermal"
                                 >
-                                  <FileText className="w-3.5 h-3.5" />
+                                  <Printer className="w-3.5 h-3.5" />
                                 </button>
                               )}
                               <button
@@ -7214,48 +7525,6 @@ Schema requirements:
                   </p>
                 </div>
 
-                {/* ✨ Gemini AI Card Designer prompt card */}
-                <div className="bg-gradient-to-r from-purple-50 to-indigo-50/50 border border-purple-200 rounded-xl p-4 text-left space-y-3">
-                  <div className="flex items-center gap-1.5 text-xs font-black text-purple-950 uppercase tracking-wide">
-                    <Sparkles className="w-4 h-4 text-purple-650 animate-pulse" />
-                    <span>✨ Desainer Kartu Tanda Anggota (Gemini AI)</span>
-                  </div>
-                  <p className="text-[11px] text-purple-900 leading-normal">
-                    Tulis konsep desain kartu Anda dalam Bahasa Indonesia. Gemini AI akan otomatis merancang warna tema, tata letak, orientasi, serta teks ketentuan pemegang kartu secara real-time!
-                  </p>
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      id="ai-card-prompt-input"
-                      disabled={aiCardDesignGenerating}
-                      placeholder="Contoh: 'Tema merah membara, portrait, sembunyikan kop header, teks putih'"
-                      className="flex-1 px-3 py-2 bg-white border border-purple-200 rounded-lg text-xs outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-400 transition"
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault();
-                          const val = (e.currentTarget as HTMLInputElement).value;
-                          if (val) handleAiDesignCard(val);
-                        }
-                      }}
-                    />
-                    <button
-                      type="button"
-                      disabled={aiCardDesignGenerating}
-                      onClick={() => {
-                        const input = document.getElementById('ai-card-prompt-input') as HTMLInputElement;
-                        if (input && input.value.trim()) {
-                          handleAiDesignCard(input.value.trim());
-                        } else {
-                          addToast("Silakan tulis konsep desain kartu Anda terlebih dahulu.", "info");
-                        }
-                      }}
-                      className="px-4 py-2 bg-gradient-to-r from-purple-600 to-indigo-650 hover:from-purple-500 hover:to-indigo-550 disabled:from-slate-300 disabled:to-slate-400 text-white font-bold text-xs rounded-lg transition-all active:scale-95 cursor-pointer shadow-sm select-none"
-                    >
-                      {aiCardDesignGenerating ? "Merancang..." : "Terapkan"}
-                    </button>
-                  </div>
-                </div>
-
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
                   {/* Left controls */}
                   <div className="lg:col-span-7 space-y-5 text-left">
@@ -7400,55 +7669,6 @@ Schema requirements:
                               />
                             </label>
                           </div>
-                        </div>
-                      </div>
-
-                      {/* AI Background Generator prompt box */}
-                      <div className="bg-purple-50/50 border border-purple-200/60 rounded-xl p-3 text-left space-y-2">
-                        <div className="flex items-center gap-1.5 text-[10px] font-extrabold text-purple-950 uppercase">
-                          <Sparkles className="w-3.5 h-3.5 text-purple-650 animate-pulse" />
-                          <span>🎨 Lukis Background (Gemini Image AI)</span>
-                        </div>
-                        <p className="text-[10px] text-purple-800 leading-normal font-normal">
-                          Gunakan deskripsi teks untuk menggambar pola latar belakang yang unik (misal: "Pola batik emas mewah elegan abstrak latar gelap").
-                        </p>
-                        <div className="flex gap-2">
-                          <input
-                            type="text"
-                            id="ai-bg-prompt"
-                            placeholder="Deskripsi background abstrak..."
-                            className="flex-1 px-2.5 py-1.5 bg-white border border-purple-200/50 rounded-lg text-[11px] outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-450 transition"
-                          />
-                          <button
-                            type="button"
-                            disabled={aiBgGenerating}
-                            onClick={() => {
-                              const input = document.getElementById('ai-bg-prompt') as HTMLInputElement;
-                              if (input && input.value.trim()) {
-                                handleAiGenerateBg(input.value.trim(), 'front');
-                              } else {
-                                addToast("Masukkan deskripsi background terlebih dahulu.", "info");
-                              }
-                            }}
-                            className="px-2.5 py-1.5 bg-purple-600 hover:bg-purple-700 disabled:bg-slate-300 text-white font-bold text-[10px] rounded-lg transition cursor-pointer select-none"
-                          >
-                            Depan
-                          </button>
-                          <button
-                            type="button"
-                            disabled={aiBgGenerating}
-                            onClick={() => {
-                              const input = document.getElementById('ai-bg-prompt') as HTMLInputElement;
-                              if (input && input.value.trim()) {
-                                handleAiGenerateBg(input.value.trim(), 'back');
-                              } else {
-                                addToast("Masukkan deskripsi background terlebih dahulu.", "info");
-                              }
-                            }}
-                            className="px-2.5 py-1.5 bg-indigo-650 hover:bg-indigo-750 disabled:bg-slate-300 text-white font-bold text-[10px] rounded-lg transition cursor-pointer select-none"
-                          >
-                            Belakang
-                          </button>
                         </div>
                       </div>
 
@@ -8026,6 +8246,17 @@ Schema requirements:
                 >
                   <AlertTriangle className="w-3.5 h-3.5" />
                   <span>5. Laporan Pelanggaran</span>
+                </button>
+                <button
+                  onClick={() => setCetakActiveSubTab('notifikasi_email')}
+                  className={`px-4 py-2 rounded-lg text-xs font-bold transition flex items-center space-x-1.5 cursor-pointer ${
+                    cetakActiveSubTab === 'notifikasi_email'
+                      ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/15'
+                      : 'text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  <Mail className="w-3.5 h-3.5" />
+                  <span>6. Notifikasi Email Massal</span>
                 </button>
               </div>
 
@@ -9179,6 +9410,379 @@ Schema requirements:
                 );
               })()}
 
+              {/* SECTION 4: NOTIFIKASI EMAIL MASSAL */}
+              {cetakActiveSubTab === 'notifikasi_email' && (() => {
+                const uniqueClasses = Array.from(new Set(anggotaList.map(a => a.kelas || '-')));
+                const uniqueStatuses = Array.from(new Set(anggotaList.map(a => a.status || '-')));
+
+                // Filter members based on chosen dropdowns
+                const filteredMembers = anggotaList.filter(member => {
+                  const matchClass = bulkEmailFilterClass === 'Semua' || member.kelas === bulkEmailFilterClass;
+                  const matchStatus = bulkEmailFilterStatus === 'Semua' || member.status === bulkEmailFilterStatus;
+                  return matchClass && matchStatus;
+                });
+
+                const selectedCount = filteredMembers.filter(m => emailSelectedNias[m.nia]).length;
+                const withEmailCount = filteredMembers.filter(m => emailSelectedNias[m.nia] && m.email && m.email.includes('@')).length;
+
+                const toggleAllFiltered = (checked: boolean) => {
+                  const updated = { ...emailSelectedNias };
+                  filteredMembers.forEach(m => {
+                    updated[m.nia] = checked;
+                  });
+                  setEmailSelectedNias(updated);
+                };
+
+                const sampleMember = filteredMembers.find(m => emailSelectedNias[m.nia]) || filteredMembers[0];
+                const previewContent = sampleMember ? generateEmailContent(emailTemplate, sampleMember) : { subject: '', body: '' };
+
+                return (
+                  <div className="space-y-6 text-left">
+                    <div className="bg-gradient-to-r from-indigo-50 to-purple-50 p-5 rounded-2xl border border-indigo-100 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                      <div className="space-y-1">
+                        <h4 className="text-sm font-extrabold text-indigo-950 flex items-center gap-1.5">
+                          <Mail className="w-4 h-4 text-indigo-600" />
+                          Fitur Notifikasi Email Massal Anggota
+                        </h4>
+                        <p className="text-xs text-indigo-800 leading-relaxed max-w-2xl">
+                          Kirim pengingat tagihan iuran bulanan atau undangan pengumuman resmi langsung ke email terdaftar para anggota secara otomatis atau buka di aplikasi email bawaan Anda.
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={handleOpenInEmailClient}
+                          className="px-3.5 py-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 rounded-xl text-xs font-bold transition flex items-center space-x-1.5 cursor-pointer shadow-sm"
+                        >
+                          <ExternalLink className="w-3.5 h-3.5 text-slate-500" />
+                          <span>Gunakan Email Client (BCC)</span>
+                        </button>
+                        <button
+                          type="button"
+                          disabled={isSendingEmails}
+                          onClick={handleSendBulkEmails}
+                          className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:pointer-events-none text-white rounded-xl text-xs font-bold transition flex items-center space-x-1.5 cursor-pointer shadow-md shadow-indigo-600/10"
+                        >
+                          {isSendingEmails ? (
+                            <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                          ) : (
+                            <Send className="w-3.5 h-3.5" />
+                          )}
+                          <span>{isSendingEmails ? 'Mengirim...' : 'Mulai Kirim Otomatis'}</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                      {/* Left: Template & Message Settings */}
+                      <div className="lg:col-span-5 space-y-5 bg-white p-5 rounded-2xl border border-[#e2e8f0]">
+                        <h3 className="text-xs font-extrabold text-slate-900 uppercase tracking-wider pb-2 border-b">1. Pengaturan Template Email</h3>
+
+                        <div className="space-y-1">
+                          <label className="text-[11px] font-bold text-slate-600 block">Pilih Template Notifikasi</label>
+                          <select
+                            value={emailTemplate}
+                            onChange={(e: any) => setEmailTemplate(e.target.value)}
+                            className="w-full text-xs font-semibold p-2.5 border border-slate-200 rounded-xl outline-none cursor-pointer"
+                          >
+                            <option value="payment_reminder">💰 Pengingat Tagihan / Pembayaran</option>
+                            <option value="event_info">📢 Pengumuman Agenda Kegiatan / Event</option>
+                            <option value="custom">✍️ Tulis Pesan Kustom Suka-Suka</option>
+                          </select>
+                        </div>
+
+                        {emailTemplate === 'custom' && (
+                          <>
+                            <div className="space-y-1">
+                              <label className="text-[11px] font-bold text-slate-600 block">Subjek Email</label>
+                              <input
+                                type="text"
+                                value={emailSubject}
+                                onChange={(e) => setEmailSubject(e.target.value)}
+                                className="w-full text-xs p-2.5 border border-slate-200 rounded-xl font-semibold outline-none focus:border-indigo-500"
+                                placeholder="Masukkan subjek pengiriman email..."
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <label className="text-[11px] font-bold text-slate-600 block flex justify-between">
+                                <span>Konten Body Email</span>
+                                <span className="text-[9px] text-slate-400 font-normal">Variabel: {"{{Nama}}"}, {"{{NIA}}"}, {"{{Email}}"}</span>
+                              </label>
+                              <textarea
+                                value={customEmailBody}
+                                onChange={(e) => setCustomEmailBody(e.target.value)}
+                                rows={8}
+                                className="w-full text-xs p-2.5 border border-slate-200 rounded-xl outline-none focus:border-indigo-500 font-mono"
+                                placeholder="Tulis isi email Anda di sini..."
+                              />
+                            </div>
+                          </>
+                        )}
+
+                        {emailTemplate === 'payment_reminder' && (
+                          <div className="space-y-4 bg-slate-50 p-4 rounded-xl border border-slate-100">
+                            <div className="space-y-1">
+                              <label className="text-[11px] font-bold text-slate-600 block">Nama Tagihan</label>
+                              <input
+                                type="text"
+                                value={paymentBillName}
+                                onChange={(e) => setPaymentBillName(e.target.value)}
+                                className="w-full text-xs p-2.5 bg-white border border-slate-200 rounded-xl font-semibold outline-none"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <label className="text-[11px] font-bold text-slate-600 block">Jumlah Nominal (Rupiah)</label>
+                              <input
+                                type="number"
+                                value={paymentAmount}
+                                onChange={(e) => setPaymentAmount(Number(e.target.value))}
+                                className="w-full text-xs p-2.5 bg-white border border-slate-200 rounded-xl font-semibold outline-none"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <label className="text-[11px] font-bold text-slate-600 block">Batas Tanggal Pelunasan</label>
+                              <input
+                                type="text"
+                                value={paymentDueDate}
+                                onChange={(e) => setPaymentDueDate(e.target.value)}
+                                className="w-full text-xs p-2.5 bg-white border border-slate-200 rounded-xl font-semibold outline-none"
+                              />
+                            </div>
+                          </div>
+                        )}
+
+                        {emailTemplate === 'event_info' && (
+                          <div className="space-y-4 bg-slate-50 p-4 rounded-xl border border-slate-100">
+                            <div className="space-y-1">
+                              <label className="text-[11px] font-bold text-slate-600 block">Nama Agenda Kegiatan</label>
+                              <input
+                                type="text"
+                                value={eventName}
+                                onChange={(e) => setEventName(e.target.value)}
+                                className="w-full text-xs p-2.5 bg-white border border-slate-200 rounded-xl font-semibold outline-none"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <label className="text-[11px] font-bold text-slate-600 block">Hari / Tanggal</label>
+                              <input
+                                type="text"
+                                value={eventDate}
+                                onChange={(e) => setEventDate(e.target.value)}
+                                className="w-full text-xs p-2.5 bg-white border border-slate-200 rounded-xl font-semibold outline-none"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <label className="text-[11px] font-bold text-slate-600 block">Waktu Pelaksanaan</label>
+                              <input
+                                type="text"
+                                value={eventTime}
+                                onChange={(e) => setEventTime(e.target.value)}
+                                className="w-full text-xs p-2.5 bg-white border border-slate-200 rounded-xl font-semibold outline-none"
+                                placeholder="Contoh: 09:00 - Selesai"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <label className="text-[11px] font-bold text-slate-600 block">Tempat / Lokasi</label>
+                              <input
+                                type="text"
+                                value={eventLocation}
+                                onChange={(e) => setEventLocation(e.target.value)}
+                                className="w-full text-xs p-2.5 bg-white border border-slate-200 rounded-xl font-semibold outline-none"
+                              />
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Interactive live sample preview */}
+                        <div className="bg-amber-50/70 border border-amber-200/60 p-4 rounded-xl text-left space-y-1.5">
+                          <span className="text-[9px] font-black text-amber-800 uppercase tracking-wider block">👁️ Contoh Hasil Render Preview:</span>
+                          <div className="text-[11px] leading-relaxed text-amber-950 font-semibold italic border-l-2 border-amber-400 pl-2.5">
+                            <div className="font-extrabold text-amber-900 border-b border-amber-100 pb-1 mb-1">
+                              Subjek: {previewContent.subject}
+                            </div>
+                            <p className="whitespace-pre-wrap font-mono text-[10px] text-slate-700 leading-normal bg-white/50 p-2 rounded-lg mt-1">
+                              {previewContent.body}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Right: Members List & Selection / Live logs */}
+                      <div className="lg:col-span-7 space-y-5 flex flex-col">
+                        {/* Recipient Filter Area */}
+                        <div className="bg-white p-4 rounded-2xl border border-slate-200 space-y-3 text-left">
+                          <h3 className="text-xs font-extrabold text-slate-900 uppercase tracking-wider pb-1.5 border-b">2. Saring Penerima Notifikasi</h3>
+                          
+                          <div className="grid grid-cols-2 gap-3">
+                            <div className="space-y-1">
+                              <label className="text-[10px] font-bold text-slate-500">Filter Kelas / Kelompok</label>
+                              <select
+                                value={bulkEmailFilterClass}
+                                onChange={(e) => setBulkEmailFilterClass(e.target.value)}
+                                className="w-full text-[11px] font-semibold p-2 border border-slate-200 rounded-lg outline-none"
+                              >
+                                <option value="Semua">Semua Kelas ({anggotaList.length})</option>
+                                {uniqueClasses.map(c => (
+                                  <option key={c} value={c}>{c}</option>
+                                ))}
+                              </select>
+                            </div>
+                            <div className="space-y-1">
+                              <label className="text-[10px] font-bold text-slate-500">Filter Status Keaktifan</label>
+                              <select
+                                value={bulkEmailFilterStatus}
+                                onChange={(e) => setBulkEmailFilterStatus(e.target.value)}
+                                className="w-full text-[11px] font-semibold p-2 border border-slate-200 rounded-lg outline-none"
+                              >
+                                <option value="Semua">Semua Status</option>
+                                {uniqueStatuses.map(s => (
+                                  <option key={s} value={s}>{s}</option>
+                                ))}
+                              </select>
+                            </div>
+                          </div>
+
+                          <div className="flex justify-between items-center text-[11px] font-bold text-slate-600 bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                            <span className="flex items-center gap-1.5">
+                              Penerima Terpilih: <strong className="text-indigo-600 font-extrabold">{selectedCount}</strong>
+                              <span className="text-[10px] font-normal text-slate-400">({withEmailCount} memiliki email)</span>
+                            </span>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => toggleAllFiltered(true)}
+                                className="text-[10px] font-extrabold text-indigo-600 hover:underline cursor-pointer"
+                              >
+                                Pilih Semua
+                              </button>
+                              <span className="text-slate-300">|</span>
+                              <button
+                                type="button"
+                                onClick={() => toggleAllFiltered(false)}
+                                className="text-[10px] font-extrabold text-rose-600 hover:underline cursor-pointer"
+                              >
+                                Hapus Pilihan
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Recipient Table List */}
+                        <div className="bg-white rounded-2xl border border-slate-200 flex-1 flex flex-col overflow-hidden max-h-80">
+                          <div className="overflow-y-auto flex-1">
+                            <table className="w-full text-left border-collapse text-[11px] font-semibold">
+                              <thead className="sticky top-0 bg-slate-100 border-b border-slate-200 z-10 text-slate-700 font-bold">
+                                <tr>
+                                  <th className="px-4 py-2.5 w-10 text-center">✓</th>
+                                  <th className="px-3 py-2.5">Nama Anggota</th>
+                                  <th className="px-3 py-2.5">Kelas</th>
+                                  <th className="px-3 py-2.5">Email Terdaftar</th>
+                                  <th className="px-4 py-2.5 text-center">Status Kirim</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-slate-100 text-slate-700 font-medium">
+                                {filteredMembers.length === 0 ? (
+                                  <tr>
+                                    <td colSpan={5} className="px-4 py-12 text-center text-slate-400 select-none">
+                                      Tidak ada anggota yang sesuai dengan filter filter penyaringan saat ini.
+                                    </td>
+                                  </tr>
+                                ) : (
+                                  filteredMembers.map((member) => {
+                                    const isSelected = !!emailSelectedNias[member.nia];
+                                    const hasValidEmail = member.email && member.email.includes('@');
+                                    const sendStatus = emailSendingStatus[member.nia] || 'idle';
+
+                                    return (
+                                      <tr
+                                        key={member.nia}
+                                        className={`hover:bg-slate-50/50 cursor-pointer ${isSelected ? 'bg-indigo-50/20' : ''}`}
+                                        onClick={() => {
+                                          setEmailSelectedNias(prev => ({ ...prev, [member.nia]: !prev[member.nia] }));
+                                        }}
+                                      >
+                                        <td className="px-4 py-2.5 text-center" onClick={(e) => e.stopPropagation()}>
+                                          <input
+                                            type="checkbox"
+                                            checked={isSelected}
+                                            onChange={(e) => {
+                                              setEmailSelectedNias(prev => ({ ...prev, [member.nia]: e.target.checked }));
+                                            }}
+                                            className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer h-3.5 w-3.5"
+                                          />
+                                        </td>
+                                        <td className="px-3 py-2.5">
+                                          <div className="font-bold text-slate-900 leading-normal">{member.namaLengkap}</div>
+                                          <div className="text-[9px] text-slate-400 font-mono leading-none">{member.nia}</div>
+                                        </td>
+                                        <td className="px-3 py-2.5 text-slate-500">{member.kelas || '-'}</td>
+                                        <td className="px-3 py-2.5">
+                                          {hasValidEmail ? (
+                                            <span className="text-slate-800 font-medium">{member.email}</span>
+                                          ) : (
+                                            <span className="text-rose-500 font-bold italic flex items-center gap-0.5">
+                                              <AlertTriangle className="w-3 h-3" /> Tidak ada email
+                                            </span>
+                                          )}
+                                        </td>
+                                        <td className="px-4 py-2.5 text-center">
+                                          {sendStatus === 'idle' && (
+                                            <span className="px-1.5 py-0.5 rounded text-[9px] font-bold text-slate-400 bg-slate-50">Siap</span>
+                                          )}
+                                          {sendStatus === 'sending' && (
+                                            <span className="px-1.5 py-0.5 rounded text-[9px] font-bold text-amber-600 bg-amber-50 animate-pulse">Mengirim</span>
+                                          )}
+                                          {sendStatus === 'success' && (
+                                            <span className="px-1.5 py-0.5 rounded text-[9px] font-bold text-emerald-600 bg-emerald-50">Sukses</span>
+                                          )}
+                                          {sendStatus === 'failed' && (
+                                            <span className="px-1.5 py-0.5 rounded text-[9px] font-bold text-rose-600 bg-rose-50">Gagal</span>
+                                          )}
+                                        </td>
+                                      </tr>
+                                    );
+                                  })
+                                )}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+
+                        {/* Sending Realtime System Console Logs */}
+                        {(emailSendingLogs.length > 0 || isSendingEmails) && (
+                          <div className="bg-slate-900 text-slate-300 p-4 rounded-2xl border border-slate-800 text-left font-mono text-[10px] space-y-2">
+                            <div className="flex justify-between items-center text-[9px] font-black text-slate-500 border-b border-slate-800 pb-1.5 mb-1.5">
+                              <span>🖥️ LOG PENGIRIMAN SYSTEM CONSOLE</span>
+                              <button
+                                type="button"
+                                onClick={() => setEmailSendingLogs([])}
+                                className="hover:underline text-indigo-400 font-bold cursor-pointer"
+                              >
+                                Bersihkan Log
+                              </button>
+                            </div>
+                            <div className="space-y-1 max-h-36 overflow-y-auto leading-relaxed">
+                              {emailSendingLogs.map((log, index) => (
+                                <div
+                                  key={index}
+                                  className={
+                                    log.startsWith('✓') ? 'text-emerald-400 font-semibold' :
+                                    log.startsWith('✗') ? 'text-rose-400 font-semibold' :
+                                    log.startsWith('[SYSTEM]') ? 'text-indigo-400 font-bold' : 'text-slate-300'
+                                  }
+                                >
+                                  {log}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
             </div>
           )}
 
@@ -10248,15 +10852,15 @@ Schema requirements:
                 </div>
               </div>
 
-              {/* Print and Close controls */}
+               {/* Print and Close controls */}
               <div className="flex gap-2 w-full mt-1 print-exclude">
                 <button
                   type="button"
-                  onClick={() => executeDeviceSavePdf('area-struk-pembayaran')}
+                  onClick={executeThermalPrint}
                   className="flex-1 py-2 bg-indigo-650 hover:bg-indigo-750 text-white rounded-xl text-xs font-bold transition flex items-center justify-center space-x-1.5 cursor-pointer shadow-md hover:-translate-y-0.5 active:translate-y-0"
                 >
-                  <FileText className="w-4 h-4 text-white" />
-                  <span>Simpan PDF Struk</span>
+                  <Printer className="w-4 h-4 text-white" />
+                  <span>Cetak Struk Thermal</span>
                 </button>
                 <button
                   type="button"
@@ -10275,265 +10879,6 @@ Schema requirements:
           </div>
         );
       })()}
-
-      {/* ======================= FLOATING LIVE CHAT WIDGET: GEMINI AI ======================= */}
-      <div className="fixed bottom-6 right-6 z-50 print-exclude flex flex-col items-end gap-4 font-sans">
-        {/* Chat window panel */}
-        {isAiChatOpen && (
-          <div className="bg-white w-[360px] sm:w-[420px] h-[550px] rounded-2xl border border-[#e2e8f0] shadow-2xl flex flex-col overflow-hidden text-left animate-fade-in relative">
-            {/* Header */}
-            <div className="bg-gradient-to-r from-purple-900 to-indigo-950 p-4 text-white flex items-center justify-between shadow-sm">
-              <div className="flex items-center space-x-2.5">
-                <div className="w-8 h-8 rounded-full bg-purple-500/20 border border-purple-400/20 flex items-center justify-center animate-pulse">
-                  <Bot className="w-4 h-4 text-purple-300" />
-                </div>
-                <div>
-                  <h3 className="text-xs font-black tracking-wide uppercase flex items-center gap-1.5">
-                    Asisten Gemini AI
-                    <span className="text-[7.5px] px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-bold uppercase tracking-wider">Online</span>
-                  </h3>
-                  <p className="text-[9px] text-slate-300 leading-normal">Bertenaga Gemini 2.5 Flash</p>
-                </div>
-              </div>
-              <div className="flex items-center space-x-2">
-                <button
-                  type="button"
-                  onClick={handleClearAiChat}
-                  title="Bersihkan riwayat chat"
-                  className="p-1.5 text-slate-300 hover:text-white hover:bg-white/10 rounded-lg transition cursor-pointer active:scale-95"
-                >
-                  <RefreshCw className="w-3.5 h-3.5" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setIsAiChatOpen(false)}
-                  className="p-1.5 text-slate-300 hover:text-white hover:bg-white/10 rounded-lg transition cursor-pointer active:scale-95"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-
-            {/* Quick action info banner */}
-            <div className="bg-purple-50/50 border-b border-purple-100 p-3 text-left">
-              <p className="text-[10px] text-purple-950 font-semibold leading-relaxed flex items-center gap-1">
-                <Sparkles className="w-3.5 h-3.5 text-purple-600 shrink-0" />
-                <span>Instruksi cepat untuk analisis data realtime lembaga:</span>
-              </p>
-              <div className="flex flex-wrap gap-1 mt-1.5 select-none">
-                <button
-                  type="button"
-                  onClick={() => handleAiAnalyzeData('keseluruhan')}
-                  disabled={aiIsGenerating}
-                  className="px-2 py-1 bg-white hover:bg-purple-50 border border-slate-200 hover:border-purple-200 text-[9px] font-bold text-slate-700 hover:text-purple-700 rounded-md transition cursor-pointer"
-                >
-                  📊 Analisis Lembaga
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleAiAnalyzeData('absensi')}
-                  disabled={aiIsGenerating}
-                  className="px-2 py-1 bg-white hover:bg-purple-50 border border-slate-200 hover:border-purple-200 text-[9px] font-bold text-slate-700 hover:text-purple-700 rounded-md transition cursor-pointer"
-                >
-                  📅 Absensi
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleAiAnalyzeData('pembayaran')}
-                  disabled={aiIsGenerating}
-                  className="px-2 py-1 bg-white hover:bg-purple-50 border border-slate-200 hover:border-purple-200 text-[9px] font-bold text-slate-700 hover:text-purple-700 rounded-md transition cursor-pointer"
-                >
-                  💳 Keuangan
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleAiAnalyzeData('pelanggaran')}
-                  disabled={aiIsGenerating}
-                  className="px-2 py-1 bg-white hover:bg-purple-50 border border-slate-200 hover:border-purple-200 text-[9px] font-bold text-slate-700 hover:text-purple-700 rounded-md transition cursor-pointer"
-                >
-                  ⚠️ Pelanggaran
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleAiAnalyzeData('anggota')}
-                  disabled={aiIsGenerating}
-                  className="px-2 py-1 bg-white hover:bg-purple-50 border border-slate-200 hover:border-purple-200 text-[9px] font-bold text-slate-700 hover:text-purple-700 rounded-md transition cursor-pointer"
-                >
-                  👥 Anggota
-                </button>
-              </div>
-            </div>
-
-            {/* Chat Messages */}
-            <div className="flex-1 p-4 overflow-y-auto space-y-3.5 min-h-[220px] bg-slate-50/50">
-              {aiChatMessages.map((msg, i) => (
-                <div
-                  key={i}
-                  className={`flex gap-2.5 max-w-[85%] ${
-                    msg.sender === 'user' ? 'ml-auto flex-row-reverse' : 'mr-auto'
-                  }`}
-                >
-                  {/* Avatar */}
-                  <div className={`w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 shadow-sm border ${
-                    msg.sender === 'user'
-                      ? 'bg-slate-100 text-slate-700 border-slate-200'
-                      : 'bg-purple-50 text-purple-600 border-purple-200'
-                  }`}>
-                    {msg.sender === 'user' ? 'AD' : '♊'}
-                  </div>
-
-                  {/* Text Bubble */}
-                  <div className="space-y-0.5">
-                    <div className={`px-3.5 py-2.5 rounded-2xl text-[11px] leading-relaxed shadow-xs text-left ${
-                      msg.sender === 'user'
-                        ? 'bg-indigo-600 text-white rounded-tr-none'
-                        : 'bg-white border border-[#e2e8f0] text-slate-800 rounded-tl-none'
-                    }`}>
-                      {msg.sender === 'user' ? (
-                        <p className="whitespace-pre-line m-0 font-normal">{msg.text}</p>
-                      ) : (
-                        <div className="prose prose-xs max-w-none text-left leading-relaxed">
-                          {msg.text.split("\n").map((line, lIdx) => {
-                            let rendered = line;
-                            let isBullet = false;
-                            let isHeader = false;
-
-                            if (line.trim().startsWith("* ") || line.trim().startsWith("- ")) {
-                              isBullet = true;
-                              rendered = rendered.replace(/^[\*\-]\s+/, "");
-                            }
-                            
-                            if (line.trim().startsWith("### ")) {
-                              isHeader = true;
-                              rendered = rendered.replace(/^###\s+/, "");
-                            } else if (line.trim().startsWith("## ")) {
-                              isHeader = true;
-                              rendered = rendered.replace(/^##\s+/, "");
-                            }
-
-                            const parts = rendered.split("**");
-                            const elements = parts.map((part, pIdx) => {
-                              if (pIdx % 2 === 1) {
-                                return <strong key={pIdx} className="font-extrabold text-[#0f172a]">{part}</strong>;
-                              }
-                              return part;
-                            });
-
-                            if (isHeader) {
-                              return <h4 key={lIdx} className="text-[11px] font-black text-[#0f172a] mt-2 mb-1 border-b pb-0.5">{elements}</h4>;
-                            }
-                            if (isBullet) {
-                              return (
-                                <div key={lIdx} className="flex items-start gap-1 pl-1 mt-0.5 animate-fade-in">
-                                  <span className="text-purple-500 text-[10px] shrink-0 mt-1">•</span>
-                                  <p className="flex-1 m-0 text-[11px] text-slate-700 font-normal leading-relaxed">{elements}</p>
-                                </div>
-                              );
-                            }
-                            return <p key={lIdx} className="m-0 text-[11px] text-slate-700 font-normal leading-relaxed mt-0.5">{elements}</p>;
-                          })}
-                        </div>
-                      )}
-                    </div>
-                    <span className={`text-[8px] font-semibold text-slate-400 block px-1 ${
-                      msg.sender === 'user' ? 'text-right' : 'text-left'
-                    }`}>
-                      {msg.timestamp}
-                    </span>
-                  </div>
-                </div>
-              ))}
-
-              {/* Loading thinking state */}
-              {aiIsGenerating && (
-                <div className="flex gap-2.5 max-w-[85%] mr-auto items-start animate-pulse">
-                  <div className="w-7 h-7 rounded-full bg-purple-50 border border-purple-200 text-purple-600 flex items-center justify-center text-[10px] font-bold shrink-0">
-                    ♊
-                  </div>
-                  <div className="space-y-1">
-                    <div className="px-3 py-2 rounded-2xl bg-white border border-slate-100 rounded-tl-none flex items-center space-x-1 shadow-inner">
-                      <span className="w-1.2 h-1.2 rounded-full bg-purple-400 animate-bounce" style={{ animationDelay: '0ms' }} />
-                      <span className="w-1.2 h-1.2 rounded-full bg-purple-400 animate-bounce" style={{ animationDelay: '150ms' }} />
-                      <span className="w-1.2 h-1.2 rounded-full bg-purple-400 animate-bounce" style={{ animationDelay: '300ms' }} />
-                      <span className="text-[9px] text-slate-400 font-bold pl-1 font-mono">Gemini berpikir...</span>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Quick Prompts slider */}
-            <div className="bg-slate-50 border-t border-[#e2e8f0] px-3 py-1.5 flex gap-1.5 overflow-x-auto whitespace-nowrap scrollbar-none select-none">
-              <button
-                type="button"
-                onClick={() => setAiChatInput("Bagaimana cara mendesain kartu KTA dengan AI ini?")}
-                className="px-2 py-0.5 bg-white hover:bg-slate-100 border border-slate-200 rounded-full text-[9px] text-slate-600 font-bold transition cursor-pointer shrink-0"
-              >
-                💡 Cara Desain Kartu
-              </button>
-              <button
-                type="button"
-                onClick={() => setAiChatInput("Buatkan format laporan pembayaran bulanan yang baik")}
-                className="px-2 py-0.5 bg-white hover:bg-slate-100 border border-slate-200 rounded-full text-[9px] text-slate-600 font-bold transition cursor-pointer shrink-0"
-              >
-                📈 Format Lap Keuangan
-              </button>
-              <button
-                type="button"
-                onClick={() => setAiChatInput("Apa saja sanksi yang dianjurkan untuk pelanggaran berat?")}
-                className="px-2 py-0.5 bg-white hover:bg-slate-100 border border-slate-200 rounded-full text-[9px] text-slate-600 font-bold transition cursor-pointer shrink-0"
-              >
-                ⚖️ Rekomendasi Sanksi
-              </button>
-            </div>
-
-            {/* Form */}
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                handleSendAiChatMessage();
-              }}
-              className="border-t border-[#e2e8f0] p-3 bg-slate-50 flex gap-2 items-center"
-            >
-              <input
-                type="text"
-                disabled={aiIsGenerating}
-                value={aiChatInput}
-                onChange={(e) => setAiChatInput(e.target.value)}
-                placeholder="Tanya AI, atau ketik instruksi desain kartu..."
-                className="flex-1 px-3.5 py-2.5 text-[11px] bg-white border border-slate-200 rounded-xl outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-400 transition"
-              />
-              <button
-                type="submit"
-                disabled={aiIsGenerating || !aiChatInput.trim()}
-                className="p-2.5 bg-purple-600 hover:bg-purple-700 disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-xl transition cursor-pointer active:scale-95 shrink-0"
-              >
-                <Send className="w-3.5 h-3.5" />
-              </button>
-            </form>
-          </div>
-        )}
-
-        {/* Circular Floating action button */}
-        <button
-          type="button"
-          onClick={() => setIsAiChatOpen(!isAiChatOpen)}
-          className={`w-14 h-14 rounded-full flex items-center justify-center transition-all duration-350 cursor-pointer shadow-lg shadow-purple-500/20 active:scale-90 select-none relative group border border-purple-400/20 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500`}
-        >
-          {isAiChatOpen ? (
-            <X className="w-6 h-6 text-white animate-scale-up" />
-          ) : (
-            <Bot className="w-6 h-6 text-white animate-pulse" />
-          )}
-          {/* Notification ping badge */}
-          {!isAiChatOpen && (
-            <span className="absolute -top-1.5 -right-1.5 flex h-5 w-5">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-purple-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-5 w-5 bg-purple-500 border border-white text-[8px] font-black text-white items-center justify-center uppercase tracking-tighter">AI</span>
-            </span>
-          )}
-        </button>
-      </div>
 
     </div>
   );

@@ -1,4 +1,4 @@
-import { Anggota, Pembayaran, Prestasi, Pelanggaran, Absensi, Informasi } from './types';
+import { Anggota, Pembayaran, Prestasi, Pelanggaran, Absensi, Informasi, Banner } from './types';
 
 declare global {
   interface Window {
@@ -18,8 +18,11 @@ const STORAGE_KEYS: Record<string, string> = {
   'PELANGGARAN': 'panel_pelanggaran',
   'ABSENSI': 'panel_absensi',
   'INFORMASI': 'panel_informasi',
+  'INFORMASI ADMIN': 'panel_informasi_admin',
   'SURAT': 'panel_surat',
   'PERATURAN': 'panel_peraturan',
+  'BANNER': 'panel_banner',
+  'LOG NOTIFIKASI': 'panel_log_notifikasi',
 };
 
 // All mock/bot data arrays are completely empty, keeping only clean user-generated or synced data
@@ -31,6 +34,7 @@ const defaultAbsensi: Absensi[] = [];
 const defaultInformasi: Informasi[] = [];
 const defaultSurat: any[] = [];
 const defaultPeraturan: any[] = [];
+const defaultBanners: Banner[] = [];
 
 export function initializeDatabase() {
   const isLoggedIn = localStorage.getItem('status_login') === 'true';
@@ -42,6 +46,7 @@ export function initializeDatabase() {
   const inf = isLoggedIn ? [] : defaultInformasi;
   const srt = isLoggedIn ? [] : defaultSurat;
   const reg = isLoggedIn ? [] : defaultPeraturan;
+  const ban = isLoggedIn ? [] : defaultBanners;
 
   if (!localStorage.getItem(STORAGE_KEYS['DATA ANGGOTA'])) {
     localStorage.setItem(STORAGE_KEYS['DATA ANGGOTA'], JSON.stringify(members));
@@ -66,6 +71,12 @@ export function initializeDatabase() {
   }
   if (!localStorage.getItem(STORAGE_KEYS['PERATURAN'])) {
     localStorage.setItem(STORAGE_KEYS['PERATURAN'], JSON.stringify(reg));
+  }
+  if (!localStorage.getItem(STORAGE_KEYS['BANNER'])) {
+    localStorage.setItem(STORAGE_KEYS['BANNER'], JSON.stringify(ban));
+  }
+  if (!localStorage.getItem(STORAGE_KEYS['INFORMASI ADMIN'])) {
+    localStorage.setItem(STORAGE_KEYS['INFORMASI ADMIN'], JSON.stringify([]));
   }
 
   // FORCE RETROACTIVE CLEANUP OF OLD MOCK BOTS IN LOCAL STORAGE
@@ -218,10 +229,16 @@ function getIdKeyForSheet(sheetName: string): string {
       return 'idAbsensi';
     case 'INFORMASI':
       return 'idInformasi';
+    case 'INFORMASI ADMIN':
+      return 'idInformasiAdmin';
     case 'SURAT':
       return 'idSurat';
     case 'PERATURAN':
       return 'idPeraturan';
+    case 'BANNER':
+      return 'idBanner';
+    case 'LOG NOTIFIKASI':
+      return 'idLog';
     default:
       return 'id';
   }

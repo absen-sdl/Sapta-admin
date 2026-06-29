@@ -228,6 +228,9 @@ function getPrimaryKeyHeaderForSheet(sheetName) {
   if (sName.indexOf("PERATURAN") !== -1 || sName.indexOf("ATURAN") !== -1 || sName.indexOf("REGULASI") !== -1) {
     return "idperaturan";
   }
+  if (sName.indexOf("BANNER") !== -1 || sName.indexOf("SLIDER") !== -1) {
+    return "idbanner";
+  }
   return "id";
 }
 
@@ -364,7 +367,13 @@ function getObjectValueByHeaderName(obj, colHeader) {
     // PERATURAN
     "idperaturan": ["idPeraturan", "idperaturan", "id"],
     "sanksi": ["sanksi", "konsekuensi", "hukuman"],
-    "status": ["status", "tingkat", "statuspelanggaran", "statusPelanggaran", "st"]
+    "status": ["status", "tingkat", "statuspelanggaran", "statusPelanggaran", "st"],
+
+    // BANNER
+    "idbanner": ["idBanner", "idbanner", "id"],
+    "linkfoto": ["linkFoto", "linkfoto", "foto", "photo", "gambar", "banner"],
+    "linkartikel": ["linkArtikel", "linkartikel", "artikel", "link", "sumber", "url"],
+    "tanggalinput": ["tanggalInput", "tanggalinput", "tanggal", "date"]
   };
 
   if (mappings[cleanHeader]) {
@@ -420,6 +429,9 @@ function getDefaultHeaders(sheetName) {
   }
   if (sName.indexOf("PERATURAN") !== -1 || sName.indexOf("ATURAN") !== -1 || sName.indexOf("REGULASI") !== -1) {
     return ["ID Peraturan", "Judul", "Sanksi", "Tingkat"];
+  }
+  if (sName.indexOf("BANNER") !== -1 || sName.indexOf("SLIDER") !== -1) {
+    return ["idBanner", "linkFoto", "linkArtikel", "tanggalInput"];
   }
   return ["id"];
 }

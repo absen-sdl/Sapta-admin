@@ -8,15 +8,18 @@
 
 // Konfigurasi Skema Struktur Kolom Sesuai Permintaan Anda
 var SHEET_SCHEMAS = {
-  "KELOLA AKUN": ["Nama", "username", "pasword", "remove menu"],
-  "DATA ANGGOTA": ["NIA", "Nama Lengkap", "Tempat Lahir", "Tanggal Lahir", "Jenis Kelamin", "Jenjang Pendidikan", "Nama Sekolah", "Kelas", "Alamat", "No Hp", "E-Mail", "PIN", "Link-Profile", "Status"],
-  "PEMBAYARAN": ["ID Transaksi", "Tanggal", "Nia", "Nama Lengkap", "Nama Tagihan", "Keterangan", "Nominal", "Status", "Tercetak"],
-  "PRESTASI": ["ID Prestasi", "Tanggal", "NIA", "Nama lengkap", "Jenis Prestasi", "Deskripsi", "Link-foto"],
-  "PELANGGARAN": ["ID Pelanggaran", "Tanggal", "NIA", "Nama", "Jenis Pelanggaran", "Nama Pelanggaran", "Keterangan", "Ada Denda", "Nominal Denda", "Jenis Hukuman", "Status Tindak Lanjut"],
+  "KELOLA AKUN": ["Nama", "username", "pasword", "remove menu", "edit/add by"],
+  "DATA ANGGOTA": ["NIA", "Nama Lengkap", "Tempat Lahir", "Tanggal Lahir", "Jenis Kelamin", "Jenjang Pendidikan", "Nama Sekolah", "Kelas", "Alamat", "No Hp", "E-Mail", "PIN", "Link-Profile", "Status", "edit/add by"],
+  "PEMBAYARAN": ["ID Transaksi", "Tanggal", "Nia", "Nama Lengkap", "Nama Tagihan", "Keterangan", "Nominal", "Status", "Tercetak", "edit/add by"],
+  "PRESTASI": ["ID Prestasi", "Tanggal", "NIA", "Nama lengkap", "Jenis Prestasi", "Deskripsi", "Link-foto", "edit/add by"],
+  "PELANGGARAN": ["ID Pelanggaran", "Tanggal", "NIA", "Nama", "Jenis Pelanggaran", "Nama Pelanggaran", "Keterangan", "Ada Denda", "Nominal Denda", "Jenis Hukuman", "Status Tindak Lanjut", "edit/add by"],
   "ABSENSI": ["NIA", "Nama Lengkap", "Kelas", "Tanggal", "Waktu", "Status", "Keterangan"], // Hanya Baca
-  "INFORMASI": ["idInformasi", "Judul", "Isi", "Jenis kegiatan", "Tanggal", "Waktu"],
-  "SURAT": ["ID Surat", "Tanggal", "NIA", "Nama", "Perihal", "Link Dokumen"],
-  "PERATURAN": ["ID Peraturan", "Judul", "Sanksi", "Status"]
+  "INFORMASI": ["idInformasi", "Judul", "Isi", "Jenis kegiatan", "Tanggal", "Waktu", "edit/add by"],
+  "INFORMASI ADMIN": ["idInformasiAdmin", "Judul", "Isi", "Jenis kegiatan", "Tanggal", "Waktu", "edit/add by"],
+  "BANNER": ["ID Banner", "Judul", "Link Foto", "Link Artikel", "Tanggal Input", "edit/add by"],
+  "SURAT": ["ID Surat", "Tanggal", "NIA", "Nama", "Perihal", "Link Dokumen", "edit/add by"],
+  "PERATURAN": ["ID Peraturan", "Judul", "Sanksi", "Status", "edit/add by"],
+  "LOG NOTIFIKASI": ["ID Log", "Tanggal", "Operator", "Tipe Aksi", "Menu", "Keterangan"]
 };
 
 // Menambahkan menu khusus di Google Sheets saat dokumen dibuka untuk memudahkan pembuatan kolom otomatis
@@ -145,12 +148,18 @@ function doPost(e) {
       case "add":
       case "insert":
       case "create":
-        return addData(sheetName, data);
+        var resAdd = addData(sheetName, data);
+        writeLogActivity(action, sheetName, data, targetId);
+        return resAdd;
       case "edit":
       case "update":
-        return updateData(sheetName, targetId, data);
+        var resEdit = updateData(sheetName, targetId, data);
+        writeLogActivity(action, sheetName, data, targetId);
+        return resEdit;
       case "delete":
-        return deleteData(sheetName, targetId);
+        var resDelete = deleteData(sheetName, targetId);
+        writeLogActivity(action, sheetName, data, targetId);
+        return resDelete;
       default:
         return createJsonResponse({ error: "Aksi '" + action + "' tidak dikenali." });
     }
@@ -417,4 +426,70 @@ function getActiveSpreadsheetRobust() {
 function createJsonResponse(data) {
   return ContentService.createTextOutput(JSON.stringify(data))
       .setMimeType(ContentService.MimeType.JSON);
+}
+
+/**
+ * FUNGSI MENCATAT NOTIFIKASI AKTIVITAS KE SHEET "LOG NOTIFIKASI"
+ */
+function writeLogActivity(action, sheetName, data, targetId) {
+  if (sheetName === "LOG NOTIFIKASI") return;
+  
+  try {
+    var ss = getActiveSpreadsheetRobust();
+    var sheet = ss.getSheetByName("LOG NOTIFIKASI");
+    if (!sheet) {
+      sheet = ss.insertSheet("LOG NOTIFIKASI");
+      var headers = ["ID Log", "Tanggal", "Operator", "Tipe Aksi", "Menu", "Keterangan"];
+      sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+      sheet.getRange(1, 1, 1, headers.length).setFontWeight("bold").setBackground("#f1f5f9").setHorizontalAlignment("center");
+      sheet.setFrozenRows(1);
+    }
+    
+    // Tentukan nama Operator
+    var operator = "Super Admin";
+    if (data) {
+      operator = getObjectValueCaseInsensitive(data, "edit/add by") || 
+                 getObjectValueCaseInsensitive(data, "operator") || 
+                 getObjectValueCaseInsensitive(data, "Nama Lengkap") ||
+                 "Super Admin";
+    }
+    
+    var timestamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone() || "GMT+7", "yyyy-MM-dd HH:mm:ss");
+    var logId = "LOG-" + Math.floor(100000 + Math.random() * 900000);
+    
+    // Tipe Aksi
+    var actionType = "";
+    if (action === "add" || action === "insert" || action === "create") {
+      actionType = "TAMBAH";
+    } else if (action === "edit" || action === "update") {
+      actionType = "UBAH";
+    } else if (action === "delete") {
+      actionType = "HAPUS";
+    } else {
+      actionType = action.toString().toUpperCase();
+    }
+    
+    // Keterangan
+    var description = "";
+    var nameField = getObjectValueCaseInsensitive(data, "Nama Lengkap") || 
+                    getObjectValueCaseInsensitive(data, "Nama") || 
+                    getObjectValueCaseInsensitive(data, "Judul") || 
+                    "";
+                    
+    if (actionType === "TAMBAH") {
+      description = "Menambahkan data baru di " + sheetName + (nameField ? " (" + nameField + ")" : "") + (targetId ? " ID: " + targetId : "");
+    } else if (actionType === "UBAH") {
+      description = "Mengubah data di " + sheetName + (targetId ? " ID: " + targetId : "") + (nameField ? " (" + nameField + ")" : "");
+    } else if (actionType === "HAPUS") {
+      description = "Menghapus data di " + sheetName + (targetId ? " ID: " + targetId : "") + (nameField ? " (" + nameField + ")" : "");
+    } else {
+      description = "Melakukan aksi " + actionType + " di " + sheetName;
+    }
+    
+    var rowValues = [logId, timestamp, operator, actionType, sheetName, description];
+    sheet.appendRow(rowValues);
+  } catch (err) {
+    // Tangkap error secara tenang agar tidak menginterupsi proses CRUD utama
+    console.error("Gagal mencatat log aktivitas:", err.toString());
+  }
 }

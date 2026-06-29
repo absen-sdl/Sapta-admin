@@ -48,12 +48,14 @@ import {
   ExternalLink,
   Download,
   Sparkles,
-  Bot
+  ArrowLeft,
+  Bot,
+  Bell
 } from 'lucide-react';
 
 import { initializeDatabase } from './dataSdk';
 import { parseCSV, generateId, formatRupiah, formatDateString, getProp, terbilang } from './utils';
-import { Anggota, Pembayaran, Prestasi, Pelanggaran, Absensi, Informasi, Surat, Peraturan, ActiveTab, ToastMessage } from './types';
+import { Anggota, Pembayaran, Prestasi, Pelanggaran, Absensi, Informasi, Surat, Peraturan, ActiveTab, ToastMessage, Banner, LogNotifikasi } from './types';
 import { GOOGLE_APPS_SCRIPT_CODE } from './googleAppsScriptCode';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -253,6 +255,8 @@ function getRowPrimaryKey(tab: string, row: any): string {
     return String(getProp(row, 'idSurat', 'idsurat', 'id') || '').trim();
   } else if (tab === 'peraturan') {
     return String(getProp(row, 'idPeraturan', 'idperaturan', 'id') || '').trim();
+  } else if (tab === 'banner') {
+    return String(getProp(row, 'idBanner', 'idbanner', 'id') || '').trim();
   }
   return '';
 }
@@ -380,6 +384,7 @@ export default function App() {
   // Custom sidebar and dashboard view states
   const [isBiodataOpen, setIsBiodataOpen] = useState<boolean>(true);
   const [currentTime, setCurrentTime] = useState<Date>(new Date());
+  const [informasiSubView, setInformasiSubView] = useState<'menu' | 'list'>('menu');
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -414,6 +419,42 @@ export default function App() {
   const [informasiList, setInformasiList] = useState<Informasi[]>([]);
   const [suratList, setSuratList] = useState<Surat[]>([]);
   const [peraturanList, setPeraturanList] = useState<Peraturan[]>([]);
+  const [bannerList, setBannerList] = useState<Banner[]>([]);
+  const [activeBannerIndex, setActiveBannerIndex] = useState<number>(0);
+  const [notificationList, setNotificationList] = useState<LogNotifikasi[]>([]);
+  const [isNotificationOpen, setIsNotificationOpen] = useState<boolean>(false);
+  const [lastReadLogId, setLastReadLogId] = useState<string>(() => localStorage.getItem('last_read_log_id') || '');
+
+  const unreadCount = useMemo(() => {
+    if (notificationList.length === 0) return 0;
+    if (!lastReadLogId) return notificationList.length;
+    const lastIndex = notificationList.findIndex(n => String(n.idLog) === String(lastReadLogId));
+    if (lastIndex === -1) return notificationList.length;
+    return lastIndex; // Because notificationList is newest-first, items before lastIndex are unread!
+  }, [notificationList, lastReadLogId]);
+
+  const handleOpenNotifications = () => {
+    setIsNotificationOpen(!isNotificationOpen);
+    if (notificationList.length > 0) {
+      const latestId = notificationList[0].idLog;
+      setLastReadLogId(latestId);
+      localStorage.setItem('last_read_log_id', latestId);
+    }
+  };
+
+  const notificationRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (notificationRef.current && !notificationRef.current.contains(event.target as Node)) {
+        setIsNotificationOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
 
   // Integration Settings
   const [isLoggedIn, setIsLoggedIn] = useState<boolean>(() => {
@@ -605,6 +646,7 @@ export default function App() {
         if (tab === 'informasi' && (term.includes('informasi') || term.includes('info') || term.includes('kabar') || term.includes('pengumuman'))) return true;
         if (tab === 'surat' && (term.includes('surat') || term.includes('dokumen') || term.includes('letter'))) return true;
         if (tab === 'peraturan' && (term.includes('aturan') || term.includes('peraturan') || term.includes('regulasi'))) return true;
+        if (tab === 'banner' && (term.includes('banner') || term.includes('slider') || term.includes('kelola banner'))) return true;
         return false;
       };
       if (removedList.some(term => matchesTab(term))) {
@@ -845,13 +887,15 @@ export default function App() {
       refreshAllData();
 
     } catch (err: any) {
-      console.error("Gagal cetak direct WebUSB:", err);
       const errMsg = String(err);
-      if (errMsg.includes("permissions policy") || errMsg.includes("disallowed")) {
-        addToast("Akses WebUSB dilarang oleh kebijakan iframe. Silakan klik 'Buka di Tab Baru' di pojok kanan atas untuk mencetak!", "error");
-      } else if (errMsg.includes("No device selected") || errMsg.includes("NotFoundError") || errMsg.includes("not selected")) {
+      if (errMsg.includes("No device selected") || errMsg.includes("NotFoundError") || errMsg.includes("not selected")) {
+        console.warn("Cetak WebUSB dibatalkan oleh pengguna:", err);
         addToast("Pemilihan printer USB dibatalkan.", "info");
+      } else if (errMsg.includes("permissions policy") || errMsg.includes("disallowed")) {
+        console.warn("Cetak WebUSB dilarang oleh kebijakan iframe:", err);
+        addToast("Akses WebUSB dilarang oleh kebijakan iframe. Silakan klik 'Buka di Tab Baru' di pojok kanan atas untuk mencetak!", "error");
       } else {
+        console.error("Gagal cetak direct WebUSB:", err);
         addToast(`Gagal cetak direct WebUSB: ${err.message || err}`, "error");
       }
     }
@@ -1451,6 +1495,25 @@ export default function App() {
             judul: String(getProp(item, 'judul', 'judulperaturan', 'peraturan', 'rule') || '').trim(),
             sanksi: String(getProp(item, 'sanksi', 'konsekuensi', 'hukuman') || '').trim(),
             status: String(getProp(item, 'status', 'tingkat', 'statuspelanggaran') || 'Ringan').trim() as any
+          }));
+
+          // Sync BANNER (Banners Data)
+          await fetchAndSyncSheet('BANNER', 'idBanner', (item: any, idx: number) => ({
+            idBanner: String(getProp(item, 'idBanner', 'idbanner', 'id') || `BAN-CL-${idx + 10001}`).trim(),
+            judul: String(getProp(item, 'judul', 'judulbanner', 'title') || '').trim(),
+            linkFoto: String(getProp(item, 'linkFoto', 'linkfoto', 'foto', 'photo', 'gambar') || '').trim(),
+            linkArtikel: String(getProp(item, 'linkArtikel', 'linkartikel', 'artikel', 'url') || '').trim(),
+            tanggalInput: String(getProp(item, 'tanggalInput', 'tanggalinput', 'tanggal', 'date') || '').trim()
+          }));
+
+          // Sync LOG NOTIFIKASI (Notification Logs)
+          await fetchAndSyncSheet('LOG NOTIFIKASI', 'idLog', (item: any, idx: number) => ({
+            idLog: String(getProp(item, 'idLog', 'idlog', 'id') || `LOG-CL-${idx + 10001}`).trim(),
+            tanggal: String(getProp(item, 'tanggal', 'tgl', 'date', 'timestamp') || '').trim(),
+            operator: String(getProp(item, 'operator', 'user', 'admin') || 'Super Admin').trim(),
+            tipeAksi: String(getProp(item, 'tipeAksi', 'tipeaksi', 'aksi', 'action') || '').trim(),
+            menu: String(getProp(item, 'menu', 'sheet') || '').trim(),
+            keterangan: String(getProp(item, 'keterangan', 'desc', 'keterangan') || '').trim()
           }));
 
           // 2. ABSENSI (read 100% from Google Apps Script Web App as requested)
@@ -3058,7 +3121,8 @@ Schema requirements:
         username: usernameVal,
         pasword: passwordVal,
         remove_menu: subAccountFormValues.remove_menu,
-        menu: ''
+        menu: '',
+        'edit/add by': localStorage.getItem('USER_NAMA') || localStorage.getItem('USER_USERNAME') || 'Super Admin'
       }
     };
 
@@ -3167,6 +3231,9 @@ Schema requirements:
   const [modalTargetTab, setModalTargetTab] = useState<Exclude<ActiveTab, 'dashboard' | 'absensi' | 'pengaturan'>>('anggota');
   const [editTargetId, setEditTargetId] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [bannerUploadMethod, setBannerUploadMethod] = useState<'upload' | 'url'>('url');
+  const [memberUploadMethod, setMemberUploadMethod] = useState<'upload' | 'url'>('url');
+  const [prestasiUploadMethod, setPrestasiUploadMethod] = useState<'upload' | 'url'>('url');
   
   // Dynamic Form Fields state
   const [formValues, setFormValues] = useState<Record<string, any>>({});
@@ -3273,11 +3340,24 @@ Schema requirements:
     setInformasiList(window.dataSdk.read('INFORMASI'));
     setSuratList(window.dataSdk.read('SURAT'));
     setPeraturanList(window.dataSdk.read('PERATURAN'));
+    setBannerList(window.dataSdk.read('BANNER'));
+    
+    const logs = window.dataSdk.read('LOG NOTIFIKASI') || [];
+    setNotificationList([...logs].reverse());
   };
 
   useEffect(() => {
     refreshAllData();
   }, []);
+
+  // Auto-scroll banner slides every 5 seconds
+  useEffect(() => {
+    if (bannerList.length <= 1) return;
+    const interval = setInterval(() => {
+      setActiveBannerIndex((prev) => (prev + 1) % bannerList.length);
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [bannerList]);
 
   // Close custom drop search when clicking outside
   useEffect(() => {
@@ -3751,7 +3831,7 @@ Schema requirements:
           { name: 'noHp', label: 'No Hp', type: 'text', placeholder: '08xxxxxxxxxx' },
           { name: 'email', label: 'E-Mail', type: 'text', placeholder: 'alamat@email.com' },
           { name: 'key', label: 'PIN', type: 'text', placeholder: 'Ketik PIN login' },
-          { name: 'linkProfile', label: 'Link-Profile', type: 'text', placeholder: 'https://images.unsplash.com/...' },
+          { name: 'linkProfile', label: 'Profile', type: 'text', placeholder: 'https://images.unsplash.com/...' },
           { name: 'status', label: 'Status', type: 'select', options: ['Aktif', 'Non-Aktif', 'Alumni'], required: true }
         ]
       },
@@ -3775,7 +3855,7 @@ Schema requirements:
           { name: 'nia', label: 'Pilih Anggota', type: 'dropdown-search', required: true },
           { name: 'jenisPrestasi', label: 'Jenis Kategori Prestasi', type: 'select', options: ['Akademik', 'Sains', 'Olahraga', 'Seni', 'Agama', 'Sosial', 'Lainnya'], required: true },
           { name: 'deskripsi', label: 'Deskripsi / Detail Penghargaan', type: 'textarea', required: true, placeholder: 'Contoh: Juara 1 Kejuaraan Karate antar wilayah se-DKI' },
-          { name: 'linkFoto', label: 'Link Foto Piagam/Piala (URL)', type: 'text', placeholder: 'URL gambar piala atau sertifikat' }
+          { name: 'linkFoto', label: 'Foto piagam/lomba', type: 'text', placeholder: 'URL gambar piala atau sertifikat' }
         ]
       },
       pelanggaran: {
@@ -3822,6 +3902,15 @@ Schema requirements:
           { name: 'sanksi', label: 'Sanksi / Konsekuensi', type: 'textarea', required: true, placeholder: 'Tulis penjelasan sanksi/konsekuensi regulasi ini...' },
           { name: 'status', label: 'Status Pelanggaran (Mekanisme)', type: 'select', options: ['Ringan', 'Sedang', 'Berat'], required: true }
         ]
+      },
+      banner: {
+        title: modalType === 'add' ? 'Tambah Banner Informasi' : 'Edit Banner Informasi',
+        sheetName: 'BANNER',
+        fields: [
+          { name: 'judul', label: 'Judul Banner', type: 'text', required: true, placeholder: 'Contoh: Selamat Datang / Informasi Pendaftaran Baru' },
+          { name: 'linkFoto', label: 'Link Foto / Gambar Banner (URL)', type: 'text', required: true, placeholder: 'https://images.unsplash.com/... atau link foto banner' },
+          { name: 'linkArtikel', label: 'Link Artikel / Sumber (URL)', type: 'text', required: true, placeholder: 'https://... link artikel atau sumber info' }
+        ]
       }
     };
   }, [modalType]);
@@ -3844,6 +3933,8 @@ Schema requirements:
     } else if (tab === 'prestasi') {
       initialVals.tanggal = today;
       initialVals.jenisPrestasi = 'Akademik';
+      initialVals.linkFoto = '';
+      setPrestasiUploadMethod('url');
     } else if (tab === 'pelanggaran') {
       initialVals.tanggal = today;
       initialVals.jenisPelanggaran = 'Ringan';
@@ -3854,6 +3945,8 @@ Schema requirements:
       initialVals.status = 'Aktif';
       initialVals.jenisKelamin = 'Laki-laki';
       initialVals.jenjangPendidikan = 'SMA';
+      initialVals.linkProfile = '';
+      setMemberUploadMethod('url');
     } else if (tab === 'informasi') {
       initialVals.tanggal = today;
       initialVals.waktu = '09:00 WIB';
@@ -3866,6 +3959,11 @@ Schema requirements:
       initialVals.status = 'Ringan';
       initialVals.judul = '';
       initialVals.sanksi = '';
+    } else if (tab === 'banner') {
+      initialVals.judul = '';
+      initialVals.linkFoto = '';
+      initialVals.linkArtikel = '';
+      setBannerUploadMethod('url');
     }
     
     setFormValues(initialVals);
@@ -3877,6 +3975,17 @@ Schema requirements:
     setModalTargetTab(tab);
     setModalType('edit');
     setModalSelectedKelas('Semua');
+    
+    if (tab === 'banner') {
+      const isBase64 = String(row.linkFoto || '').startsWith('data:image/');
+      setBannerUploadMethod(isBase64 ? 'upload' : 'url');
+    } else if (tab === 'anggota') {
+      const isBase64 = String(row.linkProfile || '').startsWith('data:image/');
+      setMemberUploadMethod(isBase64 ? 'upload' : 'url');
+    } else if (tab === 'prestasi') {
+      const isBase64 = String(row.linkFoto || '').startsWith('data:image/');
+      setPrestasiUploadMethod(isBase64 ? 'upload' : 'url');
+    }
     
     // Map ID keys using robust helper
     const idValue = getRowPrimaryKey(tab, row);
@@ -3893,6 +4002,40 @@ Schema requirements:
     }
     
     setIsModalOpen(true);
+  };
+
+  // --- WRITE LOCAL ACTIVITY LOG HELPER ---
+  const writeLocalActivityLog = (action: 'add' | 'edit' | 'delete', sheetName: string, data: any, targetId: string) => {
+    try {
+      const activeOperator = localStorage.getItem('USER_NAMA') || localStorage.getItem('USER_USERNAME') || 'Super Admin';
+      const logId = 'LOG-' + Math.floor(100000 + Math.random() * 900000);
+      const timestamp = new Date().toLocaleString('id-ID', { hour12: false });
+      
+      const actionType = action === 'add' ? 'TAMBAH' : action === 'edit' ? 'UBAH' : 'HAPUS';
+      const nameField = data?.namaLengkap || data?.nama || data?.judul || '';
+      
+      let description = '';
+      if (actionType === 'TAMBAH') {
+        description = `Menambahkan data baru di ${sheetName}${nameField ? ` (${nameField})` : ''}${targetId ? ` ID: ${targetId}` : ''}`;
+      } else if (actionType === 'UBAH') {
+        description = `Mengubah data di ${sheetName}${targetId ? ` ID: ${targetId}` : ''}${nameField ? ` (${nameField})` : ''}`;
+      } else if (actionType === 'HAPUS') {
+        description = `Menghapus data di ${sheetName}${targetId ? ` ID: ${targetId}` : ''}${nameField ? ` (${nameField})` : ''}`;
+      }
+      
+      const logItem = {
+        idLog: logId,
+        tanggal: timestamp,
+        operator: activeOperator,
+        tipeAksi: actionType,
+        menu: sheetName,
+        keterangan: description
+      };
+      
+      window.dataSdk.create('LOG NOTIFIKASI', logItem);
+    } catch (e) {
+      console.warn("Gagal membuat log aktivitas lokal:", e);
+    }
   };
 
   // --- SUBMIT FORM HANDLER (PARALLEL & ANTI-STUCK) ---
@@ -3962,6 +4105,10 @@ Schema requirements:
       } else if (modalTargetTab === 'peraturan') {
         primaryKey = generateId('REG');
         submissionData.idPeraturan = primaryKey;
+      } else if (modalTargetTab === 'banner') {
+        primaryKey = generateId('BAN');
+        submissionData.idBanner = primaryKey;
+        submissionData.tanggalInput = new Date().toISOString().split('T')[0];
       } else {
         primaryKey = submissionData.nia;
         submissionData.tanggalDaftar = new Date().toISOString().split('T')[0];
@@ -3981,13 +4128,15 @@ Schema requirements:
         submissionData.idSurat = primaryKey;
       } else if (modalTargetTab === 'peraturan') {
         submissionData.idPeraturan = primaryKey;
+      } else if (modalTargetTab === 'banner') {
+        submissionData.idBanner = primaryKey;
       } else {
         submissionData.nia = primaryKey;
       }
     }
 
     // Auto-populate Name field in transaction databases by matching NIA
-    if (modalTargetTab !== 'anggota' && modalTargetTab !== 'informasi' && modalTargetTab !== 'peraturan') {
+    if (modalTargetTab !== 'anggota' && modalTargetTab !== 'informasi' && modalTargetTab !== 'peraturan' && modalTargetTab !== 'banner') {
       const selectedNia = submissionData.nia;
       if (selectedNia && selectedNia !== 'ALL_MEMBERS') {
         const matchedMember = anggotaList.find(m => String(m.nia) === String(selectedNia));
@@ -3997,6 +4146,10 @@ Schema requirements:
         }
       }
     }
+
+    // Set administrator who did the add/edit operation (only for Sheets, doesn't render in app UI tables)
+    const activeOperator = localStorage.getItem('USER_NAMA') || localStorage.getItem('USER_USERNAME') || 'Super Admin';
+    submissionData['edit/add by'] = activeOperator;
 
     const isBulk = modalTargetTab === 'pembayaran' && submissionData.nia === 'ALL_MEMBERS';
     let recordsToSync: { data: any; targetId: string }[] = [];
@@ -4143,10 +4296,15 @@ Schema requirements:
             });
           })
         );
+        // Automatically fetch latest data from Google Sheets to completely sync up
+        syncDataFromCloudUrls();
       } catch (cloudErr) {
         console.error("Gagal sinkronisasi data ke cloud Google Apps Script:", cloudErr);
       }
     };
+
+    // Log the action locally
+    writeLocalActivityLog(modalType, sheetName, submissionData, primaryKey);
 
     // Run parallelly without awaiting to ensure frictionless user execution
     syncToAppsScript();
@@ -4217,6 +4375,8 @@ Schema requirements:
       sheetName = 'SURAT';
     } else if (tab === 'peraturan') {
       sheetName = 'PERATURAN';
+    } else if (tab === 'banner') {
+      sheetName = 'BANNER';
     }
 
     const targetId = getRowPrimaryKey(tab, row);
@@ -4224,6 +4384,8 @@ Schema requirements:
     // 1. Local Delete with try-catch
     try {
       window.dataSdk.delete(sheetName, targetId);
+      // Write log locally
+      writeLocalActivityLog('delete', sheetName, row, targetId);
       refreshAllData(); // Refresh local list state immediately!
     } catch (localErr) {
       console.warn("Bypass local delete error:", localErr);
@@ -4250,6 +4412,8 @@ Schema requirements:
           },
           body: JSON.stringify(payload)
         });
+        // Automatically fetch latest data from Google Sheets to completely sync up
+        syncDataFromCloudUrls();
       } catch (cloudErr) {
         console.error("Gagal sinkron data hapus dari cloud:", cloudErr);
       }
@@ -4677,6 +4841,7 @@ Schema requirements:
     setSearchNamaQuery('');
     setIsNamaDropdownOpen(false);
     setIsSidebarOpen(false);
+    setInformasiSubView('menu');
   };
 
   const uniqueLembagaList = useMemo(() => {
@@ -5409,6 +5574,7 @@ Schema requirements:
                  activeTab === 'informasi' ? 'Informasi' :
                  activeTab === 'surat' ? 'Surat' :
                  activeTab === 'peraturan' ? 'Peraturan' :
+                 activeTab === 'banner' ? 'Kelola Banner' :
                  activeTab === 'kelola_akun' ? 'Kelola Akun' :
                  activeTab === 'cetak_data' ? 'Simpan PDF & Data' :
                  activeTab.replace('-', ' ')}
@@ -5425,8 +5591,8 @@ Schema requirements:
             </div>
           )}
 
-          {/* Centered Search Bar for all menus except dashboard, pengaturan, kelola_akun, and cetak_data */}
-          {activeTab !== 'dashboard' && activeTab !== 'pengaturan' && activeTab !== 'kelola_akun' && activeTab !== 'cetak_data' && (
+          {/* Centered Search Bar for all menus except dashboard, pengaturan, kelola_akun, cetak_data, and banner */}
+          {activeTab !== 'dashboard' && activeTab !== 'pengaturan' && activeTab !== 'kelola_akun' && activeTab !== 'cetak_data' && activeTab !== 'banner' && (activeTab !== 'informasi' || informasiSubView !== 'menu') && (
             <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-10 w-28 xs:w-36 sm:w-48 md:w-64">
               <div className="flex items-center bg-[#f1f5f9]/70 px-2 sm:px-4 py-1 sm:py-1.5 rounded-lg gap-1.5 border border-transparent focus-within:border-indigo-300 focus-within:bg-white transition-all duration-200">
                 <Search className="w-3.5 h-3.5 text-[#94a3b8] shrink-0" />
@@ -5452,7 +5618,7 @@ Schema requirements:
 
           <div className="flex items-center space-x-1.5 sm:space-x-3 z-0">
             {/* Dynamic Tambah Data Trigger (Exclude dashboard, absensi, pengaturan, kelola_akun, and cetak_data) */}
-            {activeTab !== 'dashboard' && activeTab !== 'absensi' && activeTab !== 'pengaturan' && activeTab !== 'kelola_akun' && activeTab !== 'cetak_data' && (
+            {activeTab !== 'dashboard' && activeTab !== 'absensi' && activeTab !== 'pengaturan' && activeTab !== 'kelola_akun' && activeTab !== 'cetak_data' && (activeTab !== 'informasi' || informasiSubView !== 'menu') && (
               <button
                 onClick={() => handleOpenAddModal(activeTab as any)}
                 className="flex items-center bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg px-2 sm:px-3.5 py-1 sm:py-1.5 text-[10px] sm:text-[11px] font-semibold shadow-sm shadow-indigo-600/10 transition-all duration-200 cursor-pointer hover:-translate-y-0.5 active:translate-y-0 shrink-0"
@@ -5468,11 +5634,81 @@ Schema requirements:
               onClick={() => syncDataFromCloudUrls()}
               disabled={isLoading}
               title="Muat Ulang / Perbarui Seluruh Data Aplikasi"
-              className="flex items-center gap-1 text-[10px] sm:text-[11px] bg-indigo-50 hover:bg-indigo-100 text-indigo-700 hover:text-indigo-800 border border-indigo-200/50 px-2 sm:px-3 py-1 sm:py-1.5 rounded-lg font-bold transition-all duration-200 disabled:opacity-50 cursor-pointer shadow-xs whitespace-nowrap"
+              className="flex items-center justify-center bg-indigo-50 hover:bg-indigo-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-indigo-700 dark:text-indigo-300 border border-indigo-200/50 dark:border-slate-700 p-1.5 sm:p-2 rounded-lg font-bold transition-all duration-200 disabled:opacity-50 cursor-pointer shadow-xs whitespace-nowrap"
             >
-              <RefreshCw className={`w-3 h-3 sm:w-3.5 sm:h-3.5 shrink-0 ${isLoading ? 'animate-spin' : ''}`} />
-              <span>Refresh</span>
+              <RefreshCw className={`w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0 ${isLoading ? 'animate-spin' : ''}`} />
             </button>
+
+            {/* Notification/Bell Dropdown Button */}
+            <div className="relative" ref={notificationRef}>
+              <button
+                onClick={handleOpenNotifications}
+                title="Aktivitas & Notifikasi"
+                className="flex items-center justify-center bg-indigo-50 hover:bg-indigo-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-indigo-700 dark:text-indigo-300 border border-indigo-200/50 dark:border-slate-700 p-1.5 sm:p-2 rounded-lg font-bold transition-all duration-200 cursor-pointer shadow-xs relative"
+              >
+                <Bell className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#4f46e5] dark:text-indigo-300" />
+                {unreadCount > 0 && (
+                  <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-rose-500 text-[9px] font-black text-white ring-2 ring-white dark:ring-slate-900 animate-pulse">
+                    {unreadCount}
+                  </span>
+                )}
+              </button>
+
+              {isNotificationOpen && (
+                <div className="absolute right-0 mt-2 w-80 sm:w-96 bg-white dark:bg-slate-950 rounded-xl shadow-2xl border border-slate-200/80 dark:border-slate-800/80 z-50 overflow-hidden text-left font-sans">
+                  <div className="px-4 py-3 bg-slate-50 dark:bg-slate-900 border-b border-slate-200/80 dark:border-slate-800/80 flex items-center justify-between">
+                    <h3 className="text-xs sm:text-sm font-extrabold text-slate-800 dark:text-slate-200 uppercase tracking-wider">Aktivitas & Notifikasi</h3>
+                    <span className="text-[10px] font-semibold bg-indigo-50 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300 px-2 py-0.5 rounded-full">
+                      {notificationList.length} Total
+                    </span>
+                  </div>
+                  <div className="max-h-80 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800/60">
+                    {notificationList.length === 0 ? (
+                      <div className="p-8 text-center text-slate-400 dark:text-slate-500">
+                        <Bell className="w-8 h-8 mx-auto mb-2 opacity-30 animate-bounce" />
+                        <p className="text-xs font-semibold">Belum ada aktivitas tercatat</p>
+                        <p className="text-[10px] mt-0.5 opacity-80">Setiap perubahan data (Tambah, Ubah, Hapus) akan tampil di sini.</p>
+                      </div>
+                    ) : (
+                      notificationList.map((log) => {
+                        const isNew = !lastReadLogId || notificationList.indexOf(log) < notificationList.findIndex(n => String(n.idLog) === String(lastReadLogId));
+                        const isDelete = log.tipeAksi === 'HAPUS';
+                        const isEdit = log.tipeAksi === 'UBAH';
+                        const isAdd = log.tipeAksi === 'TAMBAH';
+
+                        let badgeColor = 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300';
+                        if (isAdd) badgeColor = 'bg-emerald-50 text-emerald-700 border border-emerald-200/30 dark:bg-emerald-950/20 dark:text-emerald-400 dark:border-emerald-900/30';
+                        if (isEdit) badgeColor = 'bg-amber-50 text-amber-700 border border-amber-200/30 dark:bg-amber-950/20 dark:text-amber-400 dark:border-amber-900/30';
+                        if (isDelete) badgeColor = 'bg-rose-50 text-rose-700 border border-rose-200/30 dark:bg-rose-950/20 dark:text-rose-400 dark:border-rose-900/30';
+
+                        return (
+                          <div 
+                            key={log.idLog} 
+                            className={`p-3 sm:p-4 hover:bg-slate-50/50 dark:hover:bg-slate-900/40 transition-colors duration-150 ${isNew ? 'bg-indigo-50/20 dark:bg-indigo-950/10' : ''}`}
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <span className="text-[11px] sm:text-xs font-bold text-slate-800 dark:text-slate-200 leading-tight">
+                                {log.operator}
+                              </span>
+                              <span className={`text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded ${badgeColor}`}>
+                                {log.tipeAksi}
+                              </span>
+                            </div>
+                            <p className="text-[11px] sm:text-xs text-slate-600 dark:text-slate-400 mt-1 font-medium leading-relaxed">
+                              {log.keterangan}
+                            </p>
+                            <div className="flex items-center justify-between mt-1.5 text-[9px] text-slate-400 dark:text-slate-500 font-medium">
+                              <span>Menu: <strong className="text-slate-500 dark:text-slate-400">{log.menu}</strong></span>
+                              <span>{log.tanggal}</span>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
 
             {/* Theme toggle button - ONLY shown when activeTab is dashboard */}
             {activeTab === 'dashboard' && (
@@ -5501,7 +5737,85 @@ Schema requirements:
           {activeTab === 'dashboard' && (
             <div className="space-y-6 animate-fade-in font-sans">
               
+              {/* SLIDING BANNER CAROUSEL FOR SISWA / MEMBERS */}
+              {bannerList.length > 0 && (
+                <div className="relative w-full h-44 sm:h-56 md:h-64 rounded-2xl overflow-hidden shadow-sm border border-slate-100 group bg-slate-950">
+                  <a
+                    href={bannerList[activeBannerIndex].linkArtikel}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block w-full h-full relative"
+                  >
+                    <img
+                      src={bannerList[activeBannerIndex].linkFoto}
+                      alt={`Banner ${activeBannerIndex + 1}`}
+                      className="w-full h-full object-cover transition-all duration-700 ease-in-out hover:scale-105"
+                      referrerPolicy="no-referrer"
+                    />
+                    {/* Ambient overlay vignette */}
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent"></div>
+                    
+                    {/* Information Text */}
+                    <div className="absolute bottom-4 left-4 sm:bottom-6 sm:left-6 text-white text-left max-w-[85%]">
+                      <span className="inline-block bg-indigo-600 text-white text-[9px] font-bold tracking-wider uppercase px-2.5 py-1 rounded-full mb-2">
+                        Pemberitahuan & Informasi
+                      </span>
+                      {bannerList[activeBannerIndex].judul && (
+                        <h4 className="text-sm sm:text-lg md:text-xl font-bold tracking-tight mb-1 sm:mb-1.5 drop-shadow-md text-white line-clamp-1 leading-tight">
+                          {bannerList[activeBannerIndex].judul}
+                        </h4>
+                      )}
+                      <p className="text-[10px] sm:text-xs font-semibold opacity-90 leading-snug drop-shadow-md flex items-center gap-1.5">
+                        <span>Klik di sini untuk membaca informasi selengkapnya</span>
+                        <ExternalLink className="w-3 h-3 inline-block shrink-0" />
+                      </p>
+                    </div>
+                  </a>
 
+                  {/* Manual Arrow Controls */}
+                  {bannerList.length > 1 && (
+                    <>
+                      <button
+                        onClick={(e) => {
+                          e.preventDefault();
+                          setActiveBannerIndex((prev) => (prev - 1 + bannerList.length) % bannerList.length);
+                        }}
+                        className="absolute left-3 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-slate-900/40 hover:bg-slate-900/70 text-white flex items-center justify-center backdrop-blur-xs transition opacity-0 group-hover:opacity-100 cursor-pointer z-10 border border-white/10"
+                        title="Banner Sebelumnya"
+                      >
+                        <ChevronRight className="w-4 h-4 rotate-180" />
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.preventDefault();
+                          setActiveBannerIndex((prev) => (prev + 1) % bannerList.length);
+                        }}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-slate-900/40 hover:bg-slate-900/70 text-white flex items-center justify-center backdrop-blur-xs transition opacity-0 group-hover:opacity-100 cursor-pointer z-10 border border-white/10"
+                        title="Banner Selanjutnya"
+                      >
+                        <ChevronRight className="w-4 h-4" />
+                      </button>
+
+                      {/* Dots Slide indicator tracker */}
+                      <div className="absolute bottom-3 right-4 flex space-x-1.5 z-10">
+                        {bannerList.map((_, idx) => (
+                          <button
+                            key={idx}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              setActiveBannerIndex(idx);
+                            }}
+                            className={`w-1.5 h-1.5 rounded-full transition-all duration-300 ${
+                              activeBannerIndex === idx ? 'bg-indigo-500 w-4' : 'bg-white/40'
+                            }`}
+                            title={`Slide ${idx + 1}`}
+                          />
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
 
               {/* CORE COUNTER CARDS (STATS) */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -6243,7 +6557,7 @@ Schema requirements:
                       <th className="py-4 px-4">No Hp</th>
                       <th className="py-4 px-4">E-Mail</th>
                       <th className="py-4 px-4">PIN</th>
-                      <th className="py-4 px-4">Link-Profile</th>
+                      <th className="py-4 px-4">Profile</th>
                       <th className="py-4 px-4 text-center">Status</th>
                       <th className="py-4 px-4 text-right">Aksi</th>
                     </tr>
@@ -7009,72 +7323,199 @@ Schema requirements:
           {/* ======================= VIEW: INFORMASI ======================= */}
           {activeTab === 'informasi' && (
             <div className="space-y-6 animate-fade-in">
-              <div className="bg-white p-5 rounded-xl border border-[#e2e8f0] flex items-center justify-between shadow-sm">
-                <div>
-                  <h3 className="font-bold text-[#0f172a] text-sm">Papan Informasi & Pengumuman</h3>
-                  <p className="text-xs text-[#64748b]">Total {filteredInformasi.length} informasi dan kegiatan aktif</p>
-                </div>
-              </div>
+              
+              {informasiSubView === 'menu' ? (
+                <>
+                  {/* Header Box */}
+                  <div className="bg-white p-6 rounded-2xl border border-slate-200/80 flex flex-col md:flex-row md:items-center md:justify-between gap-4 shadow-[0_1px_3px_0_rgba(0,0,0,0.02)]">
+                    <div>
+                      <h3 className="font-extrabold text-[#0f172a] text-base tracking-tight">Informasi & Media Pengumuman</h3>
+                      <p className="text-xs text-slate-500 mt-1">Kelola publikasi info, pengumuman, serta media promosi banner aplikasi untuk siswa.</p>
+                    </div>
+                  </div>
 
-              <div className="bg-white rounded-xl border border-[#e2e8f0] overflow-hidden shadow-xs">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left border-collapse">
-                    <thead>
-                      <tr className="bg-[#f8fafc] text-[#475569] uppercase text-[10px] font-bold font-mono border-b border-[#e2e8f0]">
-                        <th className="py-4 px-6">ID Info</th>
-                        <th className="py-4 px-6">Judul</th>
-                        <th className="py-4 px-6">Isi Pengumuman</th>
-                        <th className="py-4 px-6">Jenis Kegiatan</th>
-                        <th className="py-4 px-6 text-center">Tanggal</th>
-                        <th className="py-4 px-6 text-center">Waktu</th>
-                        <th className="py-4 px-6 text-right">Aksi</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-[#f1f5f9] text-xs">
-                      {filteredInformasi.length === 0 ? (
-                        <tr>
-                          <td colSpan={7} className="py-10 text-center text-[#94a3b8]">
-                            Tidak ditemukan data informasi pengumuman.
-                          </td>
-                        </tr>
-                      ) : (
-                        filteredInformasi.map((row) => (
-                          <tr key={row.idInformasi} className="hover:bg-[#f8fafc] transition duration-150">
-                            <td className="py-4 px-6 font-mono text-[#64748b] font-bold">{row.idInformasi}</td>
-                            <td className="py-4 px-6 font-bold text-[#0f172a]">{row.judul}</td>
-                            <td className="py-4 px-6 text-[#475569] max-w-sm font-medium">{row.isi}</td>
-                            <td className="py-4 px-6">
-                              <span className="px-2.5 py-1 rounded bg-[#eff6ff] text-[#1d4ed8] text-[10px] font-bold">
-                                {row.jenisKegiatan}
-                              </span>
-                            </td>
-                            <td className="py-4 px-6 text-center text-[#64748b] font-mono">{formatDateString(row.tanggal)}</td>
-                            <td className="py-4 px-6 text-center text-[#64748b] font-mono font-medium">{row.waktu}</td>
-                            <td className="py-4 px-6 text-right" onClick={(e) => e.stopPropagation()}>
-                              <div className="flex items-center justify-end gap-2">
-                                <button
-                                  onClick={() => handleOpenEditModal('informasi', row)}
-                                  className="p-1.5 rounded bg-[#f1f5f9] text-[#475569] hover:bg-[#e2e8f0] transition cursor-pointer"
-                                  title="Edit Informasi"
-                                >
-                                  <Edit className="w-3.5 h-3.5" />
-                                </button>
-                                <button
-                                  onClick={() => handleDeleteRow('informasi', row)}
-                                  className="p-1.5 rounded bg-[#fef2f2] text-[#b91c1c] hover:bg-[#fee2e2] transition cursor-pointer"
-                                  title="Hapus Informasi"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
-                              </div>
-                            </td>
+                  {/* Grid Kotak (Box Layout) Menu */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 pb-2">
+                    
+                    {/* Kotak 1: Papan Pengumuman */}
+                    <button
+                      onClick={() => setInformasiSubView('list')}
+                      className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-[0_1px_3px_0_rgba(0,0,0,0.01)] hover:border-indigo-300 hover:shadow-md hover:shadow-indigo-500/5 transition-all duration-250 cursor-pointer flex flex-col justify-between text-left group relative overflow-hidden font-sans w-full"
+                    >
+                      {/* Subtle background glow */}
+                      <div className="absolute right-0 top-0 w-24 h-24 bg-indigo-50/40 rounded-full blur-2xl pointer-events-none group-hover:bg-indigo-50/50 transition duration-350"></div>
+                      
+                      <div className="flex items-start justify-between w-full relative z-10">
+                        <div className="space-y-1">
+                          <h4 className="text-[13.5px] font-extrabold text-[#0f172a] group-hover:text-indigo-600 transition tracking-tight">Kelola Informasi</h4>
+                          <p className="text-xs text-slate-500 leading-relaxed">Rilis pemberitahuan, agenda kegiatan, dan memo penting sekolah.</p>
+                        </div>
+                        <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white flex items-center justify-center shrink-0 transition duration-300">
+                          <Info className="w-5 h-5" />
+                        </div>
+                      </div>
+                      
+                      <div className="mt-8 flex items-center justify-between w-full relative z-10 border-t border-slate-100 pt-4">
+                        <span className="text-[11px] font-bold text-indigo-600 bg-indigo-50 px-3 py-1 rounded-full group-hover:bg-indigo-100/70 transition">
+                          {filteredInformasi.length} Pengumuman
+                        </span>
+                        <span className="text-[11px] font-bold text-indigo-600 group-hover:translate-x-1 transition duration-200 flex items-center gap-1">
+                          <span>Buka Menu Informasi</span>
+                          <ChevronRight className="w-3.5 h-3.5" />
+                        </span>
+                      </div>
+                    </button>
+
+                    {/* Kotak 2: Kelola Banner Utama (Only show if isMenuAllowed('banner') is true) */}
+                    {isMenuAllowed('banner') && (
+                      <button
+                        onClick={() => handleTabSwitch('banner')}
+                        className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-[0_1px_3px_0_rgba(0,0,0,0.01)] hover:border-indigo-300 hover:shadow-md hover:shadow-indigo-500/5 transition-all duration-250 cursor-pointer flex flex-col justify-between text-left group relative overflow-hidden font-sans w-full"
+                      >
+                        {/* Glowing highlight background for interactive card */}
+                        <div className="absolute right-0 top-0 w-24 h-24 bg-emerald-50/40 rounded-full blur-2xl pointer-events-none group-hover:bg-indigo-50/50 transition duration-350"></div>
+                        
+                        <div className="flex items-start justify-between w-full relative z-10">
+                          <div className="space-y-1">
+                            <h4 className="text-[13.5px] font-extrabold text-[#0f172a] group-hover:text-indigo-600 transition tracking-tight flex items-center gap-2">
+                              <span>Kelola Banner</span>
+                              <Sparkles className="w-3.5 h-3.5 text-indigo-500 fill-indigo-500/20" />
+                            </h4>
+                            <p className="text-xs text-slate-500 leading-relaxed">Input banner gambar geser (carousel) dan tautan artikel untuk beranda siswa.</p>
+                          </div>
+                          <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white flex items-center justify-center shrink-0 transition duration-300">
+                            <Image className="w-5 h-5" />
+                          </div>
+                        </div>
+                        
+                        <div className="mt-8 flex items-center justify-between w-full relative z-10 border-t border-slate-100 pt-4">
+                          <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-3 py-1 rounded-full group-hover:bg-emerald-100/70 transition">
+                            {bannerList.length} Banner Rilis
+                          </span>
+                          <span className="text-[11px] font-bold text-indigo-600 group-hover:translate-x-1 transition duration-200 flex items-center gap-1">
+                            <span>Buka Menu Banner</span>
+                            <ChevronRight className="w-3.5 h-3.5" />
+                          </span>
+                        </div>
+                      </button>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <>
+                  {/* Header Box with back button */}
+                  <div className="bg-white p-6 rounded-2xl border border-slate-200/80 flex flex-col md:flex-row md:items-center md:justify-between gap-4 shadow-[0_1px_3px_0_rgba(0,0,0,0.02)]">
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={() => setInformasiSubView('menu')}
+                        className="p-2.5 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 transition cursor-pointer flex items-center justify-center bg-white shadow-xs"
+                        title="Kembali ke Menu"
+                      >
+                        <ArrowLeft className="w-4 h-4 shrink-0" />
+                      </button>
+                      <div>
+                        <h3 className="font-extrabold text-[#0f172a] text-base tracking-tight">Kelola Informasi & Pengumuman</h3>
+                        <p className="text-xs text-slate-500 mt-1">Menginput, memperbarui, dan mengelola rekam pengumuman aktif lembaga.</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Stats Row */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pb-1">
+                    <div className="bg-white p-5 rounded-2xl border border-slate-200/70 shadow-2xs flex items-center space-x-4 font-sans">
+                      <div className="w-12 h-12 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0">
+                        <Info className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <span className="text-[10.5px] text-slate-400 font-extrabold uppercase tracking-wider block">Total Pengumuman</span>
+                        <span className="text-xl font-black text-slate-800 leading-none block mt-1">{filteredInformasi.length} Pengumuman</span>
+                      </div>
+                    </div>
+
+                    <div className="bg-white p-5 rounded-2xl border border-slate-200/70 shadow-2xs flex items-center space-x-4 font-sans">
+                      <div className="w-12 h-12 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0">
+                        <Calendar className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <span className="text-[10.5px] text-slate-400 font-extrabold uppercase tracking-wider block">Pengumuman Terbaru</span>
+                        <span className="text-sm font-bold text-indigo-700 leading-tight block mt-1 truncate max-w-xs" title={filteredInformasi.length > 0 ? filteredInformasi[0].judul : '-'}>
+                          {filteredInformasi.length > 0 ? filteredInformasi[0].judul : '-'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Table section of Informasi */}
+                  <div className="bg-white rounded-2xl border border-slate-200/80 overflow-hidden shadow-2xs">
+                    
+                    <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+                      <h4 className="text-[12.5px] font-extrabold text-slate-700 font-sans tracking-wide">
+                        DAFTAR TABEL PENGUMUMAN
+                      </h4>
+                      <span className="text-[10px] text-slate-400 font-mono">Total {filteredInformasi.length} Item</span>
+                    </div>
+
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left border-collapse min-w-[700px]">
+                        <thead>
+                          <tr className="bg-slate-50/70 text-[#475569] uppercase text-[10px] font-bold font-mono border-b border-slate-100">
+                            <th className="py-4 px-6">ID Info</th>
+                            <th className="py-4 px-6">Judul</th>
+                            <th className="py-4 px-6">Isi Pengumuman</th>
+                            <th className="py-4 px-6">Jenis Kegiatan</th>
+                            <th className="py-4 px-6 text-center">Tanggal</th>
+                            <th className="py-4 px-6 text-center">Waktu</th>
+                            <th className="py-4 px-6 text-right">Aksi</th>
                           </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
+                        </thead>
+                        <tbody className="divide-y divide-[#f1f5f9] text-xs">
+                          {filteredInformasi.length === 0 ? (
+                            <tr>
+                              <td colSpan={7} className="py-10 text-center text-[#94a3b8]">
+                                Tidak ditemukan data informasi pengumuman.
+                              </td>
+                            </tr>
+                          ) : (
+                            filteredInformasi.map((row) => (
+                              <tr key={row.idInformasi} className="hover:bg-[#f8fafc] transition duration-150">
+                                <td className="py-4 px-6 font-mono text-[#64748b] font-bold">{row.idInformasi}</td>
+                                <td className="py-4 px-6 font-bold text-[#0f172a]">{row.judul}</td>
+                                <td className="py-4 px-6 text-[#475569] max-w-sm font-medium">{row.isi}</td>
+                                <td className="py-4 px-6">
+                                  <span className="px-2.5 py-1 rounded bg-[#eff6ff] text-[#1d4ed8] text-[10px] font-bold">
+                                    {row.jenisKegiatan}
+                                  </span>
+                                </td>
+                                <td className="py-4 px-6 text-center text-[#64748b] font-mono">{formatDateString(row.tanggal)}</td>
+                                <td className="py-4 px-6 text-center text-[#64748b] font-mono font-medium">{row.waktu}</td>
+                                <td className="py-4 px-6 text-right" onClick={(e) => e.stopPropagation()}>
+                                  <div className="flex items-center justify-end gap-2">
+                                    <button
+                                      onClick={() => handleOpenEditModal('informasi', row)}
+                                      className="p-1.5 rounded bg-[#f1f5f9] text-[#475569] hover:bg-[#e2e8f0] transition cursor-pointer"
+                                      title="Edit Informasi"
+                                    >
+                                      <Edit className="w-3.5 h-3.5" />
+                                    </button>
+                                    <button
+                                      onClick={() => handleDeleteRow('informasi', row)}
+                                      className="p-1.5 rounded bg-[#fef2f2] text-[#b91c1c] hover:bg-[#fee2e2] transition cursor-pointer"
+                                      title="Hapus Informasi"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </>
+              )}
+
             </div>
           )}
 
@@ -7395,6 +7836,162 @@ Schema requirements:
                             </tr>
                           );
                         })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+
+          {/* ======================= VIEW: KELOLA BANNER ======================= */}
+          {activeTab === 'banner' && (
+            <div className="space-y-6 animate-fade-in">
+              
+              {/* Header Box */}
+              <div className="bg-white p-6 rounded-2xl border border-slate-200/80 flex flex-col md:flex-row md:items-center md:justify-between gap-4 shadow-[0_1px_3px_0_rgba(0,0,0,0.02)]">
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => handleTabSwitch('informasi')}
+                    className="p-2.5 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 transition cursor-pointer flex items-center justify-center bg-white"
+                    title="Kembali ke Informasi"
+                  >
+                    <ArrowLeft className="w-4 h-4 shrink-0" />
+                  </button>
+                  <div>
+                    <h3 className="font-extrabold text-[#0f172a] text-base tracking-tight">Kelola Banner Informasi</h3>
+                    <p className="text-xs text-slate-500 mt-1">Menginput dan mengelola banner gambar/foto serta tautan artikel yang ditampilkan untuk siswa.</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Stats Row */}
+              <div className="pb-1">
+                <div className="bg-white p-5 rounded-2xl border border-slate-200/70 shadow-2xs flex items-center space-x-4 font-sans">
+                  <div className="w-12 h-12 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0">
+                    <Image className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <span className="text-[10.5px] text-slate-400 font-extrabold uppercase tracking-wider block">Total Banner</span>
+                    <span className="text-xl font-black text-slate-800 leading-none block mt-1">{bannerList.length} Banner</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Table Render */}
+              <div className="bg-white rounded-2xl border border-slate-200/80 overflow-hidden shadow-2xs">
+                
+                <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+                  <h4 className="text-[12.5px] font-extrabold text-slate-700 font-sans tracking-wide">
+                    DAFTAR BANNER INFORMASI UTAMA
+                  </h4>
+                  <span className="text-[10px] text-slate-400 font-mono">Ditemukan {bannerList.length} Item</span>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse min-w-[700px]">
+                    <thead>
+                      <tr className="bg-slate-50/70 text-[#475569] uppercase text-[9.5px] font-extrabold tracking-wider border-b border-slate-100">
+                        <th className="py-4 px-6 text-center w-24">ID Banner</th>
+                        <th className="py-4 px-6 w-44">Tampilan Banner</th>
+                        <th className="py-4 px-6">Judul Banner</th>
+                        <th className="py-4 px-6">Link Foto Banner</th>
+                        <th className="py-4 px-6">Link Artikel / Sumber</th>
+                        <th className="py-4 px-6 text-center w-36">Tanggal Input</th>
+                        <th className="py-4 px-6 text-right w-28">Aksi</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 text-xs text-slate-600 font-medium font-sans">
+                      {bannerList.length === 0 ? (
+                        <tr>
+                          <td colSpan={7} className="py-12 text-center text-slate-400">
+                            <div className="flex flex-col items-center justify-center space-y-2">
+                              <Image className="w-8 h-8 text-slate-300 stroke-[1.5]" />
+                              <p className="text-xs">Belum ada data banner informasi yang diinput.</p>
+                            </div>
+                          </td>
+                        </tr>
+                      ) : (
+                        bannerList.map((row, idx) => (
+                          <tr key={row.idBanner || `banner-${idx}`} className="hover:bg-slate-50/40 transition duration-150">
+                            
+                            {/* ID Banner */}
+                            <td className="py-4 px-6 text-center">
+                              <span className="px-2 py-1 rounded bg-indigo-50 text-indigo-700 font-mono text-[10px] font-extrabold border border-indigo-100/50">
+                                {row.idBanner || `BAN-${idx}`}
+                              </span>
+                            </td>
+ 
+                            {/* Tampilan Banner */}
+                            <td className="py-4 px-6">
+                              <div className="w-32 h-16 rounded-lg overflow-hidden bg-slate-100 border border-slate-200">
+                                <img
+                                  src={row.linkFoto}
+                                  alt="Banner Mini Preview"
+                                  className="w-full h-full object-cover"
+                                  referrerPolicy="no-referrer"
+                                />
+                              </div>
+                            </td>
+
+                            {/* Judul Banner */}
+                            <td className="py-4 px-6">
+                              <div className="font-bold text-[#0f172a] max-w-xs truncate" title={row.judul || ''}>
+                                {row.judul || <span className="text-slate-400 font-normal italic">Tanpa Judul</span>}
+                              </div>
+                            </td>
+
+                            {/* Link Foto */}
+                            <td className="py-4 px-6 max-w-xs">
+                              <p className="text-slate-500 text-[11px] truncate font-mono" title={row.linkFoto}>
+                                {row.linkFoto}
+                              </p>
+                            </td>
+
+                            {/* Link Artikel */}
+                            <td className="py-4 px-6 max-w-xs">
+                              <p className="text-slate-500 text-[11px] truncate font-mono" title={row.linkArtikel}>
+                                {row.linkArtikel}
+                              </p>
+                            </td>
+
+                            {/* Tanggal Input */}
+                            <td className="py-4 px-6 text-center font-mono text-slate-500 text-[10.5px]">
+                              {row.tanggalInput || '-'}
+                            </td>
+
+                            {/* Aksi */}
+                            <td className="py-4 px-6 text-right">
+                              <div className="flex items-center justify-end space-x-2" onClick={(e) => e.stopPropagation()}>
+                                <a
+                                  href={row.linkArtikel}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="p-1.5 rounded bg-indigo-50 text-indigo-600 hover:bg-indigo-100 transition cursor-pointer"
+                                  title="Buka Link Artikel"
+                                >
+                                  <ExternalLink className="w-3.5 h-3.5" />
+                                </a>
+                                <button
+                                  onClick={() => handleOpenEditModal('banner', row)}
+                                  className="p-1.5 rounded bg-[#f1f5f9] text-[#475569] hover:bg-[#cbd5e1] hover:text-[#0f172a] transition cursor-pointer"
+                                  title="Edit Banner"
+                                >
+                                  <Edit className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteRow('banner', row)}
+                                  className="p-1.5 rounded bg-[#fef2f2] text-[#b91c1c] hover:bg-[#fee2e2] transition cursor-pointer"
+                                  title="Hapus Banner"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </td>
+
+                          </tr>
+                        ))
                       )}
                     </tbody>
                   </table>
@@ -10366,6 +10963,255 @@ Schema requirements:
                             )}
                           </div>
                         )
+                      ) : modalTargetTab === 'prestasi' && field.name === 'linkFoto' ? (
+                        <div className="space-y-3 bg-slate-50 p-4 rounded-xl border border-slate-200">
+                          <div className="flex items-center space-x-4">
+                            <span className="text-xs font-bold text-slate-500 uppercase tracking-wide">Sumber Foto Piagam:</span>
+                            <label className="flex items-center space-x-2 text-xs font-semibold text-slate-700 cursor-pointer">
+                              <input
+                                type="radio"
+                                name="prestasiImageSource"
+                                checked={prestasiUploadMethod === 'url'}
+                                onChange={() => {
+                                  setPrestasiUploadMethod('url');
+                                  setFormValues(prev => ({ ...prev, linkFoto: '' }));
+                                }}
+                                className="text-indigo-600 focus:ring-indigo-500 h-3.5 w-3.5 cursor-pointer"
+                              />
+                              <span>Gunakan URL Link</span>
+                            </label>
+                            <label className="flex items-center space-x-2 text-xs font-semibold text-slate-700 cursor-pointer">
+                              <input
+                                type="radio"
+                                name="prestasiImageSource"
+                                checked={prestasiUploadMethod === 'upload'}
+                                onChange={() => {
+                                  setPrestasiUploadMethod('upload');
+                                  setFormValues(prev => ({ ...prev, linkFoto: '' }));
+                                }}
+                                className="text-indigo-600 focus:ring-indigo-500 h-3.5 w-3.5 cursor-pointer"
+                              />
+                              <span>Upload File Foto</span>
+                            </label>
+                          </div>
+
+                          {prestasiUploadMethod === 'url' ? (
+                            <input
+                              type="text"
+                              placeholder="https://images.unsplash.com/... atau link foto piagam"
+                              required={field.required}
+                              disabled={isFieldDisabled}
+                              value={formValues.linkFoto || ''}
+                              onChange={(e) => setFormValues(prev => ({ ...prev, linkFoto: e.target.value }))}
+                              className={`w-full px-4 py-2.5 text-xs rounded-xl border focus:outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all ${
+                                isFieldDisabled
+                                  ? 'bg-[#f1f5f9] border-[#e2e8f0] text-[#64748b] cursor-not-allowed font-mono'
+                                  : 'bg-white border-[#cbd5e1] text-[#0f172a] focus:bg-white'
+                              }`}
+                            />
+                          ) : (
+                            <div className="space-y-3">
+                              <div className="flex items-center space-x-3">
+                                {formValues.linkFoto && (
+                                  <div className="w-16 h-10 rounded border border-slate-200 overflow-hidden shrink-0 bg-white">
+                                    <img src={formValues.linkFoto} alt="Preview" className="w-full h-full object-cover" />
+                                  </div>
+                                )}
+                                <label className="flex-1 border border-dashed border-slate-300 hover:border-indigo-500 bg-white hover:bg-indigo-50/10 p-3 rounded-xl text-center cursor-pointer transition text-xs font-bold text-slate-600 block">
+                                  <span>📁 {formValues.linkFoto ? 'Ubah File Gambar' : 'Pilih File Gambar (PNG, JPG, dll)'}</span>
+                                  <input
+                                    type="file"
+                                    accept="image/*"
+                                    className="hidden"
+                                    onChange={(e) => {
+                                      const file = e.target.files?.[0];
+                                      if (file) {
+                                        const r = new FileReader();
+                                        r.onload = (ev) => {
+                                          if (ev.target?.result) {
+                                            setFormValues(prev => ({ ...prev, linkFoto: ev.target.result as string }));
+                                          }
+                                        };
+                                        r.readAsDataURL(file);
+                                      }
+                                    }}
+                                  />
+                                </label>
+                              </div>
+                              {formValues.linkFoto && (
+                                <p className="text-[10px] text-slate-400 font-mono truncate max-w-full">
+                                  Terunggah: {formValues.linkFoto.substring(0, 50)}...
+                                </p>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      ) : modalTargetTab === 'banner' && field.name === 'linkFoto' ? (
+                        <div className="space-y-3 bg-slate-50 p-4 rounded-xl border border-slate-200">
+                          <div className="flex items-center space-x-4">
+                            <span className="text-xs font-bold text-slate-500 uppercase tracking-wide">Sumber Gambar:</span>
+                            <label className="flex items-center space-x-2 text-xs font-semibold text-slate-700 cursor-pointer">
+                              <input
+                                type="radio"
+                                name="bannerImageSource"
+                                checked={bannerUploadMethod === 'url'}
+                                onChange={() => {
+                                  setBannerUploadMethod('url');
+                                  setFormValues(prev => ({ ...prev, linkFoto: '' }));
+                                }}
+                                className="text-indigo-600 focus:ring-indigo-500 h-3.5 w-3.5 cursor-pointer"
+                              />
+                              <span>Gunakan URL Link</span>
+                            </label>
+                            <label className="flex items-center space-x-2 text-xs font-semibold text-slate-700 cursor-pointer">
+                              <input
+                                type="radio"
+                                name="bannerImageSource"
+                                checked={bannerUploadMethod === 'upload'}
+                                onChange={() => {
+                                  setBannerUploadMethod('upload');
+                                  setFormValues(prev => ({ ...prev, linkFoto: '' }));
+                                }}
+                                className="text-indigo-600 focus:ring-indigo-500 h-3.5 w-3.5 cursor-pointer"
+                              />
+                              <span>Upload File Foto</span>
+                            </label>
+                          </div>
+
+                          {bannerUploadMethod === 'url' ? (
+                            <input
+                              type="text"
+                              placeholder="https://images.unsplash.com/... atau link foto banner"
+                              required={field.required}
+                              disabled={isFieldDisabled}
+                              value={formValues.linkFoto || ''}
+                              onChange={(e) => setFormValues(prev => ({ ...prev, linkFoto: e.target.value }))}
+                              className={`w-full px-4 py-2.5 text-xs rounded-xl border focus:outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all ${
+                                isFieldDisabled
+                                  ? 'bg-[#f1f5f9] border-[#e2e8f0] text-[#64748b] cursor-not-allowed font-mono'
+                                  : 'bg-white border-[#cbd5e1] text-[#0f172a] focus:bg-white'
+                              }`}
+                            />
+                          ) : (
+                            <div className="space-y-3">
+                              <div className="flex items-center space-x-3">
+                                {formValues.linkFoto && (
+                                  <div className="w-16 h-10 rounded border border-slate-200 overflow-hidden shrink-0 bg-white">
+                                    <img src={formValues.linkFoto} alt="Preview" className="w-full h-full object-cover" />
+                                  </div>
+                                )}
+                                <label className="flex-1 border border-dashed border-slate-300 hover:border-indigo-500 bg-white hover:bg-indigo-50/10 p-3 rounded-xl text-center cursor-pointer transition text-xs font-bold text-slate-600 block">
+                                  <span>📁 {formValues.linkFoto ? 'Ubah File Gambar' : 'Pilih File Gambar (PNG, JPG, dll)'}</span>
+                                  <input
+                                    type="file"
+                                    accept="image/*"
+                                    className="hidden"
+                                    onChange={(e) => {
+                                      const file = e.target.files?.[0];
+                                      if (file) {
+                                        const r = new FileReader();
+                                        r.onload = (ev) => {
+                                          if (ev.target?.result) {
+                                            setFormValues(prev => ({ ...prev, linkFoto: ev.target.result as string }));
+                                          }
+                                        };
+                                        r.readAsDataURL(file);
+                                      }
+                                    }}
+                                  />
+                                </label>
+                              </div>
+                              {formValues.linkFoto && (
+                                <p className="text-[10px] text-slate-400 font-mono truncate max-w-full">
+                                  Terunggah: {formValues.linkFoto.substring(0, 50)}...
+                                </p>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      ) : modalTargetTab === 'anggota' && field.name === 'linkProfile' ? (
+                        <div className="space-y-3 bg-slate-50 p-4 rounded-xl border border-slate-200">
+                          <div className="flex items-center space-x-4">
+                            <span className="text-xs font-bold text-slate-500 uppercase tracking-wide">Sumber Foto Profil:</span>
+                            <label className="flex items-center space-x-2 text-xs font-semibold text-slate-700 cursor-pointer">
+                              <input
+                                type="radio"
+                                name="memberProfileSource"
+                                checked={memberUploadMethod === 'url'}
+                                onChange={() => {
+                                  setMemberUploadMethod('url');
+                                  setFormValues(prev => ({ ...prev, linkProfile: '' }));
+                                }}
+                                className="text-indigo-600 focus:ring-indigo-500 h-3.5 w-3.5 cursor-pointer"
+                              />
+                              <span>Gunakan URL Link</span>
+                            </label>
+                            <label className="flex items-center space-x-2 text-xs font-semibold text-slate-700 cursor-pointer">
+                              <input
+                                type="radio"
+                                name="memberProfileSource"
+                                checked={memberUploadMethod === 'upload'}
+                                onChange={() => {
+                                  setMemberUploadMethod('upload');
+                                  setFormValues(prev => ({ ...prev, linkProfile: '' }));
+                                }}
+                                className="text-indigo-600 focus:ring-indigo-500 h-3.5 w-3.5 cursor-pointer"
+                              />
+                              <span>Upload File Foto</span>
+                            </label>
+                          </div>
+
+                          {memberUploadMethod === 'url' ? (
+                            <input
+                              type="text"
+                              placeholder="https://images.unsplash.com/... atau link foto profil"
+                              required={field.required}
+                              disabled={isFieldDisabled}
+                              value={formValues.linkProfile || ''}
+                              onChange={(e) => setFormValues(prev => ({ ...prev, linkProfile: e.target.value }))}
+                              className={`w-full px-4 py-2.5 text-xs rounded-xl border focus:outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all ${
+                                isFieldDisabled
+                                  ? 'bg-[#f1f5f9] border-[#e2e8f0] text-[#64748b] cursor-not-allowed font-mono'
+                                  : 'bg-white border-[#cbd5e1] text-[#0f172a] focus:bg-white'
+                              }`}
+                            />
+                          ) : (
+                            <div className="space-y-3">
+                              <div className="flex items-center space-x-3">
+                                {formValues.linkProfile && (
+                                  <div className="w-12 h-12 rounded-full border border-slate-200 overflow-hidden shrink-0 bg-white">
+                                    <img src={formValues.linkProfile} alt="Preview" className="w-full h-full object-cover" />
+                                  </div>
+                                )}
+                                <label className="flex-1 border border-dashed border-slate-300 hover:border-indigo-500 bg-white hover:bg-indigo-50/10 p-3 rounded-xl text-center cursor-pointer transition text-xs font-bold text-slate-600 block">
+                                  <span>📁 {formValues.linkProfile ? 'Ubah File Gambar' : 'Pilih File Gambar (PNG, JPG, dll)'}</span>
+                                  <input
+                                    type="file"
+                                    accept="image/*"
+                                    className="hidden"
+                                    onChange={(e) => {
+                                      const file = e.target.files?.[0];
+                                      if (file) {
+                                        const r = new FileReader();
+                                        r.onload = (ev) => {
+                                          if (ev.target?.result) {
+                                            setFormValues(prev => ({ ...prev, linkProfile: ev.target.result as string }));
+                                          }
+                                        };
+                                        r.readAsDataURL(file);
+                                      }
+                                    }}
+                                  />
+                                </label>
+                              </div>
+                              {formValues.linkProfile && (
+                                <p className="text-[10px] text-slate-400 font-mono truncate max-w-full">
+                                  Terunggah: {formValues.linkProfile.substring(0, 50)}...
+                                </p>
+                              )}
+                            </div>
+                          )}
+                        </div>
                       ) : field.type === 'select' ? (
                         <select
                           required={field.required}

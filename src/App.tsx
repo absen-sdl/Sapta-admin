@@ -27,6 +27,7 @@ import {
   MapPin,
   School,
   Image,
+  Video,
   ChevronRight,
   DownloadCloud,
   CheckSquare,
@@ -35,6 +36,7 @@ import {
   Award,
   ChevronDown,
   Lock,
+  ShieldAlert,
   LogOut,
   EyeOff,
   Menu,
@@ -54,8 +56,8 @@ import {
 } from 'lucide-react';
 
 import { initializeDatabase } from './dataSdk';
-import { parseCSV, generateId, formatRupiah, formatDateString, getProp, terbilang } from './utils';
-import { Anggota, Pembayaran, Prestasi, Pelanggaran, Absensi, Informasi, Surat, Peraturan, ActiveTab, ToastMessage, Banner, LogNotifikasi } from './types';
+import { parseCSV, generateId, formatRupiah, formatDateString, getProp, terbilang, isVideoUrl, getVideoEmbedUrl } from './utils';
+import { Anggota, Pembayaran, Prestasi, Pelanggaran, Absensi, Informasi, InformasiAdmin, Surat, Peraturan, ActiveTab, ToastMessage, Banner, LogNotifikasi } from './types';
 import { GOOGLE_APPS_SCRIPT_CODE } from './googleAppsScriptCode';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -384,7 +386,7 @@ export default function App() {
   // Custom sidebar and dashboard view states
   const [isBiodataOpen, setIsBiodataOpen] = useState<boolean>(true);
   const [currentTime, setCurrentTime] = useState<Date>(new Date());
-  const [informasiSubView, setInformasiSubView] = useState<'menu' | 'list'>('menu');
+  const [informasiSubView, setInformasiSubView] = useState<'menu' | 'list' | 'admin'>('menu');
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -417,6 +419,7 @@ export default function App() {
   const [pelanggaranList, setPelanggaranList] = useState<Pelanggaran[]>([]);
   const [absensiList, setAbsensiList] = useState<Absensi[]>([]);
   const [informasiList, setInformasiList] = useState<Informasi[]>([]);
+  const [informasiAdminList, setInformasiAdminList] = useState<InformasiAdmin[]>([]);
   const [suratList, setSuratList] = useState<Surat[]>([]);
   const [peraturanList, setPeraturanList] = useState<Peraturan[]>([]);
   const [bannerList, setBannerList] = useState<Banner[]>([]);
@@ -1475,6 +1478,16 @@ export default function App() {
             judul: String(getProp(item, 'judul', 'title', 'headline') || '').trim(),
             isi: String(getProp(item, 'isi', 'content', 'deskripsi', 'pengumuman') || '').trim(),
             jenisKegiatan: String(getProp(item, 'jenisKegiatan', 'jeniskegiatan', 'kategori', 'jenis') || 'Latihan Bersama').trim(),
+            tanggal: String(getProp(item, 'tanggal', 'tgl', 'date') || new Date().toISOString().split('T')[0]).trim(),
+            waktu: String(getProp(item, 'waktu', 'time', 'jam') || '--:--').trim()
+          }));
+
+          // Sync INFORMASI ADMIN (Information Admin Data)
+          await fetchAndSyncSheet('INFORMASI ADMIN', 'idInformasiAdmin', (item: any, idx: number) => ({
+            idInformasiAdmin: String(getProp(item, 'idInformasiAdmin', 'idinformasiadmin', 'id') || `INFA-CL-${idx + 10001}`).trim(),
+            judul: String(getProp(item, 'judul', 'title', 'headline') || '').trim(),
+            isi: String(getProp(item, 'isi', 'content', 'deskripsi', 'pengumuman') || '').trim(),
+            jenisKegiatan: String(getProp(item, 'jenisKegiatan', 'jeniskegiatan', 'kategori', 'jenis') || 'Rapat Internal').trim(),
             tanggal: String(getProp(item, 'tanggal', 'tgl', 'date') || new Date().toISOString().split('T')[0]).trim(),
             waktu: String(getProp(item, 'waktu', 'time', 'jam') || '--:--').trim()
           }));
@@ -3338,6 +3351,7 @@ Schema requirements:
     setPelanggaranList(window.dataSdk.read('PELANGGARAN'));
     setAbsensiList(window.dataSdk.read('ABSENSI'));
     setInformasiList(window.dataSdk.read('INFORMASI'));
+    setInformasiAdminList(window.dataSdk.read('INFORMASI ADMIN') || []);
     setSuratList(window.dataSdk.read('SURAT'));
     setPeraturanList(window.dataSdk.read('PERATURAN'));
     setBannerList(window.dataSdk.read('BANNER'));
@@ -3884,6 +3898,17 @@ Schema requirements:
           { name: 'waktu', label: 'Waktu (Jam)', type: 'text', required: true, placeholder: 'Contoh: 15:30 WIB atau 09:00 - 12:00' }
         ]
       },
+      informasi_admin: {
+        title: modalType === 'add' ? 'Tambah Informasi Admin Baru' : 'Edit Rekam Informasi Admin',
+        sheetName: 'INFORMASI ADMIN',
+        fields: [
+          { name: 'judul', label: 'Judul Informasi Admin', type: 'text', required: true, placeholder: 'Contoh: Rapat Koordinasi internal, Info Sistem' },
+          { name: 'isi', label: 'Isi Informasi / Pengumuman', type: 'textarea', required: true, placeholder: 'Ketik pesan lengkap khusus untuk admin...' },
+          { name: 'jenisKegiatan', label: 'Jenis Kegiatan', type: 'text', required: true, placeholder: 'Contoh: Rapat Internal, Maintenance, Pemberitahuan' },
+          { name: 'tanggal', label: 'Tanggal Pelaksanaan', type: 'date', required: true },
+          { name: 'waktu', label: 'Waktu (Jam)', type: 'text', required: true, placeholder: 'Contoh: 15:30 WIB atau 09:00 - 12:00' }
+        ]
+      },
       surat: {
         title: modalType === 'add' ? 'Buat / Tambah Surat Baru' : 'Edit Rekam Surat',
         sheetName: 'SURAT',
@@ -3908,7 +3933,7 @@ Schema requirements:
         sheetName: 'BANNER',
         fields: [
           { name: 'judul', label: 'Judul Banner', type: 'text', required: true, placeholder: 'Contoh: Selamat Datang / Informasi Pendaftaran Baru' },
-          { name: 'linkFoto', label: 'Link Foto / Gambar Banner (URL)', type: 'text', required: true, placeholder: 'https://images.unsplash.com/... atau link foto banner' },
+          { name: 'linkFoto', label: 'Link Foto / Gambar / Video Banner (URL)', type: 'text', required: true, placeholder: 'Contoh: Link YouTube, Google Drive, direct video URL (.mp4), atau URL gambar' },
           { name: 'linkArtikel', label: 'Link Artikel / Sumber (URL)', type: 'text', required: true, placeholder: 'https://... link artikel atau sumber info' }
         ]
       }
@@ -4099,6 +4124,9 @@ Schema requirements:
       } else if (modalTargetTab === 'informasi') {
         primaryKey = generateId('INF');
         submissionData.idInformasi = primaryKey;
+      } else if (modalTargetTab === 'informasi_admin') {
+        primaryKey = generateId('INFA');
+        submissionData.idInformasiAdmin = primaryKey;
       } else if (modalTargetTab === 'surat') {
         primaryKey = generateId('SRT');
         submissionData.idSurat = primaryKey;
@@ -4124,6 +4152,8 @@ Schema requirements:
         submissionData.idPelanggaran = primaryKey;
       } else if (modalTargetTab === 'informasi') {
         submissionData.idInformasi = primaryKey;
+      } else if (modalTargetTab === 'informasi_admin') {
+        submissionData.idInformasiAdmin = primaryKey;
       } else if (modalTargetTab === 'surat') {
         submissionData.idSurat = primaryKey;
       } else if (modalTargetTab === 'peraturan') {
@@ -4136,7 +4166,7 @@ Schema requirements:
     }
 
     // Auto-populate Name field in transaction databases by matching NIA
-    if (modalTargetTab !== 'anggota' && modalTargetTab !== 'informasi' && modalTargetTab !== 'peraturan' && modalTargetTab !== 'banner') {
+    if (modalTargetTab !== 'anggota' && modalTargetTab !== 'informasi' && modalTargetTab !== 'informasi_admin' && modalTargetTab !== 'peraturan' && modalTargetTab !== 'banner') {
       const selectedNia = submissionData.nia;
       if (selectedNia && selectedNia !== 'ALL_MEMBERS') {
         const matchedMember = anggotaList.find(m => String(m.nia) === String(selectedNia));
@@ -4578,6 +4608,15 @@ Schema requirements:
       inf.jenisKegiatan.toLowerCase().includes(searchTerm.toLowerCase())
     );
   }, [informasiList, searchTerm]);
+
+  const filteredInformasiAdmin = useMemo(() => {
+    if (!searchTerm) return informasiAdminList;
+    return informasiAdminList.filter((inf) =>
+      inf.judul.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      inf.isi.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      inf.jenisKegiatan.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+  }, [informasiAdminList, searchTerm]);
 
   const filteredSurat = useMemo(() => {
     if (!searchTerm) return suratList;
@@ -5620,7 +5659,13 @@ Schema requirements:
             {/* Dynamic Tambah Data Trigger (Exclude dashboard, absensi, pengaturan, kelola_akun, and cetak_data) */}
             {activeTab !== 'dashboard' && activeTab !== 'absensi' && activeTab !== 'pengaturan' && activeTab !== 'kelola_akun' && activeTab !== 'cetak_data' && (activeTab !== 'informasi' || informasiSubView !== 'menu') && (
               <button
-                onClick={() => handleOpenAddModal(activeTab as any)}
+                onClick={() => {
+                  if (activeTab === 'informasi' && informasiSubView === 'admin') {
+                    handleOpenAddModal('informasi_admin' as any);
+                  } else {
+                    handleOpenAddModal(activeTab as any);
+                  }
+                }}
                 className="flex items-center bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg px-2 sm:px-3.5 py-1 sm:py-1.5 text-[10px] sm:text-[11px] font-semibold shadow-sm shadow-indigo-600/10 transition-all duration-200 cursor-pointer hover:-translate-y-0.5 active:translate-y-0 shrink-0"
               >
                 <Plus className="w-3 h-3 sm:w-3.5 sm:h-3.5 sm:mr-1 shrink-0" />
@@ -5695,6 +5740,11 @@ Schema requirements:
                               </span>
                             </div>
                             <p className="text-[11px] sm:text-xs text-slate-600 dark:text-slate-400 mt-1 font-medium leading-relaxed">
+                              {log.menu === 'INFORMASI ADMIN' ? (
+                                <span className="inline-flex items-center gap-1 text-rose-600 dark:text-rose-400 font-extrabold mr-1.5 bg-rose-50 dark:bg-rose-950/30 px-1.5 py-0.5 rounded text-[9px]">
+                                  <Lock className="w-2.5 h-2.5" /> [INFO ADMIN]
+                                </span>
+                              ) : null}
                               {log.keterangan}
                             </p>
                             <div className="flex items-center justify-between mt-1.5 text-[9px] text-slate-400 dark:text-slate-500 font-medium">
@@ -5739,38 +5789,80 @@ Schema requirements:
               
               {/* SLIDING BANNER CAROUSEL FOR SISWA / MEMBERS */}
               {bannerList.length > 0 && (
-                <div className="relative w-full h-44 sm:h-56 md:h-64 rounded-2xl overflow-hidden shadow-sm border border-slate-100 group bg-slate-950">
-                  <a
-                    href={bannerList[activeBannerIndex].linkArtikel}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="block w-full h-full relative"
-                  >
-                    <img
-                      src={bannerList[activeBannerIndex].linkFoto}
-                      alt={`Banner ${activeBannerIndex + 1}`}
-                      className="w-full h-full object-cover transition-all duration-700 ease-in-out hover:scale-105"
-                      referrerPolicy="no-referrer"
-                    />
-                    {/* Ambient overlay vignette */}
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent"></div>
-                    
-                    {/* Information Text */}
-                    <div className="absolute bottom-4 left-4 sm:bottom-6 sm:left-6 text-white text-left max-w-[85%]">
-                      <span className="inline-block bg-indigo-600 text-white text-[9px] font-bold tracking-wider uppercase px-2.5 py-1 rounded-full mb-2">
-                        Pemberitahuan & Informasi
-                      </span>
-                      {bannerList[activeBannerIndex].judul && (
-                        <h4 className="text-sm sm:text-lg md:text-xl font-bold tracking-tight mb-1 sm:mb-1.5 drop-shadow-md text-white line-clamp-1 leading-tight">
-                          {bannerList[activeBannerIndex].judul}
-                        </h4>
-                      )}
-                      <p className="text-[10px] sm:text-xs font-semibold opacity-90 leading-snug drop-shadow-md flex items-center gap-1.5">
-                        <span>Klik di sini untuk membaca informasi selengkapnya</span>
-                        <ExternalLink className="w-3 h-3 inline-block shrink-0" />
-                      </p>
-                    </div>
-                  </a>
+                <div className="relative w-full max-w-4xl mx-auto h-44 sm:h-56 md:h-64 rounded-2xl overflow-hidden shadow-sm border border-slate-100 group bg-slate-950">
+                  {isVideoUrl(bannerList[activeBannerIndex].linkFoto) ? (
+                    <a
+                      href={bannerList[activeBannerIndex].linkArtikel || undefined}
+                      target={bannerList[activeBannerIndex].linkArtikel ? "_blank" : undefined}
+                      rel={bannerList[activeBannerIndex].linkArtikel ? "noopener noreferrer" : undefined}
+                      className={`block w-full h-full relative ${bannerList[activeBannerIndex].linkArtikel ? 'cursor-pointer' : 'cursor-default'}`}
+                    >
+                      {(() => {
+                        const embedUrl = getVideoEmbedUrl(bannerList[activeBannerIndex].linkFoto);
+                        if (!embedUrl) return null;
+                        
+                        const isDirectVideo = /\.(mp4|webm|ogg|mov|m4v|3gp)(\?|$)/i.test(embedUrl);
+                        if (isDirectVideo) {
+                          return (
+                            <video
+                              src={embedUrl}
+                              autoPlay
+                              muted
+                              loop
+                              playsInline
+                              className="w-full h-full object-cover"
+                            />
+                          );
+                        } else {
+                          return (
+                            <iframe
+                              src={embedUrl}
+                              title={bannerList[activeBannerIndex].judul || "Video Banner"}
+                              className="w-full h-full border-0"
+                              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                              allowFullScreen
+                            ></iframe>
+                          );
+                        }
+                      })()}
+                      {/* Ambient overlay vignette */}
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/30 to-transparent pointer-events-none"></div>
+                      
+                      {/* Information Text (Bottom-Left) */}
+                      <div className="absolute bottom-4 left-4 sm:bottom-6 sm:left-6 text-white text-left max-w-[85%] pointer-events-none z-10">
+                        {bannerList[activeBannerIndex].judul && (
+                          <h4 className="text-sm sm:text-lg md:text-xl font-bold tracking-tight mb-1 sm:mb-1.5 drop-shadow-md text-white line-clamp-1 leading-tight">
+                            {bannerList[activeBannerIndex].judul}
+                          </h4>
+                        )}
+                      </div>
+                    </a>
+                  ) : (
+                    <a
+                      href={bannerList[activeBannerIndex].linkArtikel || undefined}
+                      target={bannerList[activeBannerIndex].linkArtikel ? "_blank" : undefined}
+                      rel={bannerList[activeBannerIndex].linkArtikel ? "noopener noreferrer" : undefined}
+                      className={`block w-full h-full relative ${bannerList[activeBannerIndex].linkArtikel ? 'cursor-pointer' : 'cursor-default'}`}
+                    >
+                      <img
+                        src={bannerList[activeBannerIndex].linkFoto}
+                        alt={`Banner ${activeBannerIndex + 1}`}
+                        className="w-full h-full object-cover transition-all duration-700 ease-in-out hover:scale-105"
+                        referrerPolicy="no-referrer"
+                      />
+                      {/* Ambient overlay vignette */}
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent"></div>
+                      
+                      {/* Information Text (Bottom-Left) */}
+                      <div className="absolute bottom-4 left-4 sm:bottom-6 sm:left-6 text-white text-left max-w-[85%] z-10">
+                        {bannerList[activeBannerIndex].judul && (
+                          <h4 className="text-sm sm:text-lg md:text-xl font-bold tracking-tight mb-1 sm:mb-1.5 drop-shadow-md text-white line-clamp-1 leading-tight">
+                            {bannerList[activeBannerIndex].judul}
+                          </h4>
+                        )}
+                      </div>
+                    </a>
+                  )}
 
                   {/* Manual Arrow Controls */}
                   {bannerList.length > 1 && (
@@ -7335,7 +7427,7 @@ Schema requirements:
                   </div>
 
                   {/* Grid Kotak (Box Layout) Menu */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 pb-2">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pb-2">
                     
                     {/* Kotak 1: Papan Pengumuman */}
                     <button
@@ -7366,7 +7458,39 @@ Schema requirements:
                       </div>
                     </button>
 
-                    {/* Kotak 2: Kelola Banner Utama (Only show if isMenuAllowed('banner') is true) */}
+                    {/* Kotak 2: Kelola Informasi Admin */}
+                    <button
+                      onClick={() => setInformasiSubView('admin')}
+                      className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-[0_1px_3px_0_rgba(0,0,0,0.01)] hover:border-rose-300 hover:shadow-md hover:shadow-rose-500/5 transition-all duration-250 cursor-pointer flex flex-col justify-between text-left group relative overflow-hidden font-sans w-full"
+                    >
+                      {/* Subtle background glow */}
+                      <div className="absolute right-0 top-0 w-24 h-24 bg-rose-50/40 rounded-full blur-2xl pointer-events-none group-hover:bg-rose-50/50 transition duration-350"></div>
+                      
+                      <div className="flex items-start justify-between w-full relative z-10">
+                        <div className="space-y-1">
+                          <h4 className="text-[13.5px] font-extrabold text-[#0f172a] group-hover:text-rose-600 transition tracking-tight flex items-center gap-2">
+                            <span>Kelola Informasi Admin</span>
+                            <ShieldAlert className="w-3.5 h-3.5 text-rose-500 fill-rose-500/20" />
+                          </h4>
+                          <p className="text-xs text-slate-500 leading-relaxed">Kelola pengumuman khusus administrator dan operator internal.</p>
+                        </div>
+                        <div className="w-10 h-10 rounded-xl bg-rose-50 text-rose-600 group-hover:bg-rose-600 group-hover:text-white flex items-center justify-center shrink-0 transition duration-300">
+                          <Lock className="w-5 h-5" />
+                        </div>
+                      </div>
+                      
+                      <div className="mt-8 flex items-center justify-between w-full relative z-10 border-t border-slate-100 pt-4">
+                        <span className="text-[11px] font-bold text-rose-700 bg-rose-50 px-3 py-1 rounded-full group-hover:bg-rose-100/70 transition">
+                          {filteredInformasiAdmin.length} Memo Admin
+                        </span>
+                        <span className="text-[11px] font-bold text-rose-600 group-hover:translate-x-1 transition duration-200 flex items-center gap-1">
+                          <span>Buka Info Admin</span>
+                          <ChevronRight className="w-3.5 h-3.5" />
+                        </span>
+                      </div>
+                    </button>
+
+                    {/* Kotak 3: Kelola Banner Utama (Only show if isMenuAllowed('banner') is true) */}
                     {isMenuAllowed('banner') && (
                       <button
                         onClick={() => handleTabSwitch('banner')}
@@ -7399,6 +7523,124 @@ Schema requirements:
                         </div>
                       </button>
                     )}
+                  </div>
+                </>
+              ) : informasiSubView === 'admin' ? (
+                <>
+                  {/* Header Box with back button */}
+                  <div className="bg-white p-6 rounded-2xl border border-slate-200/80 flex flex-col md:flex-row md:items-center md:justify-between gap-4 shadow-[0_1px_3px_0_rgba(0,0,0,0.02)]">
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={() => setInformasiSubView('menu')}
+                        className="p-2.5 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 transition cursor-pointer flex items-center justify-center bg-white shadow-xs"
+                        title="Kembali ke Menu"
+                      >
+                        <ArrowLeft className="w-4 h-4 shrink-0" />
+                      </button>
+                      <div>
+                        <h3 className="font-extrabold text-[#0f172a] text-base tracking-tight flex items-center gap-2">
+                          <span>Kelola Informasi Admin Only</span>
+                          <span className="text-[10px] bg-rose-50 text-rose-600 px-2.5 py-0.5 rounded-full font-extrabold border border-rose-100 flex items-center gap-1">
+                            <Lock className="w-2.5 h-2.5" /> Khusus Admin
+                          </span>
+                        </h3>
+                        <p className="text-xs text-slate-500 mt-1">Menginput, memperbarui, dan mengelola memo internal khusus untuk administrator dan operator.</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Stats Row */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pb-1">
+                    <div className="bg-white p-5 rounded-2xl border border-slate-200/70 shadow-2xs flex items-center space-x-4 font-sans">
+                      <div className="w-12 h-12 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center shrink-0">
+                        <Lock className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <span className="text-[10.5px] text-slate-400 font-extrabold uppercase tracking-wider block">Total Memo Admin</span>
+                        <span className="text-xl font-black text-slate-800 leading-none block mt-1">{filteredInformasiAdmin.length} Memo</span>
+                      </div>
+                    </div>
+
+                    <div className="bg-white p-5 rounded-2xl border border-slate-200/70 shadow-2xs flex items-center space-x-4 font-sans">
+                      <div className="w-12 h-12 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center shrink-0">
+                        <Calendar className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <span className="text-[10.5px] text-slate-400 font-extrabold uppercase tracking-wider block">Memo Admin Terbaru</span>
+                        <span className="text-sm font-bold text-rose-700 leading-tight block mt-1 truncate max-w-xs" title={filteredInformasiAdmin.length > 0 ? filteredInformasiAdmin[0].judul : '-'}>
+                          {filteredInformasiAdmin.length > 0 ? filteredInformasiAdmin[0].judul : '-'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Table section of Informasi Admin */}
+                  <div className="bg-white rounded-2xl border border-slate-200/80 overflow-hidden shadow-2xs">
+                    
+                    <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+                      <h4 className="text-[12.5px] font-extrabold text-rose-700 font-sans tracking-wide flex items-center gap-1.5">
+                        <Lock className="w-3.5 h-3.5" /> DAFTAR TABEL INFORMASI ADMIN
+                      </h4>
+                      <span className="text-[10px] text-slate-400 font-mono">Total {filteredInformasiAdmin.length} Item</span>
+                    </div>
+
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left border-collapse min-w-[700px]">
+                        <thead>
+                          <tr className="bg-slate-50/70 text-[#475569] uppercase text-[10px] font-bold font-mono border-b border-slate-100">
+                            <th className="py-4 px-6">ID Info</th>
+                            <th className="py-4 px-6">Judul</th>
+                            <th className="py-4 px-6">Isi Pengumuman</th>
+                            <th className="py-4 px-6">Jenis Kegiatan</th>
+                            <th className="py-4 px-6 text-center">Tanggal</th>
+                            <th className="py-4 px-6 text-center">Waktu</th>
+                            <th className="py-4 px-6 text-right">Aksi</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-[#f1f5f9] text-xs">
+                          {filteredInformasiAdmin.length === 0 ? (
+                            <tr>
+                              <td colSpan={7} className="py-10 text-center text-[#94a3b8]">
+                                Tidak ditemukan data informasi admin.
+                              </td>
+                            </tr>
+                          ) : (
+                            filteredInformasiAdmin.map((row) => (
+                              <tr key={row.idInformasiAdmin} className="hover:bg-[#f8fafc] transition duration-150">
+                                <td className="py-4 px-6 font-mono text-[#64748b] font-bold">{row.idInformasiAdmin}</td>
+                                <td className="py-4 px-6 font-bold text-[#0f172a]">{row.judul}</td>
+                                <td className="py-4 px-6 text-[#475569] max-w-sm font-medium">{row.isi}</td>
+                                <td className="py-4 px-6">
+                                  <span className="px-2.5 py-1 rounded bg-rose-50 text-rose-700 text-[10px] font-bold">
+                                    {row.jenisKegiatan}
+                                  </span>
+                                </td>
+                                <td className="py-4 px-6 text-center text-[#64748b] font-mono">{formatDateString(row.tanggal)}</td>
+                                <td className="py-4 px-6 text-center text-[#64748b] font-mono font-medium">{row.waktu}</td>
+                                <td className="py-4 px-6 text-right" onClick={(e) => e.stopPropagation()}>
+                                  <div className="flex items-center justify-end gap-2">
+                                    <button
+                                      onClick={() => handleOpenEditModal('informasi_admin', row)}
+                                      className="p-1.5 rounded bg-[#f1f5f9] text-[#475569] hover:bg-[#e2e8f0] transition cursor-pointer"
+                                      title="Edit Informasi Admin"
+                                    >
+                                      <Edit className="w-3.5 h-3.5" />
+                                    </button>
+                                    <button
+                                      onClick={() => handleDeleteRow('informasi_admin', row)}
+                                      className="p-1.5 rounded bg-[#fef2f2] text-[#b91c1c] hover:bg-[#fee2e2] transition cursor-pointer"
+                                      title="Hapus Informasi Admin"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
                 </>
               ) : (
@@ -7894,7 +8136,6 @@ Schema requirements:
                     <thead>
                       <tr className="bg-slate-50/70 text-[#475569] uppercase text-[9.5px] font-extrabold tracking-wider border-b border-slate-100">
                         <th className="py-4 px-6 text-center w-24">ID Banner</th>
-                        <th className="py-4 px-6 w-44">Tampilan Banner</th>
                         <th className="py-4 px-6">Judul Banner</th>
                         <th className="py-4 px-6">Link Foto Banner</th>
                         <th className="py-4 px-6">Link Artikel / Sumber</th>
@@ -7905,7 +8146,7 @@ Schema requirements:
                     <tbody className="divide-y divide-slate-100 text-xs text-slate-600 font-medium font-sans">
                       {bannerList.length === 0 ? (
                         <tr>
-                          <td colSpan={7} className="py-12 text-center text-slate-400">
+                          <td colSpan={6} className="py-12 text-center text-slate-400">
                             <div className="flex flex-col items-center justify-center space-y-2">
                               <Image className="w-8 h-8 text-slate-300 stroke-[1.5]" />
                               <p className="text-xs">Belum ada data banner informasi yang diinput.</p>
@@ -7921,18 +8162,6 @@ Schema requirements:
                               <span className="px-2 py-1 rounded bg-indigo-50 text-indigo-700 font-mono text-[10px] font-extrabold border border-indigo-100/50">
                                 {row.idBanner || `BAN-${idx}`}
                               </span>
-                            </td>
- 
-                            {/* Tampilan Banner */}
-                            <td className="py-4 px-6">
-                              <div className="w-32 h-16 rounded-lg overflow-hidden bg-slate-100 border border-slate-200">
-                                <img
-                                  src={row.linkFoto}
-                                  alt="Banner Mini Preview"
-                                  className="w-full h-full object-cover"
-                                  referrerPolicy="no-referrer"
-                                />
-                              </div>
                             </td>
 
                             {/* Judul Banner */}

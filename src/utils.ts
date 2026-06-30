@@ -82,7 +82,7 @@ export function parseCSV(csvText: string): any[] {
   });
 }
 
-export function generateId(prefix: 'TRX' | 'PST' | 'PLG' | 'ABS' | 'INF' | 'SRT' | 'REG' | 'BAN'): string {
+export function generateId(prefix: 'TRX' | 'PST' | 'PLG' | 'ABS' | 'INF' | 'INFA' | 'SRT' | 'REG' | 'BAN'): string {
   const year = new Date().getFullYear();
   const randomNum = Math.floor(10000 + Math.random() * 90000); // 5-digit number
   return `${prefix}-${year}-${randomNum}`;
@@ -158,3 +158,70 @@ export function getProp(obj: any, ...keys: string[]): any {
   }
   return '';
 }
+
+export function isVideoUrl(url: string): boolean {
+  if (!url) return false;
+  const lowerUrl = url.toLowerCase();
+  
+  // YouTube checks
+  if (lowerUrl.includes('youtube.com') || lowerUrl.includes('youtu.be')) return true;
+  
+  // Google Drive checks
+  if (lowerUrl.includes('drive.google.com') && (lowerUrl.includes('/file/d/') || lowerUrl.includes('id=') || lowerUrl.includes('/open?'))) return true;
+  
+  // Direct file checks
+  if (/\.(mp4|webm|ogg|mov|m4v|3gp)(\?|$)/.test(lowerUrl)) return true;
+  
+  return false;
+}
+
+export function getVideoEmbedUrl(url: string): string | null {
+  if (!url) return null;
+  const lowerUrl = url.toLowerCase();
+
+  // 1. YouTube
+  if (lowerUrl.includes('youtube.com') || lowerUrl.includes('youtu.be')) {
+    let videoId = '';
+    if (lowerUrl.includes('youtube.com/watch')) {
+      const match = url.match(/[?&]v=([^&#]+)/);
+      if (match) videoId = match[1];
+    } else if (lowerUrl.includes('youtu.be/')) {
+      const match = url.match(/youtu\.be\/([^?&#]+)/);
+      if (match) videoId = match[1];
+    } else if (lowerUrl.includes('youtube.com/embed/')) {
+      const match = url.match(/youtube\.com\/embed\/([^?&#]+)/);
+      if (match) videoId = match[1];
+    } else if (lowerUrl.includes('youtube.com/shorts/')) {
+      const match = url.match(/youtube\.com\/shorts\/([^?&#]+)/);
+      if (match) videoId = match[1];
+    }
+    
+    if (videoId) {
+      return `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&loop=1&playlist=${videoId}&controls=0&modestbranding=1&rel=0`;
+    }
+  }
+
+  // 2. Google Drive
+  if (lowerUrl.includes('drive.google.com')) {
+    let fileId = '';
+    if (lowerUrl.includes('/file/d/')) {
+      const match = url.match(/\/file\/d\/([^/]+)/);
+      if (match) fileId = match[1];
+    } else if (lowerUrl.includes('id=')) {
+      const match = url.match(/[?&]id=([^&#]+)/);
+      if (match) fileId = match[1];
+    }
+    
+    if (fileId) {
+      return `https://drive.google.com/file/d/${fileId}/preview`;
+    }
+  }
+
+  // 3. Direct video file
+  if (/\.(mp4|webm|ogg|mov|m4v|3gp)(\?|$)/.test(lowerUrl)) {
+    return url;
+  }
+
+  return null;
+}
+

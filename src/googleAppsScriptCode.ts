@@ -219,6 +219,9 @@ function getPrimaryKeyHeaderForSheet(sheetName) {
   if (sName.indexOf("ABSENSI") !== -1 || sName.indexOf("HADIR") !== -1) {
     return "idabsensi";
   }
+  if (sName.indexOf("INFORMASI ADMIN") !== -1 || sName.indexOf("INFO_ADMIN") !== -1) {
+    return "idinformasiadmin";
+  }
   if (sName.indexOf("INFORMASI") !== -1 || sName.indexOf("INFO") !== -1 || sName.indexOf("KABAR") !== -1) {
     return "idinformasi";
   }
@@ -420,6 +423,9 @@ function getDefaultHeaders(sheetName) {
   }
   if (sName.indexOf("ABSENSI") !== -1 || sName.indexOf("HADIR") !== -1) {
     return ["idAbsensi", "nia", "namaLengkap", "kelas", "tanggalAbsen", "waktuAbsen", "keterangan", "jenisKegiatan"];
+  }
+  if (sName.indexOf("INFORMASI ADMIN") !== -1 || sName.indexOf("INFO_ADMIN") !== -1) {
+    return ["idInformasiAdmin", "Judul", "Isi", "Jenis kegiatan", "Tanggal", "Waktu"];
   }
   if (sName.indexOf("INFORMASI") !== -1 || sName.indexOf("INFO") !== -1 || sName.indexOf("KABAR") !== -1) {
     return ["idInformasi", "Judul ", "Isi", "Jenis kegiatan", "Tanggal", "Waktu"];

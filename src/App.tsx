@@ -627,7 +627,12 @@ export default function App() {
     // Master account (Super Admin) can access everything, including kelola_akun
     const currentUsername = (localStorage.getItem('USER_USERNAME') || userUsername || '').toLowerCase();
     const currentGmail = (localStorage.getItem('G-MAIL_LOGIN') || gmailLogin || '').toLowerCase();
-    const isMaster = isLoggedIn && currentUsername === currentGmail && currentGmail !== '';
+    const currentNama = (localStorage.getItem('USER_NAMA') || userNama || '').toLowerCase();
+    const isMaster = isLoggedIn && (
+      (currentUsername === currentGmail && currentGmail !== '') || 
+      currentUsername === 'administrator' || 
+      currentNama === 'administrator'
+    );
     
     if (tab === 'kelola_akun') {
       return isMaster;
@@ -2851,17 +2856,23 @@ Schema requirements:
 
       if (Array.isArray(parsedJson)) {
         const parsedAccounts = parsedJson.map((item: any) => {
-          let nama = '';
+          let namaLengkapVal = '';
+          let namaVal = '';
+          let nameVal = '';
           let username = '';
           let pasword = '';
           let menu = '';
           let removeMenu = '';
 
           Object.keys(item).forEach(key => {
-            const lowerK = key.toLowerCase().replace(/_/g, ' ');
+            const lowerK = key.toLowerCase().replace(/_/g, ' ').trim();
             const val = String(item[key] || '').trim();
-            if (lowerK === 'nama' || lowerK === 'name' || lowerK.includes('nama lengkap') || lowerK.includes('fullname')) {
-              nama = val;
+            if (lowerK === 'nama lengkap' || lowerK === 'namalengkap' || lowerK === 'full name' || lowerK === 'fullname' || lowerK.includes('nama lengkap')) {
+              namaLengkapVal = val;
+            } else if (lowerK === 'nama') {
+              namaVal = val;
+            } else if (lowerK === 'name') {
+              nameVal = val;
             } else if (lowerK === 'username' || lowerK === 'usernmae' || lowerK === 'user' || lowerK === 'login') {
               username = val;
             } else if (lowerK === 'pasword' || lowerK === 'password' || lowerK.includes('pass') || lowerK.includes('word')) {
@@ -2873,7 +2884,9 @@ Schema requirements:
             }
           });
 
-          if (!nama) nama = String(item['nama'] || item['name'] || '').trim();
+          // Prioritize NAMA LENGKAP column
+          let nama = namaLengkapVal || namaVal || nameVal || '';
+          if (!nama) nama = String(item['Nama Lengkap'] || item['nama lengkap'] || item['nama'] || item['name'] || '').trim();
           if (!username) username = String(item['username'] || item['usernmae'] || item['user'] || '').trim();
           if (!pasword) pasword = String(item['pasword'] || item['password'] || '').trim();
           if (!menu) menu = String(item['menu'] || item['aksesMenu'] || item['akses_menu'] || '').trim();
@@ -2972,7 +2985,7 @@ Schema requirements:
         const isMasterMatch = match.gmail.toLowerCase() === usernameTrimmed.toLowerCase() && match.pasword === passwordTrimmed;
         if (isMasterMatch) {
           matchedUser = {
-            nama: 'Super Admin',
+            nama: 'administrator',
             username: match.gmail,
             pasword: match.pasword,
             menu: '', // Empty means all privileges
@@ -3421,8 +3434,12 @@ Schema requirements:
   const displayedBanners = useMemo(() => {
     const currentUsername = (localStorage.getItem('USER_USERNAME') || userUsername || '').toLowerCase();
     const currentGmail = (localStorage.getItem('G-MAIL_LOGIN') || gmailLogin || '').toLowerCase();
-    const isMaster = isLoggedIn && currentUsername === currentGmail && currentGmail !== '';
     const nama = (localStorage.getItem('USER_NAMA') || userNama || '').toLowerCase();
+    const isMaster = isLoggedIn && (
+      (currentUsername === currentGmail && currentGmail !== '') || 
+      currentUsername === 'administrator' || 
+      nama === 'administrator'
+    );
     const removeMenu = (localStorage.getItem('USER_REMOVE_MENU') || userRemoveMenu || '').toLowerCase();
 
     let role: 'Admin' | 'Siswa' = 'Admin';
@@ -5068,6 +5085,34 @@ Schema requirements:
               </div>
             )}
 
+            {/* Dynamic Institution Logo display */}
+            {selectedLembaga && (() => {
+              const selectedLembagaConfig = akunList.find(acc => acc.lembaga.toLowerCase() === selectedLembaga.toLowerCase());
+              const selectedLogoUrl = selectedLembagaConfig?.linkProfile || institusiProfileUrl;
+              return (
+                <div className="flex flex-col items-center justify-center mb-6 animate-fade-in bg-slate-900/10 p-3 rounded-2xl border border-slate-800/20">
+                  <div className="relative w-20 h-20 rounded-full p-1 bg-slate-950/80 border border-slate-800/80 flex items-center justify-center overflow-hidden shadow-lg shadow-black/50">
+                    {selectedLogoUrl ? (
+                      <img
+                        src={selectedLogoUrl}
+                        alt={selectedLembaga}
+                        className="w-full h-full object-cover rounded-full"
+                        referrerPolicy="no-referrer"
+                        onError={(e) => {
+                          (e.currentTarget as HTMLImageElement).src = "https://images.unsplash.com/photo-1579546929518-9e396f3cc809?auto=format&fit=crop&w=256&h=256&q=80";
+                        }}
+                      />
+                    ) : (
+                      <School className="w-10 h-10 text-indigo-400" />
+                    )}
+                  </div>
+                  <h3 className="text-xs font-extrabold text-slate-200 mt-3 text-center tracking-wider leading-snug uppercase px-4 max-w-xs font-sans">
+                    {selectedLembaga}
+                  </h3>
+                </div>
+              );
+            })()}
+
             <form onSubmit={handleLogin} className="space-y-5 text-left">
               {!isLembagaVerified ? (
                 <>
@@ -5111,13 +5156,9 @@ Schema requirements:
                       </div>
 
                       {/* Combobox List dropdown */}
-                      {isLembagaDropdownOpen && (
+                      {isLembagaDropdownOpen && isSearchLongEnough && (
                         <div className="absolute left-0 right-0 mt-2 bg-[#0a0d1e] border border-slate-800 rounded-xl shadow-2xl z-30 max-h-48 overflow-y-auto divide-y divide-slate-800/60 animate-slide-down">
-                          {!isSearchLongEnough ? (
-                            <div className="p-4 text-center text-xs text-indigo-400 font-medium font-sans">
-                              Ketik minimal 8 karakter untuk mencari NPSN/No atau Nama Lembaga...
-                            </div>
-                          ) : filteredLembaga.length === 0 ? (
+                          {filteredLembaga.length === 0 ? (
                             <div className="p-4 text-center text-xs text-slate-500 font-medium font-sans">
                               {isFetchingAkun ? 'Memuat data lembaga...' : 'Lembaga tidak ditemukan'}
                             </div>
@@ -5202,32 +5243,6 @@ Schema requirements:
                 </>
               ) : (
                 <>
-                  {/* Lembaga Terhubung Header */}
-                  <div className="bg-indigo-950/30 border border-slate-800 rounded-xl p-3.5 flex items-center justify-between animate-fade-in">
-                    <div className="flex items-center space-x-3 text-left">
-                      <div className="p-2 bg-indigo-500/10 text-indigo-400 rounded-lg border border-indigo-500/20 shrink-0">
-                        <School className="w-4 h-4" />
-                      </div>
-                      <div className="overflow-hidden">
-                        <p className="text-[9px] uppercase font-bold text-indigo-400 tracking-wider">Lembaga Terhubung</p>
-                        <p className="text-xs font-bold text-slate-100 font-mono mt-0.5 truncate">{selectedLembaga}</p>
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsLembagaVerified(false);
-                        setLembagaAkunList([]);
-                        setEmailInput('');
-                        setPasswordInput('');
-                        setLoginError(null);
-                      }}
-                      className="text-[10px] font-bold text-rose-400 hover:text-rose-300 bg-rose-950/20 px-2.5 py-1 rounded-md border border-rose-900/40 shrink-0 hover:bg-rose-950/40 cursor-pointer active:scale-95 transition"
-                    >
-                      Ubah
-                    </button>
-                  </div>
-
                   {/* Username / E-mail Input */}
                   <div className="space-y-2 animate-fade-in" style={{ animationDelay: '100ms' }}>
                     <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block pl-1">Username Akun</label>
@@ -5274,15 +5289,31 @@ Schema requirements:
                     </div>
                   </div>
 
-                  {/* Submit button with beautiful layout and active hover transitions */}
-                  <button
-                    type="submit"
-                    disabled={isLoggingIn}
-                    className="w-full py-3.5 bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-500 hover:to-emerald-600 disabled:from-indigo-800 disabled:to-indigo-900 text-white rounded-xl text-xs font-bold active:scale-[0.98] transition-all shadow-lg shadow-indigo-950/50 cursor-pointer flex items-center justify-center space-x-2 border border-indigo-500/20"
-                  >
-                    <span>Masuk Ke Sistem Portal</span>
-                    <ChevronRight className="w-4 h-4 text-indigo-200" />
-                  </button>
+                  {/* Submit buttons with Batal and Masuk layout */}
+                  <div className="flex items-center gap-3 pt-2">
+                    <button
+                      type="button"
+                      disabled={isLoggingIn}
+                      onClick={() => {
+                        setIsLembagaVerified(false);
+                        setLembagaAkunList([]);
+                        setEmailInput('');
+                        setPasswordInput('');
+                        setLoginError(null);
+                      }}
+                      className="flex-1 py-3.5 bg-slate-900 hover:bg-slate-850 border border-slate-800 text-slate-300 rounded-xl text-xs font-bold active:scale-[0.98] transition-all cursor-pointer flex items-center justify-center space-x-2"
+                    >
+                      <span>Kembali</span>
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={isLoggingIn}
+                      className="flex-[2] py-3.5 bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-500 hover:to-emerald-600 disabled:from-indigo-800 disabled:to-indigo-900 text-white rounded-xl text-xs font-bold active:scale-[0.98] transition-all shadow-lg shadow-indigo-950/50 cursor-pointer flex items-center justify-center space-x-2 border border-indigo-500/20"
+                    >
+                      <span>Masuk</span>
+                      <ChevronRight className="w-4 h-4 text-indigo-200" />
+                    </button>
+                  </div>
                 </>
               )}
             </form>
@@ -5488,10 +5519,10 @@ Schema requirements:
             </div>
             <div className="overflow-hidden flex-1">
               <p className="text-[11px] font-bold text-white truncate leading-tight font-sans" title={userNama || lembagaLogin}>
-                {userNama || 'Admin Sapta'}
+                {(userNama && (userNama.toLowerCase() === 'super admin' || userNama.toLowerCase() === 'superadmin')) ? 'administrator' : (userNama || 'Admin Sapta')}
               </p>
               <p className="text-[9px] text-[#64748b] truncate font-sans tracking-wide mt-0.5 uppercase">
-                {userUsername ? `@${userUsername} • ` : ''}{lembagaLogin || 'Lembaga'}
+                {userUsername ? `@${(userUsername.includes('@') && (userNama?.toLowerCase() === 'super admin' || userNama?.toLowerCase() === 'administrator')) ? 'administrator' : userUsername} • ` : ''}{lembagaLogin || 'Lembaga'}
               </p>
             </div>
           </div>

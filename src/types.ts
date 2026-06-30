@@ -115,7 +115,16 @@ export interface LogNotifikasi {
   keterangan: string;
 }
 
-export type ActiveTab = 'dashboard' | 'anggota' | 'pembayaran' | 'prestasi' | 'pelanggaran' | 'absensi' | 'informasi' | 'informasi_admin' | 'surat' | 'peraturan' | 'pengaturan' | 'kelola_akun' | 'cetak_data' | 'asisten_ai' | 'banner';
+export interface Pengumuman {
+  idPengumuman: string;
+  tanggal: string;
+  judul: string;
+  linkFile: string;
+  namaFile?: string;
+  tipeFile?: string;
+}
+
+export type ActiveTab = 'dashboard' | 'anggota' | 'pembayaran' | 'prestasi' | 'pelanggaran' | 'absensi' | 'informasi' | 'informasi_admin' | 'surat' | 'peraturan' | 'pengaturan' | 'kelola_akun' | 'cetak_data' | 'asisten_ai' | 'banner' | 'pengumuman';
 
 export interface ToastMessage {
   id: string;

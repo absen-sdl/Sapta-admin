@@ -82,7 +82,7 @@ export function parseCSV(csvText: string): any[] {
   });
 }
 
-export function generateId(prefix: 'TRX' | 'PST' | 'PLG' | 'ABS' | 'INF' | 'INFA' | 'SRT' | 'REG' | 'BAN'): string {
+export function generateId(prefix: 'TRX' | 'PST' | 'PLG' | 'ABS' | 'INF' | 'INFA' | 'SRT' | 'REG' | 'BAN' | 'PGM'): string {
   const year = new Date().getFullYear();
   const randomNum = Math.floor(10000 + Math.random() * 90000); // 5-digit number
   return `${prefix}-${year}-${randomNum}`;

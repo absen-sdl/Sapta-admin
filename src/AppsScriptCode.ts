@@ -234,6 +234,12 @@ function getPrimaryKeyHeaderForSheet(sheetName) {
   if (sName.indexOf("BANNER") !== -1 || sName.indexOf("SLIDER") !== -1) {
     return "idbanner";
   }
+  if (sName.indexOf("PENGUMUMAN") !== -1) {
+    return "idpengumuman";
+  }
+  if (sName.indexOf("ADMINSAPTADATA") !== -1 || sName.indexOf("KELOLAAKUN") !== -1 || sName.indexOf("AKUNSAPTA") !== -1) {
+    return "username";
+  }
   return "id";
 }
 
@@ -376,7 +382,17 @@ function getObjectValueByHeaderName(obj, colHeader) {
     "idbanner": ["idBanner", "idbanner", "id"],
     "linkfoto": ["linkFoto", "linkfoto", "foto", "photo", "gambar", "banner"],
     "linkartikel": ["linkArtikel", "linkartikel", "artikel", "link", "sumber", "url"],
-    "tanggalinput": ["tanggalInput", "tanggalinput", "tanggal", "date"]
+    "tanggalinput": ["tanggalInput", "tanggalinput", "tanggal", "date"],
+
+    // PENGUMUMAN
+    "idpengumuman": ["idPengumuman", "idpengumuman", "id"],
+    "linkfile": ["linkFile", "linkfile", "file", "url", "link"],
+    "namafile": ["namaFile", "namafile"],
+    "tipefile": ["tipeFile", "tipefile"],
+
+    // SUB-AKUN / ADMIN SAPTA DATA
+    "fotoprofile": ["fotoProfile", "fotoprofile", "linkProfile", "foto", "photo", "profile", "avatar"],
+    "removemenu": ["remove_menu", "removemenu", "remove menu", "restricted"]
   };
 
   if (mappings[cleanHeader]) {
@@ -406,6 +422,9 @@ function getObjectValueByHeaderName(obj, colHeader) {
 function getDefaultHeaders(sheetName) {
   var sName = String(sheetName || "").trim().toUpperCase().replace(/[\\u200B-\\u200D\\uFEFF]/g, "").replace(/[\\s\\-_.]/g, "");
   
+  if (sName.indexOf("ADMINSAPTADATA") !== -1 || sName.indexOf("KELOLAAKUN") !== -1) {
+    return ["nama", "username", "pasword", "remove_menu", "fotoProfile"];
+  }
   if (sName.indexOf("AKUN") !== -1 || sName.indexOf("SAPTA") !== -1) {
     return ["g-mail", "pasword", "lembaga", "url_app_script", "url_absensi", "link-profile"];
   }
@@ -438,6 +457,12 @@ function getDefaultHeaders(sheetName) {
   }
   if (sName.indexOf("BANNER") !== -1 || sName.indexOf("SLIDER") !== -1) {
     return ["idBanner", "linkFoto", "linkArtikel", "tanggalInput"];
+  }
+  if (sName.indexOf("LOGNOTIFIKASI") !== -1 || sName.indexOf("AKTIVITAS") !== -1) {
+    return ["idLog", "tanggal", "operator", "tipeAksi", "menu", "keterangan"];
+  }
+  if (sName.indexOf("PENGUMUMAN") !== -1) {
+    return ["idPengumuman", "tanggal", "judul", "linkFile", "namaFile", "tipeFile"];
   }
   return ["id"];
 }

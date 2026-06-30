@@ -23,6 +23,7 @@ const STORAGE_KEYS: Record<string, string> = {
   'PERATURAN': 'panel_peraturan',
   'BANNER': 'panel_banner',
   'LOG NOTIFIKASI': 'panel_log_notifikasi',
+  'PENGUMUMAN': 'panel_pengumuman',
 };
 
 // All mock/bot data arrays are completely empty, keeping only clean user-generated or synced data
@@ -77,6 +78,9 @@ export function initializeDatabase() {
   }
   if (!localStorage.getItem(STORAGE_KEYS['INFORMASI ADMIN'])) {
     localStorage.setItem(STORAGE_KEYS['INFORMASI ADMIN'], JSON.stringify([]));
+  }
+  if (!localStorage.getItem(STORAGE_KEYS['PENGUMUMAN'])) {
+    localStorage.setItem(STORAGE_KEYS['PENGUMUMAN'], JSON.stringify([]));
   }
 
   // FORCE RETROACTIVE CLEANUP OF OLD MOCK BOTS IN LOCAL STORAGE
@@ -237,6 +241,8 @@ function getIdKeyForSheet(sheetName: string): string {
       return 'idPeraturan';
     case 'BANNER':
       return 'idBanner';
+    case 'PENGUMUMAN':
+      return 'idPengumuman';
     case 'LOG NOTIFIKASI':
       return 'idLog';
     default:

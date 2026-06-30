@@ -57,8 +57,8 @@ import {
 
 import { initializeDatabase } from './dataSdk';
 import { parseCSV, generateId, formatRupiah, formatDateString, getProp, terbilang, isVideoUrl, getVideoEmbedUrl } from './utils';
-import { Anggota, Pembayaran, Prestasi, Pelanggaran, Absensi, Informasi, InformasiAdmin, Surat, Peraturan, ActiveTab, ToastMessage, Banner, LogNotifikasi } from './types';
-import { GOOGLE_APPS_SCRIPT_CODE } from './googleAppsScriptCode';
+import { Anggota, Pembayaran, Prestasi, Pelanggaran, Absensi, Informasi, InformasiAdmin, Surat, Peraturan, ActiveTab, ToastMessage, Banner, LogNotifikasi, Pengumuman } from './types';
+import { GOOGLE_APPS_SCRIPT_CODE } from './AppsScriptCode';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
@@ -386,7 +386,7 @@ export default function App() {
   // Custom sidebar and dashboard view states
   const [isBiodataOpen, setIsBiodataOpen] = useState<boolean>(true);
   const [currentTime, setCurrentTime] = useState<Date>(new Date());
-  const [informasiSubView, setInformasiSubView] = useState<'menu' | 'list' | 'admin'>('menu');
+  const [informasiSubView, setInformasiSubView] = useState<'menu' | 'list' | 'admin' | 'pengumuman'>('menu');
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -420,6 +420,8 @@ export default function App() {
   const [absensiList, setAbsensiList] = useState<Absensi[]>([]);
   const [informasiList, setInformasiList] = useState<Informasi[]>([]);
   const [informasiAdminList, setInformasiAdminList] = useState<InformasiAdmin[]>([]);
+  const [pengumumanList, setPengumumanList] = useState<Pengumuman[]>([]);
+  const [pengumumanUploadMethod, setPengumumanUploadMethod] = useState<'upload' | 'url'>('url');
   const [suratList, setSuratList] = useState<Surat[]>([]);
   const [peraturanList, setPeraturanList] = useState<Peraturan[]>([]);
   const [bannerList, setBannerList] = useState<Banner[]>([]);
@@ -532,6 +534,10 @@ export default function App() {
     return localStorage.getItem('USER_REMOVE_MENU') || '';
   });
 
+  const [userFoto, setUserFoto] = useState<string>(() => {
+    return localStorage.getItem('USER_FOTO') || '';
+  });
+
   const [isLembagaVerified, setIsLembagaVerified] = useState<boolean>(false);
   const [lembagaAkunList, setLembagaAkunList] = useState<any[]>([]);
 
@@ -547,8 +553,10 @@ export default function App() {
     nama: '',
     username: '',
     pasword: '',
-    remove_menu: ''
+    remove_menu: '',
+    fotoProfile: ''
   });
+  const [subAccountPhotoMethod, setSubAccountPhotoMethod] = useState<'url' | 'upload'>('url');
   const [isSavingSubAccount, setIsSavingSubAccount] = useState<boolean>(false);
 
   // --- STATES FOR CETAK & SIMPAN DATA TAB ---
@@ -1112,6 +1120,7 @@ export default function App() {
           let pasword = '';
           let removeMenu = '';
           let menu = '';
+          let fotoProfile = '';
 
           Object.keys(item).forEach(key => {
             const lowerK = key.toLowerCase().replace(/_/g, ' ');
@@ -1126,6 +1135,8 @@ export default function App() {
               menu = val;
             } else if (lowerK === 'remove menu' || lowerK === 'remove_menu' || lowerK === 'removemenu' || lowerK.includes('hapus menu') || lowerK.includes('tidak diizinkan') || lowerK.includes('restricted')) {
               removeMenu = val;
+            } else if (lowerK === 'foto profile' || lowerK === 'fotoprofile' || lowerK === 'profile' || lowerK === 'photo' || lowerK === 'foto' || lowerK.includes('foto') || lowerK.includes('profile')) {
+              fotoProfile = val;
             }
           });
 
@@ -1134,8 +1145,9 @@ export default function App() {
           if (!pasword) pasword = String(item['pasword'] || item['password'] || '').trim();
           if (!removeMenu) removeMenu = String(item['remove_menu'] || item['remove menu'] || item['hapus_menu'] || item['hapus menu'] || '').trim();
           if (!menu) menu = String(item['menu'] || item['aksesMenu'] || item['akses_menu'] || '').trim();
+          if (!fotoProfile) fotoProfile = String(item['fotoProfile'] || item['fotoprofile'] || item['foto_profile'] || item['linkProfile'] || item['link_profile'] || item['profile'] || item['foto'] || '').trim();
 
-          return { nama, username, pasword, remove_menu: removeMenu, menu };
+          return { nama, username, pasword, remove_menu: removeMenu, menu, fotoProfile };
         }).filter(acc => acc.username || acc.nama);
         setSubAccountList(parsedAccounts);
       } else {
@@ -2863,6 +2875,7 @@ Schema requirements:
           let pasword = '';
           let menu = '';
           let removeMenu = '';
+          let fotoProfile = '';
 
           Object.keys(item).forEach(key => {
             const lowerK = key.toLowerCase().replace(/_/g, ' ').trim();
@@ -2881,6 +2894,8 @@ Schema requirements:
               menu = val;
             } else if (lowerK === 'remove menu' || lowerK === 'remove_menu' || lowerK === 'removemenu' || lowerK.includes('hapus menu') || lowerK.includes('tidak diizinkan') || lowerK.includes('restricted')) {
               removeMenu = val;
+            } else if (lowerK === 'foto profile' || lowerK === 'fotoprofile' || lowerK === 'profile' || lowerK === 'photo' || lowerK === 'foto' || lowerK.includes('foto') || lowerK.includes('profile')) {
+              fotoProfile = val;
             }
           });
 
@@ -2891,8 +2906,9 @@ Schema requirements:
           if (!pasword) pasword = String(item['pasword'] || item['password'] || '').trim();
           if (!menu) menu = String(item['menu'] || item['aksesMenu'] || item['akses_menu'] || '').trim();
           if (!removeMenu) removeMenu = String(item['remove_menu'] || item['remove menu'] || item['hapus_menu'] || item['hapus menu'] || '').trim();
+          if (!fotoProfile) fotoProfile = String(item['fotoProfile'] || item['fotoprofile'] || item['foto_profile'] || item['linkProfile'] || item['link_profile'] || item['profile'] || item['foto'] || '').trim();
 
-          return { nama, username, pasword, menu, removeMenu };
+          return { nama, username, pasword, menu, removeMenu, fotoProfile };
         }).filter(acc => acc.username || acc.nama);
 
         setLembagaAkunList(parsedAccounts);
@@ -2947,11 +2963,6 @@ Schema requirements:
       return;
     }
 
-    if (!isLembagaVerified) {
-      setLoginError('Silakan klik "OKE" untuk verifikasi & memuat database akun lembaga Anda terlebih dahulu.');
-      return;
-    }
-
     if (!usernameTrimmed) {
       setLoginError('Silakan masukkan Username Anda.');
       return;
@@ -2963,24 +2974,226 @@ Schema requirements:
     }
 
     setIsLoggingIn(true);
+    setLoginProgressStep('auth');
+    setLoginProgressText('Menghubungkan ke server induk (Membaca data induk)...');
 
     try {
-      await new Promise(resolve => setTimeout(resolve, 800));
+      // 1. Fetch latest registered institutions from INDUK LINK to ensure we have up-to-date data
+      let currentAkunList = akunList;
+      try {
+        const url = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQlr9fg7nNZTIJ0v7s_qmQeXGEUL6iSW45TWeUy2pyPz-_660IiiQsbihqXX6oRxuOEPJ9P1uCmFtti/pub?gid=0&single=true&output=csv';
+        const response = await fetch(url);
+        if (response.ok) {
+          const csvText = await response.text();
+          const parsed = parseCSV(csvText);
+          if (parsed && parsed.length > 0) {
+            currentAkunList = parsed.map((item: any) => {
+              let npsn = '';
+              let lembaga = '';
+              let linkProfile = '';
+              let urlAppScript = '';
+              let username = '';
+              let pasword = '';
 
-      const match = akunList.find(acc => acc.lembaga.toLowerCase() === lembagaTrimmed.toLowerCase());
+              Object.keys(item).forEach(key => {
+                const rawKey = key.trim();
+                const cleanKey = rawKey.toLowerCase().replace(/[^a-z0-9]/g, '');
+                const val = String(item[key] || '').trim();
+
+                if (cleanKey === 'npsn' || cleanKey === 'no' || cleanKey === 'npsnno' || cleanKey.includes('npsn')) {
+                  npsn = val;
+                } else if (cleanKey === 'pasword' || cleanKey === 'password' || cleanKey === 'pin' || cleanKey === 'key' || cleanKey.includes('pass') || cleanKey.includes('word') || cleanKey.includes('key')) {
+                  pasword = val;
+                } else if (cleanKey.includes('namalembaga') || cleanKey === 'lembaga' || cleanKey === 'nama' || (cleanKey.includes('lembaga') && !cleanKey.includes('profile') && !cleanKey.includes('logo') && !cleanKey.includes('link') && !cleanKey.includes('script'))) {
+                  lembaga = val;
+                } else if (cleanKey.includes('appscript') || cleanKey.includes('appsscript') || cleanKey.includes('linkserver') || cleanKey.includes('urlserver') || cleanKey.includes('script')) {
+                  urlAppScript = val;
+                } else if (cleanKey.includes('profile') || cleanKey.includes('logo') || cleanKey.includes('foto') || cleanKey.includes('photo') || cleanKey.includes('profilelembaga')) {
+                  linkProfile = val;
+                } else if (cleanKey === 'username' || cleanKey === 'user' || cleanKey === 'gmail' || cleanKey === 'email') {
+                  username = val;
+                }
+              });
+
+              if (!npsn) npsn = String(item['NPSN/NO'] || item['NPSN'] || item['No'] || item['npsn'] || '').trim();
+              if (!pasword) pasword = String(item['pasword'] || item['password'] || item['Pasword'] || item['Password'] || item['key'] || '').trim();
+              if (!lembaga) lembaga = String(item['Nama Lembaga'] || item['Lembaga'] || item['lembaga'] || '').trim();
+              if (!urlAppScript) urlAppScript = String(item['Link app script'] || item['urlAppScript'] || item['Link_App_Script'] || item['Link_App_script'] || item['url_app_script'] || '').trim();
+              if (!linkProfile) linkProfile = String(item['Profile Lembaga'] || item['profile_lembaga'] || item['linkProfile'] || item['profile'] || '').trim();
+              if (!username) username = String(item['username'] || item['Username'] || item['gmail'] || item['email'] || '').trim();
+
+              return {
+                npsn,
+                pasword,
+                lembaga,
+                urlAppScript,
+                linkProfile,
+                username,
+                gmail: username,
+                urlAbsensi: '',
+                urlKelolaAkun: ''
+              };
+            }).filter(acc => acc.username || acc.lembaga);
+            setAkunList(currentAkunList);
+            localStorage.setItem('cached_akun_list', JSON.stringify(currentAkunList));
+          }
+        }
+      } catch (indukErr) {
+        console.warn('Gagal membaca data dari link induk live, menggunakan cache...', indukErr);
+      }
+
+      // Find selected institution config from the induk sheet
+      const match = currentAkunList.find(acc => acc.lembaga.toLowerCase() === lembagaTrimmed.toLowerCase());
       if (!match) {
-        setLoginError('Sistem tidak menemukan informasi server untuk lembaga terpilih.');
+        setLoginError('Lembaga tidak terdaftar dalam database induk.');
         setIsLoggingIn(false);
         return;
       }
 
-      // Check sub-accounts from 'KELOLA AKUN'
-      let matchedUser = lembagaAkunList.find(u => 
+      if (!match.urlAppScript && customAppsScriptUrlInput) {
+        match.urlAppScript = customAppsScriptUrlInput.trim();
+      }
+
+      if (!match.urlAppScript) {
+        setLoginError('Tautan Apps Script Utama (Server) belum dikonfigurasi untuk lembaga ini.');
+        setIsLoggingIn(false);
+        return;
+      }
+
+      // 2. Fetch sub-accounts from the SERVER LINK (Google Apps Script Web App url)
+      setLoginProgressText('Menghubungkan ke server lembaga (Membaca data server)...');
+      let dataFetched = false;
+      let parsedJson: any = null;
+      let detectedSheetName = 'ADMIN SAPTA DATA';
+
+      try {
+        // Attempt 1: ADMIN SAPTA DATA sheet
+        let targetUrl = match.urlAppScript + (match.urlAppScript.includes('?') ? '&' : '?') + 'action=read&sheetName=' + encodeURIComponent('ADMIN SAPTA DATA');
+        let response = await fetch(targetUrl);
+        let success = false;
+        if (response.ok) {
+          const resText = await response.text();
+          try {
+            const parsed = JSON.parse(resText);
+            if (parsed && !parsed.error) {
+              parsedJson = parsed;
+              dataFetched = true;
+              success = true;
+              detectedSheetName = 'ADMIN SAPTA DATA';
+            }
+          } catch (e) {
+            const parsed = parseCSV(resText);
+            if (parsed && parsed.length > 0) {
+              parsedJson = parsed;
+              dataFetched = true;
+              success = true;
+              detectedSheetName = 'ADMIN SAPTA DATA';
+            }
+          }
+        }
+
+        // Attempt 2 Fallback: KELOLA AKUN sheet
+        if (!success) {
+          targetUrl = match.urlAppScript + (match.urlAppScript.includes('?') ? '&' : '?') + 'action=read&sheetName=' + encodeURIComponent('KELOLA AKUN');
+          response = await fetch(targetUrl);
+          if (response.ok) {
+            const resText = await response.text();
+            try {
+              const parsed = JSON.parse(resText);
+              if (parsed && !parsed.error) {
+                parsedJson = parsed;
+                dataFetched = true;
+                detectedSheetName = 'KELOLA AKUN';
+              }
+            } catch (e) {
+              const parsed = parseCSV(resText);
+              if (parsed && parsed.length > 0) {
+                parsedJson = parsed;
+                dataFetched = true;
+                detectedSheetName = 'KELOLA AKUN';
+              }
+            }
+          }
+        }
+      } catch (appScriptErr) {
+        console.warn('Gagal membaca sub-akun live dari Apps Script server:', appScriptErr);
+      }
+
+      // Check if we have cached sub-accounts for this institution to enable offline/emergency login
+      let loadedAccounts: any[] = [];
+      const cacheKey = 'cached_lembaga_akun_list_' + lembagaTrimmed.toLowerCase().replace(/\s+/g, '_');
+
+      if (dataFetched && Array.isArray(parsedJson)) {
+        loadedAccounts = parsedJson.map((item: any) => {
+          let namaLengkapVal = '';
+          let namaVal = '';
+          let nameVal = '';
+          let username = '';
+          let pasword = '';
+          let menu = '';
+          let removeMenu = '';
+          let fotoProfile = '';
+
+          Object.keys(item).forEach(key => {
+            const lowerK = key.toLowerCase().replace(/_/g, ' ').trim();
+            const val = String(item[key] || '').trim();
+            if (lowerK === 'nama lengkap' || lowerK === 'namalengkap' || lowerK === 'full name' || lowerK === 'fullname' || lowerK.includes('nama lengkap')) {
+              namaLengkapVal = val;
+            } else if (lowerK === 'nama') {
+              namaVal = val;
+            } else if (lowerK === 'name') {
+              nameVal = val;
+            } else if (lowerK === 'username' || lowerK === 'usernmae' || lowerK === 'user' || lowerK === 'login') {
+              username = val;
+            } else if (lowerK === 'pasword' || lowerK === 'password' || lowerK.includes('pass') || lowerK.includes('word')) {
+              pasword = val;
+            } else if (lowerK === 'menu' || lowerK.includes('akses') || lowerK.includes('fitur') || lowerK.includes('role')) {
+              menu = val;
+            } else if (lowerK === 'remove menu' || lowerK === 'remove_menu' || lowerK === 'removemenu' || lowerK.includes('hapus menu') || lowerK.includes('tidak diizinkan') || lowerK.includes('restricted')) {
+              removeMenu = val;
+            } else if (lowerK === 'foto profile' || lowerK === 'fotoprofile' || lowerK === 'profile' || lowerK === 'photo' || lowerK === 'foto' || lowerK.includes('foto') || lowerK.includes('profile')) {
+              fotoProfile = val;
+            }
+          });
+
+          let nama = namaLengkapVal || namaVal || nameVal || '';
+          if (!nama) nama = String(item['Nama Lengkap'] || item['nama lengkap'] || item['nama'] || item['name'] || '').trim();
+          if (!username) username = String(item['username'] || item['usernmae'] || item['user'] || '').trim();
+          if (!pasword) pasword = String(item['pasword'] || item['password'] || '').trim();
+          if (!menu) menu = String(item['menu'] || item['aksesMenu'] || item['akses_menu'] || '').trim();
+          if (!removeMenu) removeMenu = String(item['remove_menu'] || item['remove menu'] || item['hapus_menu'] || item['hapus menu'] || '').trim();
+          if (!fotoProfile) fotoProfile = String(item['fotoProfile'] || item['fotoprofile'] || item['foto_profile'] || item['linkProfile'] || item['link_profile'] || item['profile'] || item['foto'] || '').trim();
+
+          return { nama, username, pasword, menu, remove_menu: removeMenu, fotoProfile };
+        }).filter(acc => acc.username || acc.nama);
+
+        setLembagaAkunList(loadedAccounts);
+        setSubAccountSheetName(detectedSheetName);
+        localStorage.setItem(cacheKey, JSON.stringify(loadedAccounts));
+      } else {
+        // Fallback to cache for sub-accounts if offline or fetch failed
+        const cachedData = localStorage.getItem(cacheKey);
+        if (cachedData) {
+          try {
+            const parsed = JSON.parse(cachedData);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              loadedAccounts = parsed;
+              setLembagaAkunList(parsed);
+              addToast('Koneksi server terhambat. Mengaktifkan mode cadangan offline.', 'info');
+            }
+          } catch (jsErr) {
+            console.error('Gagal memparsing cache sub-akun:', jsErr);
+          }
+        }
+      }
+
+      // Check credentials against Sub-Accounts loaded from Server Link
+      let matchedUser = loadedAccounts.find(u => 
         u.username.toLowerCase() === usernameTrimmed.toLowerCase() && 
         u.pasword === passwordTrimmed
       );
 
-      // Superadmin fallback (Gmail master / password registered in the master list)
+      // Check credentials against Master Administrator from Induk Link
       if (!matchedUser) {
         const isMasterMatch = match.gmail.toLowerCase() === usernameTrimmed.toLowerCase() && match.pasword === passwordTrimmed;
         if (isMasterMatch) {
@@ -2989,12 +3202,14 @@ Schema requirements:
             username: match.gmail,
             pasword: match.pasword,
             menu: '', // Empty means all privileges
-            removeMenu: ''
+            removeMenu: '',
+            fotoProfile: match.linkProfile || ''
           };
         }
       }
 
-       if (matchedUser) {
+      if (matchedUser) {
+        setIsLembagaVerified(true);
         const targetGidMatch = (match.urlAbsensi || '').match(/gid=(\d+)/);
         const targetGid = targetGidMatch && targetGidMatch[1] ? targetGidMatch[1] : '987258577';
         const formattedAbsensiUrl = match.urlAbsensi ? getCSVUrlForGid(match.urlAbsensi, targetGid) : '';
@@ -3015,7 +3230,8 @@ Schema requirements:
         localStorage.setItem('USER_NAMA', matchedUser.nama || 'Amd');
         localStorage.setItem('USER_USERNAME', matchedUser.username);
         localStorage.setItem('USER_MENU', matchedUser.menu || '');
-        localStorage.setItem('USER_REMOVE_MENU', matchedUser.removeMenu || '');
+        localStorage.setItem('USER_REMOVE_MENU', matchedUser.removeMenu || matchedUser.remove_menu || '');
+        localStorage.setItem('USER_FOTO', matchedUser.fotoProfile || '');
 
         localStorage.setItem('google_sheets_absensi_csv_url', formattedAbsensiUrl);
         localStorage.setItem('google_sheets_kelola_akun_csv_url', match.urlKelolaAkun || '');
@@ -3040,7 +3256,8 @@ Schema requirements:
         setUserNama(matchedUser.nama || 'Amd');
         setUserUsername(matchedUser.username);
         setUserMenu(matchedUser.menu || '');
-        setUserRemoveMenu(matchedUser.removeMenu || '');
+        setUserRemoveMenu(matchedUser.removeMenu || matchedUser.remove_menu || '');
+        setUserFoto(matchedUser.fotoProfile || '');
 
         // Run sync data from cloud urls synchronously BEFORE declaring user logged in!
         try {
@@ -3067,6 +3284,7 @@ Schema requirements:
         setLoginError('Username atau Sandi Password tidak cocok dengan database Lembaga terpilih.');
       }
     } catch (err: any) {
+      console.error(err);
       setLoginError('Terjadi kesalahan koneksi server. Silakan coba lagi.');
     } finally {
       setIsLoggingIn(false);
@@ -3088,6 +3306,7 @@ Schema requirements:
     localStorage.removeItem('USER_USERNAME');
     localStorage.removeItem('USER_MENU');
     localStorage.removeItem('USER_REMOVE_MENU');
+    localStorage.removeItem('USER_FOTO');
 
     setAppsScriptUrl('');
     setAbsensiCsvPublishUrl('');
@@ -3105,6 +3324,7 @@ Schema requirements:
     setUserUsername('');
     setUserMenu('');
     setUserRemoveMenu('');
+    setUserFoto('');
     setIsLembagaVerified(false);
     setLembagaAkunList([]);
 
@@ -3125,11 +3345,13 @@ Schema requirements:
   const handleOpenAddSubAccount = () => {
     setSubAccountModalType('add');
     setEditingSubAccount(null);
+    setSubAccountPhotoMethod('url');
     setSubAccountFormValues({
       nama: '',
       username: '',
       pasword: '',
-      remove_menu: ''
+      remove_menu: '',
+      fotoProfile: ''
     });
     setIsSubAccountModalOpen(true);
   };
@@ -3137,11 +3359,15 @@ Schema requirements:
   const handleOpenEditSubAccount = (acc: any) => {
     setSubAccountModalType('edit');
     setEditingSubAccount(acc);
+    const photoUrl = acc.fotoProfile || acc.linkProfile || '';
+    const isBase64 = String(photoUrl).startsWith('data:');
+    setSubAccountPhotoMethod(isBase64 ? 'upload' : 'url');
     setSubAccountFormValues({
       nama: acc.nama,
       username: acc.username,
       pasword: acc.pasword,
-      remove_menu: acc.remove_menu || ''
+      remove_menu: acc.remove_menu || '',
+      fotoProfile: photoUrl
     });
     setIsSubAccountModalOpen(true);
   };
@@ -3201,6 +3427,7 @@ Schema requirements:
         pasword: passwordVal,
         remove_menu: subAccountFormValues.remove_menu,
         menu: '',
+        fotoProfile: subAccountFormValues.fotoProfile || '',
         'edit/add by': localStorage.getItem('USER_NAMA') || localStorage.getItem('USER_USERNAME') || 'Super Admin'
       }
     };
@@ -3238,6 +3465,7 @@ Schema requirements:
       }
 
       addToast(subAccountModalType === 'add' ? 'Akun sub-member berhasil ditambahkan!' : 'Akun sub-member berhasil disimpan!', 'success');
+      writeLocalActivityLog(subAccountModalType, 'KELOLA AKUN', { namaLengkap: namaVal }, usernameVal);
       setIsSubAccountModalOpen(false);
       
       setTimeout(() => {
@@ -3292,6 +3520,7 @@ Schema requirements:
       }
 
       addToast('Akun sub-member berhasil dihapus dari Google Sheets!', 'success');
+      writeLocalActivityLog('delete', 'KELOLA AKUN', { namaLengkap: account.nama }, account.username);
       setTimeout(() => {
         fetchSubAccounts();
       }, 800);
@@ -3418,6 +3647,7 @@ Schema requirements:
     setAbsensiList(window.dataSdk.read('ABSENSI'));
     setInformasiList(window.dataSdk.read('INFORMASI'));
     setInformasiAdminList(window.dataSdk.read('INFORMASI ADMIN') || []);
+    setPengumumanList(window.dataSdk.read('PENGUMUMAN') || []);
     setSuratList(window.dataSdk.read('SURAT'));
     setPeraturanList(window.dataSdk.read('PERATURAN'));
     setBannerList(window.dataSdk.read('BANNER'));
@@ -3474,6 +3704,77 @@ Schema requirements:
     }, 5000);
     return () => clearInterval(interval);
   }, [displayedBanners]);
+
+  // Background Notification Poller (Sinking and notifying on real-time log changes)
+  useEffect(() => {
+    if (!isLoggedIn) return;
+
+    const pollNotifications = async () => {
+      const endpoint = appsScriptUrl || localStorage.getItem('LINK_SCRIPT_UTAMA') || localStorage.getItem('google_apps_script_url') || '';
+      if (!endpoint) return;
+
+      try {
+        const targetUrl = endpoint + (endpoint.includes('?') ? '&' : '?') + 'action=read&sheetName=LOG%20NOTIFIKASI' + '&t=' + Date.now();
+        const response = await fetch(targetUrl);
+        if (!response.ok) return;
+
+        const resText = await response.text();
+        let parsed: any[] = [];
+        try {
+          const json = JSON.parse(resText);
+          if (Array.isArray(json)) {
+            parsed = json;
+          } else if (json && Array.isArray(json.data)) {
+            parsed = json.data;
+          } else if (json && Array.isArray(json.records)) {
+            parsed = json.records;
+          }
+        } catch (jsonErr) {
+          parsed = parseCSV(resText);
+        }
+
+        if (parsed && parsed.length > 0) {
+          const formattedLogs = parsed.map((item: any, idx: number) => ({
+            idLog: String(getProp(item, 'idLog', 'idlog', 'id') || `LOG-CL-${idx + 10001}`).trim(),
+            tanggal: String(getProp(item, 'tanggal', 'tgl', 'date', 'timestamp') || '').trim(),
+            operator: String(getProp(item, 'operator', 'user', 'admin') || 'Super Admin').trim(),
+            tipeAksi: String(getProp(item, 'tipeAksi', 'tipeaksi', 'aksi', 'action') || '').trim(),
+            menu: String(getProp(item, 'menu', 'sheet') || '').trim(),
+            keterangan: String(getProp(item, 'keterangan', 'desc', 'keterangan') || '').trim()
+          }));
+
+          const localLogs = window.dataSdk.read('LOG NOTIFIKASI') || [];
+          const currentOperator = localStorage.getItem('USER_NAMA') || localStorage.getItem('USER_USERNAME') || 'Super Admin';
+
+          let hasNewLog = false;
+
+          formattedLogs.forEach((item) => {
+            const existsLocally = localLogs.some((l: any) => String(l.idLog) === String(item.idLog));
+            if (!existsLocally) {
+              window.dataSdk.create('LOG NOTIFIKASI', item);
+              hasNewLog = true;
+
+              // Only notify if the action was made by another operator
+              if (item.operator.toLowerCase() !== currentOperator.toLowerCase()) {
+                addToast(`🔔 ${item.keterangan}`, 'info');
+              }
+            }
+          });
+
+          if (hasNewLog) {
+            const updatedLogs = window.dataSdk.read('LOG NOTIFIKASI') || [];
+            setNotificationList([...updatedLogs].reverse());
+          }
+        }
+      } catch (err) {
+        console.warn("Gagal melakukan sinkronisasi latar belakang log notifikasi:", err);
+      }
+    };
+
+    pollNotifications();
+    const intervalId = setInterval(pollNotifications, 15000);
+    return () => clearInterval(intervalId);
+  }, [isLoggedIn, appsScriptUrl]);
 
   // Close custom drop search when clicking outside
   useEffect(() => {
@@ -3763,32 +4064,46 @@ Schema requirements:
     setIsLoading(true);
     addToast('Memulai pembaruan rekap absensi dari database pusat...', 'info');
     try {
-      const activeAbsensiUrl = absensiCsvPublishUrl || localStorage.getItem('LINK_ABSENSI') || localStorage.getItem('google_sheets_absensi_csv_url') || '';
-      if (!activeAbsensiUrl) {
-        addToast('Gagal pembaruan: Tautan Rekap Absensi belum dikonfigurasi. Silakan masuk atau konfigurasi di bagian Pengaturan.', 'error');
+      const activeScriptUrl = appsScriptUrl || localStorage.getItem('LINK_SCRIPT_UTAMA') || localStorage.getItem('google_apps_script_url') || '';
+      if (!activeScriptUrl) {
+        addToast('Gagal pembaruan: Tautan server utama belum dikonfigurasi. Silakan masuk atau konfigurasi di bagian Pengaturan.', 'error');
         setIsLoading(false);
         return;
       }
       
-      const targetAbsensiGid = activeAbsensiUrl.includes('gid=') ? (activeAbsensiUrl.match(/gid=(\d+)/)?.[1] || '987258577') : '987258577';
-      const url = getCSVUrlForGid(activeAbsensiUrl, targetAbsensiGid);
-      const response = await fetch(url);
-      if (!response.ok) throw new Error('Koneksi sheet absensi gagal.');
+      const targetUrl = activeScriptUrl + (activeScriptUrl.includes('?') ? '&' : '?') + 'action=read&sheetName=ABSENSI' + '&t=' + Date.now();
+      const response = await fetch(targetUrl);
+      if (!response.ok) throw new Error('Koneksi Web App Server gagal.');
       
-      const csvText = await response.text();
-      const parsed = parseCSV(csvText);
+      const resText = await response.text();
+      let parsed: any[] = [];
+      try {
+        const json = JSON.parse(resText);
+        if (Array.isArray(json)) {
+          parsed = json;
+        } else if (json && Array.isArray(json.data)) {
+          parsed = json.data;
+        } else if (json && Array.isArray(json.records)) {
+          parsed = json.records;
+        }
+      } catch (jsonErr) {
+        parsed = parseCSV(resText);
+      }
       
       if (parsed && parsed.length > 0) {
         const formatted = parsed.map((item: any, idx: number) => {
-          const computedId = String(item.idAbsensi || item.idabsensi || item.id || `ABS-CL-${idx + 10001}`).trim();
+          const nia = String(getProp(item, 'nia', 'nomorinduk', 'idanggota', 'id')).trim();
+          const tanggalAbsen = String(getProp(item, 'tanggal', 'tanggalAbsen', 'tanggalabsen', 'date') || new Date().toISOString().split('T')[0]).trim();
+          const computedId = String(getProp(item, 'idAbsensi', 'idabsensi', 'id') || (nia && tanggalAbsen ? `${nia}-${tanggalAbsen}` : '') || `ABS-CL-${idx + 10001}`).trim();
 
           return {
             idAbsensi: computedId,
-            nia: String(getProp(item, 'nia', 'nomorinduk', 'idanggota')).trim(),
+            nia: nia,
             namaLengkap: String(getProp(item, 'namaLengkap', 'namalengkap', 'nama', 'fullname')).trim(),
             kelas: String(getProp(item, 'kelas', 'class')).trim(),
-            tanggalAbsen: String(getProp(item, 'tanggalAbsen', 'tanggalabsen', 'tanggal', 'date') || new Date().toISOString().split('T')[0]).trim(),
-            waktuAbsen: String(getProp(item, 'waktuAbsen', 'waktuabsen', 'waktu_absen', 'waktu', 'jamMasuk', 'jammasuk', 'jam_masuk', 'jam', 'jamabsen', 'jam_absen') || '--:--').trim(),
+            tanggalAbsen: tanggalAbsen,
+            waktuAbsen: String(getProp(item, 'waktu', 'waktuAbsen', 'waktuabsen', 'waktu_absen', 'jamMasuk', 'jammasuk', 'jam_masuk', 'jam', 'jamabsen', 'jam_absen') || '--:--').trim(),
+            status: String(getProp(item, 'status', 'kehadiran', 'state') || '').trim(),
             keterangan: String(getProp(item, 'keterangan', 'notes', 'catatan', 'keteranganabsen', 'remarks') || '').trim(),
             jenisKegiatan: String(getProp(item, 'jenisKegiatan', 'jeniskegiatan', 'kegiatan') || '').trim()
           };
@@ -4011,6 +4326,15 @@ Schema requirements:
           { name: 'waktu', label: 'Waktu (Jam)', type: 'text', required: true, placeholder: 'Contoh: 15:30 WIB atau 09:00 - 12:00' }
         ]
       },
+      pengumuman: {
+        title: modalType === 'add' ? 'Buat Pengumuman Baru' : 'Edit Data Pengumuman',
+        sheetName: 'PENGUMUMAN',
+        fields: [
+          { name: 'judul', label: 'Judul Pengumuman', type: 'text', required: true, placeholder: 'Ketik judul pengumuman...' },
+          { name: 'tanggal', label: 'Tanggal Rilis', type: 'date', required: true },
+          { name: 'linkFile', label: 'File Dokumen / Foto / Tautan', type: 'text', required: false }
+        ]
+      },
       surat: {
         title: modalType === 'add' ? 'Buat / Tambah Surat Baru' : 'Edit Rekam Surat',
         sheetName: 'SURAT',
@@ -4093,6 +4417,13 @@ Schema requirements:
       initialVals.linkArtikel = '';
       initialVals.sasaran = 'Semua';
       setBannerUploadMethod('url');
+    } else if (tab === 'pengumuman') {
+      initialVals.tanggal = today;
+      initialVals.judul = '';
+      initialVals.linkFile = '';
+      initialVals.namaFile = '';
+      initialVals.tipeFile = '';
+      setPengumumanUploadMethod('url');
     }
     
     setFormValues(initialVals);
@@ -4114,6 +4445,9 @@ Schema requirements:
     } else if (tab === 'prestasi') {
       const isBase64 = String(row.linkFoto || '').startsWith('data:image/');
       setPrestasiUploadMethod(isBase64 ? 'upload' : 'url');
+    } else if (tab === 'pengumuman') {
+      const isBase64 = String(row.linkFile || '').startsWith('data:');
+      setPengumumanUploadMethod(isBase64 ? 'upload' : 'url');
     }
     
     // Map ID keys using robust helper
@@ -4162,6 +4496,24 @@ Schema requirements:
       };
       
       window.dataSdk.create('LOG NOTIFIKASI', logItem);
+
+      // Send log to Google Sheets so other accounts get real-time notification alerts
+      const endpoint = appsScriptUrl || localStorage.getItem('LINK_SCRIPT_UTAMA') || localStorage.getItem('google_apps_script_url') || '';
+      if (endpoint) {
+        const payload = {
+          action: 'add',
+          sheetName: 'LOG NOTIFIKASI',
+          data: logItem,
+          targetId: logId
+        };
+        fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'text/plain'
+          },
+          body: JSON.stringify(payload)
+        }).catch(err => console.warn("Gagal sinkronisasi log aktivitas ke cloud:", err));
+      }
     } catch (e) {
       console.warn("Gagal membuat log aktivitas lokal:", e);
     }
@@ -4231,6 +4583,9 @@ Schema requirements:
       } else if (modalTargetTab === 'informasi_admin') {
         primaryKey = generateId('INFA');
         submissionData.idInformasiAdmin = primaryKey;
+      } else if (modalTargetTab === 'pengumuman') {
+        primaryKey = generateId('PGM');
+        submissionData.idPengumuman = primaryKey;
       } else if (modalTargetTab === 'surat') {
         primaryKey = generateId('SRT');
         submissionData.idSurat = primaryKey;
@@ -4258,6 +4613,8 @@ Schema requirements:
         submissionData.idInformasi = primaryKey;
       } else if (modalTargetTab === 'informasi_admin') {
         submissionData.idInformasiAdmin = primaryKey;
+      } else if (modalTargetTab === 'pengumuman') {
+        submissionData.idPengumuman = primaryKey;
       } else if (modalTargetTab === 'surat') {
         submissionData.idSurat = primaryKey;
       } else if (modalTargetTab === 'peraturan') {
@@ -4270,7 +4627,7 @@ Schema requirements:
     }
 
     // Auto-populate Name field in transaction databases by matching NIA
-    if (modalTargetTab !== 'anggota' && modalTargetTab !== 'informasi' && modalTargetTab !== 'informasi_admin' && modalTargetTab !== 'peraturan' && modalTargetTab !== 'banner') {
+    if (modalTargetTab !== 'anggota' && modalTargetTab !== 'informasi' && modalTargetTab !== 'informasi_admin' && modalTargetTab !== 'pengumuman' && modalTargetTab !== 'peraturan' && modalTargetTab !== 'banner') {
       const selectedNia = submissionData.nia;
       if (selectedNia && selectedNia !== 'ALL_MEMBERS') {
         const matchedMember = anggotaList.find(m => String(m.nia) === String(selectedNia));
@@ -4505,6 +4862,8 @@ Schema requirements:
       sheetName = 'ABSENSI';
     } else if (tab === 'informasi') {
       sheetName = 'INFORMASI';
+    } else if (tab === 'pengumuman') {
+      sheetName = 'PENGUMUMAN';
     } else if (tab === 'surat') {
       sheetName = 'SURAT';
     } else if (tab === 'peraturan') {
@@ -4721,6 +5080,14 @@ Schema requirements:
       inf.jenisKegiatan.toLowerCase().includes(searchTerm.toLowerCase())
     );
   }, [informasiAdminList, searchTerm]);
+
+  const filteredPengumuman = useMemo(() => {
+    if (!searchTerm) return pengumumanList;
+    return pengumumanList.filter((p) =>
+      p.judul.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (p.namaFile || '').toLowerCase().includes(searchTerm.toLowerCase())
+    );
+  }, [pengumumanList, searchTerm]);
 
   const filteredSurat = useMemo(() => {
     if (!searchTerm) return suratList;
@@ -4993,9 +5360,10 @@ Schema requirements:
   }, [akunList]);
 
   if (!isLoggedIn) {
-    const isSearchLongEnough = lembagaSearch.trim().length >= 8;
-    const filteredLembaga = !isSearchLongEnough ? [] : akunList.filter((acc: any) => {
-      const q = lembagaSearch.toLowerCase();
+    const isSearchLongEnough = true;
+    const filteredLembaga = akunList.filter((acc: any) => {
+      const q = lembagaSearch.toLowerCase().trim();
+      if (!q) return true;
       const matchNpsn = (acc.npsn || '').toLowerCase().includes(q);
       const matchLembaga = (acc.lembaga || '').toLowerCase().includes(q);
       return matchNpsn || matchLembaga;
@@ -5088,11 +5456,11 @@ Schema requirements:
             {/* Dynamic Institution Logo display */}
             {selectedLembaga && (() => {
               const selectedLembagaConfig = akunList.find(acc => acc.lembaga.toLowerCase() === selectedLembaga.toLowerCase());
-              const selectedLogoUrl = selectedLembagaConfig?.linkProfile || institusiProfileUrl;
+              const selectedLogoUrl = (selectedLembagaConfig?.linkProfile || institusiProfileUrl || '').trim();
               return (
                 <div className="flex flex-col items-center justify-center mb-6 animate-fade-in bg-slate-900/10 p-3 rounded-2xl border border-slate-800/20">
                   <div className="relative w-20 h-20 rounded-full p-1 bg-slate-950/80 border border-slate-800/80 flex items-center justify-center overflow-hidden shadow-lg shadow-black/50">
-                    {selectedLogoUrl ? (
+                    {selectedLogoUrl && selectedLogoUrl !== '' ? (
                       <img
                         src={selectedLogoUrl}
                         alt={selectedLembaga}
@@ -5114,208 +5482,173 @@ Schema requirements:
             })()}
 
             <form onSubmit={handleLogin} className="space-y-5 text-left">
-              {!isLembagaVerified ? (
-                <>
-                  {/* Institution Selection custom searchable field */}
-                  <div className="space-y-4">
-                    <div className="space-y-2 relative">
-                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block pl-1">Pilih Lembaga Anda</label>
-                      <div className="relative">
-                        <School className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                        <input
-                          type="text"
-                          disabled={isVerifyingLembaga}
-                          placeholder={selectedLembaga ? selectedLembaga : "Cari Lembaga Anda..."}
-                          value={lembagaSearch}
-                          onChange={(e) => {
-                            setLembagaSearch(e.target.value);
-                            setIsLembagaDropdownOpen(true);
-                          }}
-                          onFocus={() => setIsLembagaDropdownOpen(true)}
-                          className="w-full text-xs pl-11 pr-20 py-3.5 bg-slate-950/70 border border-slate-800 rounded-xl focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 transition text-slate-100 placeholder-slate-500 font-semibold shadow-inner"
-                        />
-                        {selectedLembaga && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setSelectedLembaga('');
-                              setLembagaSearch('');
-                            }}
-                            className="absolute right-12 top-1/2 -translate-y-1/2 text-rose-400 hover:text-rose-300 font-bold p-1 text-[10px] cursor-pointer bg-rose-950/20 px-2 py-0.5 rounded-md border border-rose-900/40"
-                          >
-                            Batal
-                          </button>
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => setIsLembagaDropdownOpen(!isLembagaDropdownOpen)}
-                          className="absolute right-4 top-1/2 -translate-y-1/2 p-0.5 hover:bg-slate-850 rounded cursor-pointer transition text-slate-400"
-                        >
-                          <ChevronDown className={`w-4 h-4 transition-transform duration-200 ${isLembagaDropdownOpen ? 'rotate-180' : ''}`} />
-                        </button>
-                      </div>
-
-                      {/* Combobox List dropdown */}
-                      {isLembagaDropdownOpen && isSearchLongEnough && (
-                        <div className="absolute left-0 right-0 mt-2 bg-[#0a0d1e] border border-slate-800 rounded-xl shadow-2xl z-30 max-h-48 overflow-y-auto divide-y divide-slate-800/60 animate-slide-down">
-                          {filteredLembaga.length === 0 ? (
-                            <div className="p-4 text-center text-xs text-slate-500 font-medium font-sans">
-                              {isFetchingAkun ? 'Memuat data lembaga...' : 'Lembaga tidak ditemukan'}
-                            </div>
-                          ) : (
-                            filteredLembaga.map((acc: any) => (
-                              <button
-                                key={acc.lembaga}
-                                type="button"
-                                onClick={() => {
-                                  setSelectedLembaga(acc.lembaga);
-                                  setLembagaSearch(acc.lembaga);
-                                  setIsLembagaDropdownOpen(false);
-                                  setLoginError(null);
-                                }}
-                                className={`w-full text-left px-4 py-3 text-xs font-semibold select-none flex items-center justify-between transition cursor-pointer ${
-                                  selectedLembaga === acc.lembaga 
-                                    ? 'bg-indigo-950/50 text-indigo-300 font-bold' 
-                                    : 'text-slate-300 hover:bg-slate-900'
-                                }`}
-                              >
-                                <div className="flex flex-col text-left">
-                                  <span className="font-sans font-bold text-slate-200">{acc.lembaga}</span>
-                                  {acc.npsn && <span className="text-[10px] font-mono text-slate-500 mt-0.5">NPSN/NO: {acc.npsn}</span>}
-                                </div>
-                                {selectedLembaga === acc.lembaga && <Check className="w-3.5 h-3.5 text-indigo-400 shrink-0" />}
-                              </button>
-                            ))
-                          )}
-                        </div>
-                      )}
-                    </div>
-
-                    {(() => {
-                      const selectedLembagaConfig = selectedLembaga ? akunList.find(acc => acc.lembaga.toLowerCase() === selectedLembaga.toLowerCase()) : null;
-                      const isLembagaConfigIncomplete = selectedLembagaConfig && !selectedLembagaConfig.urlAppScript && !selectedLembagaConfig.urlKelolaAkun;
-                      if (!isLembagaConfigIncomplete) return null;
-                      return (
-                        <div className="bg-amber-950/25 border border-amber-900/40 rounded-xl p-3.5 space-y-2 animate-fade-in text-left">
-                          <p className="text-[10px] font-bold text-amber-300 leading-normal font-sans">
-                            ⚠️ Tautan konfigurasi Google Apps Script utama belum diset di basis data utama untuk lembaga ini. Masukkan Web App URL secara manual di bawah ini untuk melanjutkan:
-                          </p>
-                          <div className="space-y-1.5">
-                            <label className="text-[9px] font-bold text-slate-400 block pl-0.5 uppercase tracking-wide">Tautan Apps Script Utama (Web App)</label>
-                            <input
-                              type="text"
-                              placeholder="https://script.google.com/macros/s/.../exec"
-                              value={customAppsScriptUrlInput}
-                              onChange={(e) => setCustomAppsScriptUrlInput(e.target.value)}
-                              className="w-full text-[11px] px-3 py-2.5 bg-slate-950/90 border border-slate-800 rounded-lg focus:outline-none focus:ring-1 focus:ring-amber-500 focus:border-amber-500 transition text-slate-100 placeholder-slate-600 font-mono"
-                            />
-                          </div>
-                        </div>
-                      );
-                    })()}
-
-                    {isVerifyingLembaga && loginProgressText && (
-                      <div className="text-center py-2 text-[10px] text-slate-400 font-mono flex items-center justify-center gap-2">
-                        <RefreshCw className="w-3 h-3 animate-spin text-indigo-400" />
-                        <span>{loginProgressText}</span>
-                      </div>
-                    )}
-
-                    <button
-                      type="button"
-                      onClick={handleVerifyLembaga}
-                      disabled={isVerifyingLembaga || !selectedLembaga}
-                      className="w-full py-3.5 bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-500 hover:to-indigo-600 disabled:from-slate-800 disabled:to-slate-900 disabled:opacity-45 text-white rounded-xl text-xs font-bold active:scale-[0.98] transition-all shadow-lg shadow-indigo-950/50 cursor-pointer flex items-center justify-center space-x-2 border border-indigo-500/20"
-                    >
-                      {isVerifyingLembaga ? (
-                        <>
-                          <RefreshCw className="w-3.5 h-3.5 animate-spin text-indigo-200" />
-                          <span>Menghubungkan Server...</span>
-                        </>
-                      ) : (
-                        <>
-                          <span>OKE (Pilih Lembaga)</span>
-                          <Check className="w-3.5 h-3.5 text-indigo-300 animate-pulse" />
-                        </>
-                      )}
-                    </button>
-                  </div>
-                </>
-              ) : (
-                <>
-                  {/* Username / E-mail Input */}
-                  <div className="space-y-2 animate-fade-in" style={{ animationDelay: '100ms' }}>
-                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block pl-1">Username Akun</label>
-                    <div className="relative">
-                      <User className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                      <input
-                        type="text"
-                        disabled={isLoggingIn}
-                        autoFocus
-                        placeholder="Masukkan Username Anda"
-                        value={emailInput}
-                        onChange={(e) => {
-                          setEmailInput(e.target.value);
-                          setLoginError(null);
-                        }}
-                        className="w-full text-xs pl-11 pr-4 py-3.5 bg-slate-950/70 border border-slate-800 rounded-xl focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 transition text-slate-100 placeholder-slate-500 shadow-inner"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Password Input */}
-                  <div className="space-y-2 animate-fade-in" style={{ animationDelay: '200ms' }}>
-                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block pl-1">Sandi Password</label>
-                    <div className="relative">
-                      <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                      <input
-                        type={showPassword ? "text" : "password"}
-                        disabled={isLoggingIn}
-                        placeholder="••••••••"
-                        value={passwordInput}
-                        onChange={(e) => {
-                          setPasswordInput(e.target.value);
-                          setLoginError(null);
-                        }}
-                        className="w-full text-xs pl-11 pr-12 py-3.5 bg-slate-950/70 border border-slate-800 rounded-xl focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 transition text-slate-100 placeholder-slate-500 shadow-inner"
-                      />
+              {/* Institution Selection custom searchable field */}
+              <div className="space-y-4">
+                <div className="space-y-2 relative">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block pl-1">Pilih Lembaga Anda</label>
+                  <div className="relative">
+                    <School className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                    <input
+                      type="text"
+                      disabled={isLoggingIn}
+                      placeholder={selectedLembaga ? selectedLembaga : "Cari Lembaga Anda..."}
+                      value={lembagaSearch}
+                      onChange={(e) => {
+                        setLembagaSearch(e.target.value);
+                        setIsLembagaDropdownOpen(true);
+                        if (selectedLembaga && e.target.value !== selectedLembaga) {
+                          setSelectedLembaga('');
+                        }
+                      }}
+                      onFocus={() => setIsLembagaDropdownOpen(true)}
+                      className="w-full text-xs pl-11 pr-20 py-3.5 bg-slate-950/70 border border-slate-800 rounded-xl focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 transition text-slate-100 placeholder-slate-500 font-semibold shadow-inner"
+                    />
+                    {selectedLembaga && (
                       <button
                         type="button"
-                        onClick={() => setShowPassword(!showPassword)}
-                        className="absolute right-4 top-1/2 -translate-y-1/2 p-0.5 hover:bg-slate-850 rounded text-slate-400 hover:text-slate-200 cursor-pointer transition"
+                        onClick={() => {
+                          setSelectedLembaga('');
+                          setLembagaSearch('');
+                        }}
+                        className="absolute right-12 top-1/2 -translate-y-1/2 text-rose-400 hover:text-rose-300 font-bold p-1 text-[10px] cursor-pointer bg-rose-950/20 px-2 py-0.5 rounded-md border border-rose-900/40"
                       >
-                        {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        Batal
                       </button>
-                    </div>
-                  </div>
-
-                  {/* Submit buttons with Batal and Masuk layout */}
-                  <div className="flex items-center gap-3 pt-2">
+                    )}
                     <button
                       type="button"
-                      disabled={isLoggingIn}
-                      onClick={() => {
-                        setIsLembagaVerified(false);
-                        setLembagaAkunList([]);
-                        setEmailInput('');
-                        setPasswordInput('');
-                        setLoginError(null);
-                      }}
-                      className="flex-1 py-3.5 bg-slate-900 hover:bg-slate-850 border border-slate-800 text-slate-300 rounded-xl text-xs font-bold active:scale-[0.98] transition-all cursor-pointer flex items-center justify-center space-x-2"
+                      onClick={() => setIsLembagaDropdownOpen(!isLembagaDropdownOpen)}
+                      className="absolute right-4 top-1/2 -translate-y-1/2 p-0.5 hover:bg-slate-850 rounded cursor-pointer transition text-slate-400"
                     >
-                      <span>Kembali</span>
-                    </button>
-                    <button
-                      type="submit"
-                      disabled={isLoggingIn}
-                      className="flex-[2] py-3.5 bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-500 hover:to-emerald-600 disabled:from-indigo-800 disabled:to-indigo-900 text-white rounded-xl text-xs font-bold active:scale-[0.98] transition-all shadow-lg shadow-indigo-950/50 cursor-pointer flex items-center justify-center space-x-2 border border-indigo-500/20"
-                    >
-                      <span>Masuk</span>
-                      <ChevronRight className="w-4 h-4 text-indigo-200" />
+                      <ChevronDown className={`w-4 h-4 transition-transform duration-200 ${isLembagaDropdownOpen ? 'rotate-180' : ''}`} />
                     </button>
                   </div>
-                </>
-              )}
+
+                  {/* Combobox List dropdown */}
+                  {isLembagaDropdownOpen && isSearchLongEnough && (
+                    <div className="absolute left-0 right-0 mt-2 bg-[#0a0d1e] border border-slate-800 rounded-xl shadow-2xl z-30 max-h-48 overflow-y-auto divide-y divide-slate-800/60 animate-slide-down">
+                      {filteredLembaga.length === 0 ? (
+                        <div className="p-4 text-center text-xs text-slate-500 font-medium font-sans">
+                          {isFetchingAkun ? 'Memuat data lembaga...' : 'Lembaga tidak ditemukan'}
+                        </div>
+                      ) : (
+                        filteredLembaga.map((acc: any) => (
+                          <button
+                            key={acc.lembaga}
+                            type="button"
+                            onClick={() => {
+                              setSelectedLembaga(acc.lembaga);
+                              setLembagaSearch(acc.lembaga);
+                              setIsLembagaDropdownOpen(false);
+                              setLoginError(null);
+                            }}
+                            className={`w-full text-left px-4 py-3 text-xs font-semibold select-none flex items-center justify-between transition cursor-pointer ${
+                              selectedLembaga === acc.lembaga 
+                                ? 'bg-indigo-950/50 text-indigo-300 font-bold' 
+                                : 'text-slate-300 hover:bg-slate-900'
+                            }`}
+                          >
+                            <div className="flex flex-col text-left">
+                              <span className="font-sans font-bold text-slate-200">{acc.lembaga}</span>
+                              {acc.npsn && <span className="text-[10px] font-mono text-slate-500 mt-0.5">NPSN/NO: {acc.npsn}</span>}
+                            </div>
+                            {selectedLembaga === acc.lembaga && <Check className="w-3.5 h-3.5 text-indigo-400 shrink-0" />}
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {(() => {
+                  const selectedLembagaConfig = selectedLembaga ? akunList.find(acc => acc.lembaga.toLowerCase() === selectedLembaga.toLowerCase()) : null;
+                  const isLembagaConfigIncomplete = selectedLembagaConfig && !selectedLembagaConfig.urlAppScript && !selectedLembagaConfig.urlKelolaAkun;
+                  if (!isLembagaConfigIncomplete) return null;
+                  return (
+                    <div className="bg-amber-950/25 border border-amber-900/40 rounded-xl p-3.5 space-y-2 animate-fade-in text-left">
+                      <p className="text-[10px] font-bold text-amber-300 leading-normal font-sans">
+                        ⚠️ Tautan konfigurasi Google Apps Script utama belum diset di basis data utama untuk lembaga ini. Masukkan Web App URL secara manual di bawah ini untuk melanjutkan:
+                      </p>
+                      <div className="space-y-1.5">
+                        <label className="text-[9px] font-bold text-slate-400 block pl-0.5 uppercase tracking-wide">Tautan Apps Script Utama (Web App)</label>
+                        <input
+                          type="text"
+                          placeholder="https://script.google.com/macros/s/.../exec"
+                          value={customAppsScriptUrlInput}
+                          onChange={(e) => setCustomAppsScriptUrlInput(e.target.value)}
+                          className="w-full text-[11px] px-3 py-2.5 bg-slate-950/90 border border-slate-800 rounded-lg focus:outline-none focus:ring-1 focus:ring-amber-500 focus:border-indigo-500 transition text-slate-100 placeholder-slate-600 font-mono"
+                        />
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+
+              {/* Username / E-mail Input */}
+              <div className="space-y-2 animate-fade-in" style={{ animationDelay: '100ms' }}>
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block pl-1">Username Akun</label>
+                <div className="relative">
+                  <User className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <input
+                    type="text"
+                    disabled={isLoggingIn}
+                    placeholder="Masukkan Username Anda"
+                    value={emailInput}
+                    onChange={(e) => {
+                      setEmailInput(e.target.value);
+                      setLoginError(null);
+                    }}
+                    className="w-full text-xs pl-11 pr-4 py-3.5 bg-slate-950/70 border border-slate-800 rounded-xl focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 transition text-slate-100 placeholder-slate-500 shadow-inner"
+                  />
+                </div>
+              </div>
+
+              {/* Password Input */}
+              <div className="space-y-2 animate-fade-in" style={{ animationDelay: '200ms' }}>
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block pl-1">Sandi Password</label>
+                <div className="relative">
+                  <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    disabled={isLoggingIn}
+                    placeholder="••••••••"
+                    value={passwordInput}
+                    onChange={(e) => {
+                      setPasswordInput(e.target.value);
+                      setLoginError(null);
+                    }}
+                    className="w-full text-xs pl-11 pr-12 py-3.5 bg-slate-950/70 border border-slate-800 rounded-xl focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 transition text-slate-100 placeholder-slate-500 shadow-inner"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-4 top-1/2 -translate-y-1/2 p-0.5 hover:bg-slate-850 rounded text-slate-400 hover:text-slate-200 cursor-pointer transition"
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              {/* Submit Action Button */}
+              <div className="pt-2">
+                <button
+                  type="submit"
+                  disabled={isLoggingIn}
+                  className="w-full py-3.5 bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-500 hover:to-emerald-600 disabled:from-indigo-800 disabled:to-indigo-900 text-white rounded-xl text-xs font-bold active:scale-[0.98] transition-all shadow-lg shadow-indigo-950/50 cursor-pointer flex items-center justify-center space-x-2 border border-indigo-500/20 font-sans uppercase tracking-wider"
+                >
+                  {isLoggingIn ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin text-emerald-200" />
+                      <span>Memproses...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>Masuk Ke Akun</span>
+                      <ChevronRight className="w-4 h-4 text-emerald-200" />
+                    </>
+                  )}
+                </button>
+              </div>
             </form>
           </div>
         </div>
@@ -5335,7 +5668,9 @@ Schema requirements:
               </div>
               <div className="space-y-1.5 text-center">
                 <h3 className="text-sm font-bold text-white tracking-widest uppercase">Mencoba Masuk Ke Akun...</h3>
-                <p className="text-[11px] text-slate-400 leading-relaxed">Mohon tunggu, sistem sedang memverifikasi identitas Anda secara aman...</p>
+                <p className="text-[11px] text-indigo-200 leading-relaxed min-h-8 flex items-center justify-center font-medium">
+                  {loginProgressText || 'Mohon tunggu, sistem sedang memverifikasi identitas Anda secara aman...'}
+                </p>
               </div>
               <p className="text-[10px] text-indigo-300 font-mono font-bold px-3 py-1 bg-indigo-950/60 border border-indigo-900/40 rounded-full inline-block">
                 {selectedLembaga || 'Lembaga Sapta'}
@@ -5507,7 +5842,7 @@ Schema requirements:
           <div className="p-3 border-b border-[#1e293b] bg-[#0c1322] flex items-center space-x-2.5 text-left shrink-0">
             <div className="relative w-8 h-8 rounded-full shrink-0">
               <img
-                src={institusiProfileUrl || "https://images.unsplash.com/photo-1579546929518-9e396f3cc809?auto=format&fit=crop&w=256&h=256&q=80"}
+                src={userFoto && userFoto.trim() !== '' ? userFoto.trim() : (institusiProfileUrl && institusiProfileUrl.trim() !== '' ? institusiProfileUrl.trim() : "https://images.unsplash.com/photo-1579546929518-9e396f3cc809?auto=format&fit=crop&w=256&h=256&q=80")}
                 alt={userNama || lembagaLogin || "Administrator"}
                 className="w-full h-full object-cover rounded-full border border-slate-700"
                 referrerPolicy="no-referrer"
@@ -5522,7 +5857,7 @@ Schema requirements:
                 {(userNama && (userNama.toLowerCase() === 'super admin' || userNama.toLowerCase() === 'superadmin')) ? 'administrator' : (userNama || 'Admin Sapta')}
               </p>
               <p className="text-[9px] text-[#64748b] truncate font-sans tracking-wide mt-0.5 uppercase">
-                {userUsername ? `@${(userUsername.includes('@') && (userNama?.toLowerCase() === 'super admin' || userNama?.toLowerCase() === 'administrator')) ? 'administrator' : userUsername} • ` : ''}{lembagaLogin || 'Lembaga'}
+                {lembagaLogin || 'Lembaga'}
               </p>
             </div>
           </div>
@@ -5970,9 +6305,6 @@ Schema requirements:
                             {displayedBanners[activeBannerIndex].judul}
                           </h4>
                         )}
-                        <p className="text-[10px] sm:text-xs text-rose-300 font-bold tracking-wide drop-shadow-sm">
-                          Klik untuk memutar &amp; membaca detail artikel selengkapnya
-                        </p>
                       </div>
                     </a>
                   ) : (
@@ -5983,7 +6315,7 @@ Schema requirements:
                       className={`block w-full h-full relative ${displayedBanners[activeBannerIndex].linkArtikel ? 'cursor-pointer' : 'cursor-default'}`}
                     >
                       <img
-                        src={displayedBanners[activeBannerIndex].linkFoto}
+                        src={displayedBanners[activeBannerIndex].linkFoto && displayedBanners[activeBannerIndex].linkFoto.trim() !== '' ? displayedBanners[activeBannerIndex].linkFoto : "https://images.unsplash.com/photo-1579546929518-9e396f3cc809?auto=format&fit=crop&w=800&q=80"}
                         alt={`Banner ${activeBannerIndex + 1}`}
                         className="w-full h-full object-cover transition-all duration-700 ease-in-out hover:scale-105"
                         referrerPolicy="no-referrer"
@@ -6004,9 +6336,6 @@ Schema requirements:
                             {displayedBanners[activeBannerIndex].judul}
                           </h4>
                         )}
-                        <p className="text-[10px] sm:text-xs text-indigo-300 font-bold tracking-wide drop-shadow-sm">
-                          Klik untuk melihat lampiran informasi resmi selengkapnya
-                        </p>
                       </div>
                     </a>
                   )}
@@ -7605,6 +7934,38 @@ Schema requirements:
                       </div>
                     </button>
 
+                    {/* Kotak Baru: Kelola Pengumuman Dokumen / Tautan */}
+                    <button
+                      onClick={() => setInformasiSubView('pengumuman')}
+                      className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-[0_1px_3px_0_rgba(0,0,0,0.01)] hover:border-indigo-300 hover:shadow-md hover:shadow-indigo-500/5 transition-all duration-250 cursor-pointer flex flex-col justify-between text-left group relative overflow-hidden font-sans w-full"
+                    >
+                      {/* Subtle background glow */}
+                      <div className="absolute right-0 top-0 w-24 h-24 bg-indigo-50/40 rounded-full blur-2xl pointer-events-none group-hover:bg-indigo-50/50 transition duration-350"></div>
+                      
+                      <div className="flex items-start justify-between w-full relative z-10">
+                        <div className="space-y-1">
+                          <h4 className="text-[13.5px] font-extrabold text-[#0f172a] group-hover:text-indigo-600 transition tracking-tight flex items-center gap-2">
+                            <span>Kelola Pengumuman</span>
+                            <span className="text-[9px] bg-indigo-55 text-indigo-700 px-2 py-0.5 rounded-full font-extrabold border border-indigo-150 flex items-center gap-1 uppercase">TERBARU</span>
+                          </h4>
+                          <p className="text-xs text-slate-500 leading-relaxed">Rilis dokumen PDF/Word, foto/gambar pengumuman, atau tautan luar.</p>
+                        </div>
+                        <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white flex items-center justify-center shrink-0 transition duration-300">
+                          <FileText className="w-5 h-5" />
+                        </div>
+                      </div>
+                      
+                      <div className="mt-8 flex items-center justify-between w-full relative z-10 border-t border-slate-100 pt-4">
+                        <span className="text-[11px] font-bold text-indigo-700 bg-indigo-50 px-3 py-1 rounded-full group-hover:bg-indigo-100/70 transition">
+                          {filteredPengumuman.length} Berkas Rilis
+                        </span>
+                        <span className="text-[11px] font-bold text-indigo-600 group-hover:translate-x-1 transition duration-200 flex items-center gap-1">
+                          <span>Buka Pengumuman</span>
+                          <ChevronRight className="w-3.5 h-3.5" />
+                        </span>
+                      </div>
+                    </button>
+
                     {/* Kotak 2: Kelola Informasi Admin */}
                     <button
                       onClick={() => setInformasiSubView('admin')}
@@ -7777,6 +8138,155 @@ Schema requirements:
                                       onClick={() => handleDeleteRow('informasi_admin', row)}
                                       className="p-1.5 rounded bg-[#fef2f2] text-[#b91c1c] hover:bg-[#fee2e2] transition cursor-pointer"
                                       title="Hapus Informasi Admin"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </>
+              ) : informasiSubView === 'pengumuman' ? (
+                <>
+                  {/* Header Box with back button */}
+                  <div className="bg-white p-6 rounded-2xl border border-slate-200/80 flex flex-col md:flex-row md:items-center md:justify-between gap-4 shadow-[0_1px_3px_0_rgba(0,0,0,0.02)]">
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={() => setInformasiSubView('menu')}
+                        className="p-2.5 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 transition cursor-pointer flex items-center justify-center bg-white shadow-xs"
+                        title="Kembali ke Menu"
+                      >
+                        <ArrowLeft className="w-4 h-4 shrink-0" />
+                      </button>
+                      <div>
+                        <h3 className="font-extrabold text-[#0f172a] text-base tracking-tight flex items-center gap-2">
+                          <span>Kelola Pengumuman Dokumen & Tautan</span>
+                          <span className="text-[10px] bg-indigo-50 text-indigo-600 px-2.5 py-0.5 rounded-full font-extrabold border border-indigo-100 flex items-center gap-1">
+                            <FileText className="w-2.5 h-2.5" /> File & Tautan
+                          </span>
+                        </h3>
+                        <p className="text-xs text-slate-500 mt-1">Mengunggah, memperbarui, dan mendistribusikan berkas PDF, Word, Foto, serta tautan pengumuman luar.</p>
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={() => handleOpenAddModal('pengumuman')}
+                      className="bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs px-5 py-3 rounded-xl flex items-center justify-center gap-2 transition cursor-pointer self-start md:self-auto shadow-md shadow-indigo-500/10 active:scale-[0.98]"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>Buat Pengumuman</span>
+                    </button>
+                  </div>
+
+                  {/* Stats Row */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pb-1">
+                    <div className="bg-white p-5 rounded-2xl border border-slate-200/70 shadow-2xs flex items-center space-x-4 font-sans">
+                      <div className="w-12 h-12 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0">
+                        <FileText className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <span className="text-[10.5px] text-slate-400 font-extrabold uppercase tracking-wider block">Total Pengumuman</span>
+                        <span className="text-xl font-black text-slate-800 leading-none block mt-1">{filteredPengumuman.length} Item</span>
+                      </div>
+                    </div>
+
+                    <div className="bg-white p-5 rounded-2xl border border-slate-200/70 shadow-2xs flex items-center space-x-4 font-sans">
+                      <div className="w-12 h-12 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0">
+                        <Calendar className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <span className="text-[10.5px] text-slate-400 font-extrabold uppercase tracking-wider block">Pengumuman Terbaru</span>
+                        <span className="text-sm font-bold text-indigo-700 leading-tight block mt-1 truncate max-w-xs" title={filteredPengumuman.length > 0 ? filteredPengumuman[0].judul : '-'}>
+                          {filteredPengumuman.length > 0 ? filteredPengumuman[0].judul : '-'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Table Section */}
+                  <div className="bg-white rounded-2xl border border-slate-200/80 overflow-hidden shadow-2xs">
+                    <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+                      <h4 className="text-[12.5px] font-extrabold text-indigo-700 font-sans tracking-wide flex items-center gap-1.5">
+                        <FileText className="w-3.5 h-3.5" /> DAFTAR TABEL PENGUMUMAN DOKUMEN / FOTO
+                      </h4>
+                      <span className="text-[10px] text-slate-400 font-mono">Total {filteredPengumuman.length} Item</span>
+                    </div>
+
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left border-collapse min-w-[700px]">
+                        <thead>
+                          <tr className="bg-slate-50/70 text-[#475569] uppercase text-[10px] font-bold font-mono border-b border-slate-100">
+                            <th className="py-4 px-6">ID Pengumuman</th>
+                            <th className="py-4 px-6">Tanggal Rilis</th>
+                            <th className="py-4 px-6">Judul Pengumuman</th>
+                            <th className="py-4 px-6">Nama File / Tipe</th>
+                            <th className="py-4 px-6 text-center">Aksi Dokumen</th>
+                            <th className="py-4 px-6 text-right">Aksi</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-[#f1f5f9] text-xs">
+                          {filteredPengumuman.length === 0 ? (
+                            <tr>
+                              <td colSpan={6} className="py-10 text-center text-[#94a3b8]">
+                                Tidak ditemukan data pengumuman dokumen.
+                              </td>
+                            </tr>
+                          ) : (
+                            filteredPengumuman.map((row) => (
+                              <tr key={row.idPengumuman} className="hover:bg-[#f8fafc] transition duration-150">
+                                <td className="py-4 px-6 font-mono text-[#64748b] font-bold">{row.idPengumuman}</td>
+                                <td className="py-4 px-6 text-[#64748b] font-mono">{formatDateString(row.tanggal)}</td>
+                                <td className="py-4 px-6 font-bold text-[#0f172a]">{row.judul}</td>
+                                <td className="py-4 px-6">
+                                  {row.linkFile ? (
+                                    <div className="flex flex-col space-y-0.5">
+                                      <span className="font-semibold text-slate-700 truncate max-w-[200px]" title={row.namaFile || 'File Lampiran'}>
+                                        {row.namaFile || 'File Lampiran'}
+                                      </span>
+                                      <span className="text-[9px] uppercase font-mono font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded w-max font-sans">
+                                        {row.tipeFile || 'file'}
+                                      </span>
+                                    </div>
+                                  ) : (
+                                    <span className="text-slate-400 italic">Tidak ada lampiran</span>
+                                  )}
+                                </td>
+                                <td className="py-4 px-6 text-center">
+                                  {row.linkFile ? (
+                                    <div className="flex items-center justify-center gap-2">
+                                      <a
+                                        href={row.linkFile}
+                                        download={row.namaFile || `pengumuman-${row.idPengumuman}`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition font-bold text-[11px]"
+                                      >
+                                        <Download className="w-3.5 h-3.5" />
+                                        <span>Buka / Unduh</span>
+                                      </a>
+                                    </div>
+                                  ) : (
+                                    <span className="text-slate-300">-</span>
+                                  )}
+                                </td>
+                                <td className="py-4 px-6 text-right" onClick={(e) => e.stopPropagation()}>
+                                  <div className="flex items-center justify-end gap-2">
+                                    <button
+                                      onClick={() => handleOpenEditModal('pengumuman', row)}
+                                      className="p-1.5 rounded bg-[#f1f5f9] text-[#475569] hover:bg-[#e2e8f0] transition cursor-pointer"
+                                      title="Edit Pengumuman"
+                                    >
+                                      <Edit className="w-3.5 h-3.5" />
+                                    </button>
+                                    <button
+                                      onClick={() => handleDeleteRow('pengumuman', row)}
+                                      className="p-1.5 rounded bg-[#fef2f2] text-[#b91c1c] hover:bg-[#fee2e2] transition cursor-pointer"
+                                      title="Hapus Pengumuman"
                                     >
                                       <Trash2 className="w-3.5 h-3.5" />
                                     </button>
@@ -8475,25 +8985,6 @@ Schema requirements:
                   </div>
 
                   <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-slate-700 block">Tautan CSV Google Sheets (Absensi)</label>
-                    <input
-                      type="text"
-                      value={absensiCsvPublishUrl}
-                      onChange={(e) => {
-                        const val = e.target.value.trim();
-                        setAbsensiCsvPublishUrl(val);
-                        localStorage.setItem('google_sheets_absensi_csv_url', val);
-                        localStorage.setItem('LINK_ABSENSI', val);
-                      }}
-                      placeholder="https://docs.google.com/spreadsheets/d/e/.../pub?gid=...&single=true&output=csv"
-                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs font-mono outline-none focus:border-indigo-500 bg-slate-50/50 text-[#0f172a]"
-                    />
-                    <span className="text-[9px] text-slate-400 block leading-tight">
-                      URL Publikasi CSV dari spreadsheet lembaga Anda. Digunakan untuk sinkronisasi data absensi secara real-time.
-                    </span>
-                  </div>
-
-                  <div className="space-y-1">
                     <label className="text-[10px] font-bold text-slate-700 block">Tautan CSV Google Sheets (Kelola Akun)</label>
                     <input
                       type="text"
@@ -9129,18 +9620,7 @@ Schema requirements:
                   </p>
                 </div>
                 <button
-                  onClick={() => {
-                    // Open the Add Sub-Account Modal
-                    setSubAccountFormValues({
-                      nama: '',
-                      username: '',
-                      pasword: '',
-                      remove_menu: ''
-                    });
-                    setEditingSubAccount(null);
-                    setSubAccountModalType('add');
-                    setIsSubAccountModalOpen(true);
-                  }}
+                  onClick={handleOpenAddSubAccount}
                   className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition flex items-center space-x-1.5 cursor-pointer shadow-sm hover:-translate-y-0.5 active:translate-y-0"
                 >
                   <Plus className="w-4 h-4" />
@@ -9217,7 +9697,24 @@ Schema requirements:
                               : [];
                             return (
                               <tr key={index} className="hover:bg-slate-50/50 transition">
-                                <td className="px-6 py-4 font-bold text-slate-800">{acc.nama}</td>
+                                <td className="px-6 py-4">
+                                  <div className="flex items-center space-x-3">
+                                    <div className="w-8 h-8 rounded-full overflow-hidden bg-indigo-50 border border-slate-100 shrink-0 shadow-sm flex items-center justify-center">
+                                      {acc.fotoProfile ? (
+                                        <img
+                                          src={acc.fotoProfile}
+                                          className="w-full h-full object-cover"
+                                          onError={(e) => {
+                                            (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80';
+                                          }}
+                                        />
+                                      ) : (
+                                        <User className="w-4 h-4 text-indigo-500 shrink-0" />
+                                      )}
+                                    </div>
+                                    <span className="font-bold text-slate-800">{acc.nama}</span>
+                                  </div>
+                                </td>
                                 <td className="px-6 py-4 font-mono text-xs text-indigo-600 bg-indigo-50/20 px-2 py-0.5 rounded max-w-max">
                                   {acc.username}
                                 </td>
@@ -9244,11 +9741,15 @@ Schema requirements:
                                     <button
                                       onClick={() => {
                                         setEditingSubAccount(acc);
+                                        const photoUrl = acc.fotoProfile || acc.linkProfile || '';
+                                        const isBase64 = String(photoUrl).startsWith('data:');
+                                        setSubAccountPhotoMethod(isBase64 ? 'upload' : 'url');
                                         setSubAccountFormValues({
                                           nama: acc.nama,
                                           username: acc.username,
                                           pasword: acc.pasword,
-                                          remove_menu: acc.remove_menu || ''
+                                          remove_menu: acc.remove_menu || '',
+                                          fotoProfile: photoUrl
                                         });
                                         setSubAccountModalType('edit');
                                         setIsSubAccountModalOpen(true);
@@ -9385,6 +9886,99 @@ Schema requirements:
                       onChange={(e) => setSubAccountFormValues(prev => ({ ...prev, pasword: e.target.value }))}
                       className="w-full px-3.5 py-2 border border-slate-200 rounded-lg text-xs font-mono font-bold outline-none focus:border-indigo-500 bg-slate-50/50 text-slate-850"
                     />
+                  </div>
+
+                  {/* Field: FOTO PROFILE */}
+                  <div className="space-y-2 text-left">
+                    <label className="block text-xs font-black text-slate-700 uppercase tracking-wider">
+                      FOTO PROFILE
+                    </label>
+                    <div className="flex space-x-2 p-0.5 bg-slate-100 rounded-lg w-fit">
+                      <button
+                        type="button"
+                        onClick={() => setSubAccountPhotoMethod('url')}
+                        className={`px-3 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider transition cursor-pointer ${
+                          subAccountPhotoMethod === 'url'
+                            ? 'bg-white text-indigo-600 shadow-sm'
+                            : 'text-slate-500 hover:text-slate-700'
+                        }`}
+                      >
+                        Tautan URL
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSubAccountPhotoMethod('upload')}
+                        className={`px-3 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider transition cursor-pointer ${
+                          subAccountPhotoMethod === 'upload'
+                            ? 'bg-white text-indigo-600 shadow-sm'
+                            : 'text-slate-500 hover:text-slate-700'
+                        }`}
+                      >
+                        Unggah File
+                      </button>
+                    </div>
+
+                    <div className="flex items-center space-x-3 pt-1">
+                      {subAccountFormValues.fotoProfile ? (
+                        <div className="relative group shrink-0 w-12 h-12 border border-slate-200 rounded-full overflow-hidden bg-slate-100 shadow-sm">
+                          <img
+                            src={subAccountFormValues.fotoProfile}
+                            className="w-full h-full object-cover animate-fade-in"
+                            onError={(e) => {
+                              (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80';
+                            }}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setSubAccountFormValues(prev => ({ ...prev, fotoProfile: '' }))}
+                            className="absolute inset-0 bg-black/70 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white text-[8px] font-bold cursor-pointer"
+                          >
+                            Hapus
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="w-12 h-12 border-2 border-dashed border-slate-200 rounded-full flex items-center justify-center text-slate-400 shrink-0 bg-slate-50/50">
+                          <User className="w-5 h-5" />
+                        </div>
+                      )}
+
+                      {subAccountPhotoMethod === 'url' ? (
+                        <input
+                          type="text"
+                          placeholder="https://contoh.com/foto.jpg"
+                          value={subAccountFormValues.fotoProfile}
+                          onChange={(e) => setSubAccountFormValues(prev => ({ ...prev, fotoProfile: e.target.value }))}
+                          className="flex-1 px-3.5 py-2 border border-slate-200 rounded-lg text-xs font-mono outline-none focus:border-indigo-500 bg-slate-50/50 text-slate-850"
+                        />
+                      ) : (
+                        <label className="flex-1 border border-dashed border-slate-300 hover:border-indigo-500 bg-slate-50 hover:bg-indigo-50/20 px-3.5 py-2 rounded-lg text-center cursor-pointer transition text-xs font-bold text-slate-600 block leading-none">
+                          <span className="flex items-center justify-center space-x-1">
+                            <span>📁 Pilih File JPEG/JPG/PNG</span>
+                          </span>
+                          <input
+                            type="file"
+                            accept="image/jpeg,image/jpg,image/png"
+                            className="hidden"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) {
+                                if (!['image/jpeg', 'image/jpg', 'image/png'].includes(file.type)) {
+                                  addToast('Hanya mendukung file JPEG, JPG, atau PNG.', 'error');
+                                  return;
+                                }
+                                const r = new FileReader();
+                                r.onload = (ev) => {
+                                  if (ev.target?.result) {
+                                    setSubAccountFormValues(prev => ({ ...prev, fotoProfile: ev.target.result as string }));
+                                  }
+                                };
+                                r.readAsDataURL(file);
+                              }
+                            }}
+                          />
+                        </label>
+                      )}
+                    </div>
                   </div>
 
                   {/* Checkboxes: MENU TERBLOKIR */}
@@ -10161,7 +10755,7 @@ Schema requirements:
                                 {/* Profile image photo frame with Barcode */}
                                 <div className="shrink-0 flex flex-col items-center justify-center space-y-1 bg-black/5 p-1 rounded border border-white/10">
                                   <img
-                                    src={selectedAnggota.linkProfile || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&fit=crop"}
+                                    src={selectedAnggota.linkProfile && selectedAnggota.linkProfile.trim() !== '' ? selectedAnggota.linkProfile.trim() : "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&fit=crop"}
                                     alt="Foto"
                                     referrerPolicy="no-referrer"
                                     className="w-14 h-18 bg-slate-300 object-cover rounded border border-white/40 shadow shadow-black/30"
@@ -11415,7 +12009,7 @@ Schema requirements:
                           ) : (
                             <div className="space-y-3">
                               <div className="flex items-center space-x-3">
-                                {formValues.linkFoto && (
+                                {formValues.linkFoto && formValues.linkFoto.trim() !== '' && (
                                   <div className="w-16 h-10 rounded border border-slate-200 overflow-hidden shrink-0 bg-white">
                                     <img src={formValues.linkFoto} alt="Preview" className="w-full h-full object-cover" />
                                   </div>
@@ -11498,7 +12092,7 @@ Schema requirements:
                           ) : (
                             <div className="space-y-3">
                               <div className="flex items-center space-x-3">
-                                {formValues.linkFoto && (
+                                {formValues.linkFoto && formValues.linkFoto.trim() !== '' && (
                                   <div className="w-16 h-10 rounded border border-slate-200 overflow-hidden shrink-0 bg-white">
                                     <img src={formValues.linkFoto} alt="Preview" className="w-full h-full object-cover" />
                                   </div>
@@ -11581,7 +12175,7 @@ Schema requirements:
                           ) : (
                             <div className="space-y-3">
                               <div className="flex items-center space-x-3">
-                                {formValues.linkProfile && (
+                                {formValues.linkProfile && formValues.linkProfile.trim() !== '' && (
                                   <div className="w-12 h-12 rounded-full border border-slate-200 overflow-hidden shrink-0 bg-white">
                                     <img src={formValues.linkProfile} alt="Preview" className="w-full h-full object-cover" />
                                   </div>
@@ -11611,6 +12205,135 @@ Schema requirements:
                                 <p className="text-[10px] text-slate-400 font-mono truncate max-w-full">
                                   Terunggah: {formValues.linkProfile.substring(0, 50)}...
                                 </p>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      ) : modalTargetTab === 'pengumuman' && field.name === 'linkFile' ? (
+                        <div className="space-y-3 bg-slate-50 p-4 rounded-xl border border-slate-200 col-span-1 md:col-span-2">
+                          <div className="flex items-center space-x-4">
+                            <span className="text-xs font-bold text-slate-500 uppercase tracking-wide">Sumber File / Tautan:</span>
+                            <label className="flex items-center space-x-2 text-xs font-semibold text-slate-700 cursor-pointer">
+                              <input
+                                type="radio"
+                                name="pengumumanFileSource"
+                                checked={pengumumanUploadMethod === 'url'}
+                                onChange={() => {
+                                  setPengumumanUploadMethod('url');
+                                  setFormValues(prev => ({ ...prev, linkFile: '', namaFile: '', tipeFile: '' }));
+                                }}
+                                className="text-indigo-600 focus:ring-indigo-500 h-3.5 w-3.5 cursor-pointer"
+                              />
+                              <span>Gunakan URL Link</span>
+                            </label>
+                            <label className="flex items-center space-x-2 text-xs font-semibold text-slate-700 cursor-pointer">
+                              <input
+                                type="radio"
+                                name="pengumumanFileSource"
+                                checked={pengumumanUploadMethod === 'upload'}
+                                onChange={() => {
+                                  setPengumumanUploadMethod('upload');
+                                  setFormValues(prev => ({ ...prev, linkFile: '', namaFile: '', tipeFile: '' }));
+                                }}
+                                className="text-indigo-600 focus:ring-indigo-500 h-3.5 w-3.5 cursor-pointer"
+                              />
+                              <span>Upload File Dokumen / Foto</span>
+                            </label>
+                          </div>
+
+                          {pengumumanUploadMethod === 'url' ? (
+                            <input
+                              type="text"
+                              placeholder="Masukkan tautan luar atau URL file (PDF, Dokumen, Gambar, dll)..."
+                              required={field.required}
+                              disabled={isFieldDisabled}
+                              value={formValues.linkFile || ''}
+                              onChange={(e) => {
+                                const urlVal = e.target.value;
+                                let name = '';
+                                let type = 'link';
+                                try {
+                                  if (urlVal.trim()) {
+                                    const urlObj = new URL(urlVal);
+                                    const pathname = urlObj.pathname;
+                                    name = pathname.substring(pathname.lastIndexOf('/') + 1) || 'Link External';
+                                    if (name.toLowerCase().endsWith('.pdf')) type = 'pdf';
+                                    else if (name.toLowerCase().endsWith('.doc') || name.toLowerCase().endsWith('.docx')) type = 'doc';
+                                    else if (/\.(jpg|jpeg|png|gif|webp)$/i.test(name)) type = 'image';
+                                  } else {
+                                    name = '';
+                                  }
+                                } catch (_) {
+                                  name = 'Tautan Luar';
+                                }
+                                setFormValues(prev => ({
+                                  ...prev,
+                                  linkFile: urlVal,
+                                  namaFile: name,
+                                  tipeFile: type
+                                }));
+                              }}
+                              className={`w-full px-4 py-2.5 text-xs rounded-xl border focus:outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all ${
+                                isFieldDisabled
+                                  ? 'bg-[#f1f5f9] border-[#e2e8f0] text-[#64748b] cursor-not-allowed font-mono'
+                                  : 'bg-white border-[#cbd5e1] text-[#0f172a] focus:bg-white'
+                              }`}
+                            />
+                          ) : (
+                            <div className="space-y-3">
+                              <div className="flex items-center space-x-3">
+                                {formValues.linkFile && formValues.linkFile.startsWith('data:') && (
+                                  <div className="w-12 h-12 rounded border border-slate-200 overflow-hidden shrink-0 bg-white flex items-center justify-center">
+                                    {String(formValues.tipeFile).includes('image') ? (
+                                      <img src={formValues.linkFile} alt="Preview" className="w-full h-full object-cover" />
+                                    ) : (
+                                      <FileText className="w-6 h-6 text-indigo-500" />
+                                    )}
+                                  </div>
+                                )}
+                                <label className="flex-1 border border-dashed border-slate-300 hover:border-indigo-500 bg-white hover:bg-indigo-50/10 p-3 rounded-xl text-center cursor-pointer transition text-xs font-bold text-slate-600 block">
+                                  <span>📁 {formValues.linkFile ? 'Ubah File Dokumen/Foto' : 'Pilih File (PDF, DOC, PNG, JPG, dll)'}</span>
+                                  <input
+                                    type="file"
+                                    accept=".pdf,.doc,.docx,image/*"
+                                    className="hidden"
+                                    onChange={(e) => {
+                                      const file = e.target.files?.[0];
+                                      if (file) {
+                                        const r = new FileReader();
+                                        r.onload = (ev) => {
+                                          if (ev.target?.result) {
+                                            let ft = 'link';
+                                            if (file.type.startsWith('image/')) {
+                                              ft = 'image';
+                                            } else if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
+                                              ft = 'pdf';
+                                            } else if (file.name.toLowerCase().endsWith('.doc') || file.name.toLowerCase().endsWith('.docx')) {
+                                              ft = 'doc';
+                                            }
+                                            setFormValues(prev => ({
+                                              ...prev,
+                                              linkFile: ev.target.result as string,
+                                              namaFile: file.name,
+                                              tipeFile: ft
+                                            }));
+                                          }
+                                        };
+                                        r.readAsDataURL(file);
+                                      }
+                                    }}
+                                  />
+                                </label>
+                              </div>
+                              {formValues.linkFile && (
+                                <div className="text-xs text-slate-600 bg-white p-2.5 rounded-lg border border-slate-100 flex items-center justify-between">
+                                  <span className="truncate font-semibold max-w-[70%]" title={formValues.namaFile}>
+                                    📄 {formValues.namaFile || 'File Terunggah'}
+                                  </span>
+                                  <span className="text-[10px] font-mono bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded uppercase font-bold shrink-0">
+                                    {formValues.tipeFile || 'file'}
+                                  </span>
+                                </div>
                               )}
                             </div>
                           )}

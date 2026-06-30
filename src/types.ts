@@ -103,6 +103,7 @@ export interface Banner {
   linkFoto: string;
   linkArtikel: string;
   tanggalInput?: string;
+  sasaran?: 'Semua' | 'Admin' | 'Siswa';
 }
 
 export interface LogNotifikasi {

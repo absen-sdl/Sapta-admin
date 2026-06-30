@@ -1087,7 +1087,7 @@ export default function App() {
     setIsLoadingSubAccounts(true);
     setSubAccountsError(null);
     try {
-      const targetUrl = endpoint + (endpoint.includes('?') ? '&' : '?') + 'action=read&sheetName=' + encodeURIComponent('KELOLA AKUN');
+      const targetUrl = endpoint + (endpoint.includes('?') ? '&' : '?') + 'action=read&sheetName=' + encodeURIComponent(subAccountSheetName);
       const response = await fetch(targetUrl);
       if (!response.ok) throw new Error('Gagal menghubungi App Script lembaga.');
       const resText = await response.text();
@@ -1134,7 +1134,7 @@ export default function App() {
         }).filter(acc => acc.username || acc.nama);
         setSubAccountList(parsedAccounts);
       } else {
-        throw new Error('Format dari sheet KELOLA AKUN tidak sesuai.');
+        throw new Error(`Format dari sheet ${subAccountSheetName} tidak sesuai.`);
       }
     } catch (err: any) {
       console.error(err);
@@ -1158,25 +1158,34 @@ export default function App() {
     // Hardcoded high-contrast fallback institutions from Google Sheets
     return [
       {
+        npsn: "12345678",
+        username: "absensi109@gmail.com",
         gmail: "absensi109@gmail.com",
         pasword: "11111111",
         lembaga: "PRAMUKA SUNAN DRAJAT LAMONGAN",
         urlAppScript: "https://script.google.com/macros/s/AKfycbzr1zExNM5DZ_BQfkpH23hbCHR1x_cXoyw7NDFCq_30otVgQWGamPQEltP-qLf-zA/exec",
         urlAbsensi: "",
+        urlKelolaAkun: "",
         linkProfile: "https://i.ibb.co.com/HDspsqNZ/20260102-002752.png"
       },
       {
+        npsn: "87654321",
+        username: "assalam@gmail.com",
         gmail: "assalam@gmail.com",
         pasword: "22222222",
         lembaga: "SMKSDL",
         urlAppScript: "",
         urlAbsensi: "",
+        urlKelolaAkun: "",
         linkProfile: ""
       }
     ];
   });
   const [isFetchingAkun, setIsFetchingAkun] = useState<boolean>(false);
   const [fetchAkunError, setFetchAkunError] = useState<string | null>(null);
+  const [subAccountSheetName, setSubAccountSheetName] = useState<string>(() => {
+    return localStorage.getItem('SUB_ACCOUNT_SHEET_NAME') || 'ADMIN SAPTA DATA';
+  });
   
   // Login input fields state
   const [emailInput, setEmailInput] = useState<string>('');
@@ -1204,13 +1213,12 @@ export default function App() {
       const parsed = parseCSV(csvText);
       if (parsed && parsed.length > 0) {
         const formatted = parsed.map((item: any) => {
-          let gmail = '';
-          let pasword = '';
+          let npsn = '';
           let lembaga = '';
-          let urlAppScript = '';
-          let urlAbsensi = '';
           let linkProfile = '';
-          let urlKelolaAkun = '';
+          let urlAppScript = '';
+          let username = '';
+          let pasword = '';
 
           // Dynamically matches keys-case/space insensitive and handles any automated transformations by parseCSV
           Object.keys(item).forEach(key => {
@@ -1218,34 +1226,42 @@ export default function App() {
             const cleanKey = rawKey.toLowerCase().replace(/[^a-z0-9]/g, '');
             const val = String(item[key] || '').trim();
 
-            if (cleanKey === 'gmail' || cleanKey === 'email' || cleanKey === 'gmailaddress' || cleanKey === 'mail' || cleanKey.includes('gmail') || cleanKey.includes('email') || cleanKey.includes('mail')) {
-              gmail = val;
+            if (cleanKey === 'npsn' || cleanKey === 'no' || cleanKey === 'npsnno' || cleanKey.includes('npsn')) {
+              npsn = val;
             } else if (cleanKey === 'pasword' || cleanKey === 'password' || cleanKey === 'pin' || cleanKey === 'key' || cleanKey.includes('pass') || cleanKey.includes('word') || cleanKey.includes('key')) {
               pasword = val;
-            } else if ((cleanKey.includes('lembaga') && !cleanKey.includes('profile') && !cleanKey.includes('logo') && !cleanKey.includes('link')) || cleanKey === 'nama') {
+            } else if (cleanKey.includes('namalembaga') || cleanKey === 'lembaga' || cleanKey === 'nama' || (cleanKey.includes('lembaga') && !cleanKey.includes('profile') && !cleanKey.includes('logo') && !cleanKey.includes('link') && !cleanKey.includes('script'))) {
               lembaga = val;
             } else if (cleanKey.includes('appscript') || cleanKey.includes('appsscript') || cleanKey.includes('linkserver') || cleanKey.includes('urlserver') || cleanKey.includes('script')) {
               urlAppScript = val;
-            } else if (cleanKey.includes('profile') || cleanKey.includes('logo') || cleanKey.includes('foto') || cleanKey.includes('photo')) {
+            } else if (cleanKey.includes('profile') || cleanKey.includes('logo') || cleanKey.includes('foto') || cleanKey.includes('photo') || cleanKey.includes('profilelembaga')) {
               linkProfile = val;
-            } else if (cleanKey.includes('absensi') || (cleanKey.includes('absen') && !cleanKey.includes('id'))) {
-              urlAbsensi = val;
-            } else if (cleanKey.includes('kelolaakun') || cleanKey.includes('kelolasubakun') || cleanKey.includes('linkaccounts') || cleanKey.includes('linkuser') || cleanKey.includes('urlkelola') || cleanKey.includes('linkkelola') || cleanKey.includes('kelolaakuun') || cleanKey.includes('linkkelolaakuun') || cleanKey.includes('linkakun')) {
-              urlKelolaAkun = val;
+            } else if (cleanKey === 'username' || cleanKey === 'user' || cleanKey === 'gmail' || cleanKey === 'email') {
+              username = val;
             }
           });
 
-          // Accurate fallbacks matching direct keys (including mappings done by parseCSV)
-          if (!gmail) gmail = String(item['email'] || item['gmail'] || item['G-Mail'] || item['Gmail'] || '').trim();
-          if (!pasword) pasword = String(item['key'] || item['Pasword'] || item['Password'] || item['pasword'] || item['password'] || '').trim();
-          if (!lembaga) lembaga = String(item['lembaga'] || item['Lembaga USER NAME'] || item['Lembaga Username'] || item['Lembaga'] || '').trim();
-          if (!urlAppScript) urlAppScript = String(item['urlAppScript'] || item['Link_App_script'] || item['Link_App_Script'] || item['url_app_script'] || '').trim();
-          if (!linkProfile) linkProfile = String(item['linkProfile'] || item['profile lembaga'] || item['Profile Lembaga'] || item['link_profile'] || item['profile'] || '').trim();
-          if (!urlAbsensi) urlAbsensi = String(item['urlAbsensi'] || item['url_absensi'] || item['Url Absensi'] || '').trim();
-          if (!urlKelolaAkun) urlKelolaAkun = String(item['urlKelolaAkun'] || item['Link_Kelola_Akun'] || item['Link_Kelola_Akuun'] || item['link_kelola_akun'] || item['Kelola Akun'] || item['KELOLA AKUN'] || item['Link Kelola Akun'] || item['Link Kelola Akuun'] || '').trim();
+          // Accurate fallbacks matching direct keys
+          if (!npsn) npsn = String(item['NPSN/NO'] || item['NPSN'] || item['No'] || item['npsn'] || '').trim();
+          if (!pasword) pasword = String(item['pasword'] || item['password'] || item['Pasword'] || item['Password'] || item['key'] || '').trim();
+          if (!lembaga) lembaga = String(item['Nama Lembaga'] || item['Lembaga'] || item['lembaga'] || '').trim();
+          if (!urlAppScript) urlAppScript = String(item['Link app script'] || item['urlAppScript'] || item['Link_App_Script'] || item['Link_App_script'] || item['url_app_script'] || '').trim();
+          if (!linkProfile) linkProfile = String(item['Profile Lembaga'] || item['profile_lembaga'] || item['linkProfile'] || item['profile'] || '').trim();
+          if (!username) username = String(item['username'] || item['Username'] || item['gmail'] || item['email'] || '').trim();
 
-          return { gmail, pasword, lembaga, urlAppScript, urlAbsensi, linkProfile, urlKelolaAkun };
-        }).filter(acc => acc.gmail || acc.lembaga);
+          // Maintain compatibility with properties like gmail, urlAbsensi, and urlKelolaAkun
+          return {
+            npsn,
+            pasword,
+            lembaga,
+            urlAppScript,
+            linkProfile,
+            username,
+            gmail: username,
+            urlAbsensi: '',
+            urlKelolaAkun: ''
+          };
+        }).filter(acc => acc.username || acc.lembaga);
         
         console.log('AKUN_SAPTA loaded successfully. Parsed count:', formatted.length, formatted);
         setAkunList(formatted);
@@ -1516,7 +1532,8 @@ export default function App() {
             judul: String(getProp(item, 'judul', 'judulbanner', 'title') || '').trim(),
             linkFoto: String(getProp(item, 'linkFoto', 'linkfoto', 'foto', 'photo', 'gambar') || '').trim(),
             linkArtikel: String(getProp(item, 'linkArtikel', 'linkartikel', 'artikel', 'url') || '').trim(),
-            tanggalInput: String(getProp(item, 'tanggalInput', 'tanggalinput', 'tanggal', 'date') || '').trim()
+            tanggalInput: String(getProp(item, 'tanggalInput', 'tanggalinput', 'tanggal', 'date') || '').trim(),
+            sasaran: String(getProp(item, 'sasaran', 'target', 'role', 'pengumumanuntuk') || 'Semua').trim() as 'Semua' | 'Admin' | 'Siswa'
           }));
 
           // Sync LOG NOTIFIKASI (Notification Logs)
@@ -2683,46 +2700,52 @@ Schema requirements:
             const parsed = parseCSV(csvText);
             if (parsed && parsed.length > 0) {
                localAkunList = parsed.map((item: any) => {
-                let gmail = '';
-                let pasword = '';
+                let npsn = '';
                 let lembaga = '';
-                let urlAppScript = '';
-                let urlAbsensi = '';
                 let linkProfile = '';
-                let urlKelolaAkun = '';
+                let urlAppScript = '';
+                let username = '';
+                let pasword = '';
 
                 Object.keys(item).forEach(key => {
                   const rawKey = key.trim();
                   const cleanKey = rawKey.toLowerCase().replace(/[^a-z0-9]/g, '');
                   const val = String(item[key] || '').trim();
 
-                  if (cleanKey === 'gmail' || cleanKey === 'email' || cleanKey === 'gmailaddress' || cleanKey === 'mail' || cleanKey.includes('gmail') || cleanKey.includes('email') || cleanKey.includes('mail')) {
-                    gmail = val;
+                  if (cleanKey === 'npsn' || cleanKey === 'no' || cleanKey === 'npsnno' || cleanKey.includes('npsn')) {
+                    npsn = val;
                   } else if (cleanKey === 'pasword' || cleanKey === 'password' || cleanKey === 'pin' || cleanKey === 'key' || cleanKey.includes('pass') || cleanKey.includes('word') || cleanKey.includes('key')) {
                     pasword = val;
-                  } else if ((cleanKey.includes('lembaga') && !cleanKey.includes('profile') && !cleanKey.includes('logo') && !cleanKey.includes('link')) || cleanKey === 'nama') {
+                  } else if (cleanKey.includes('namalembaga') || cleanKey === 'lembaga' || cleanKey === 'nama' || (cleanKey.includes('lembaga') && !cleanKey.includes('profile') && !cleanKey.includes('logo') && !cleanKey.includes('link') && !cleanKey.includes('script'))) {
                     lembaga = val;
                   } else if (cleanKey.includes('appscript') || cleanKey.includes('appsscript') || cleanKey.includes('linkserver') || cleanKey.includes('urlserver') || cleanKey.includes('script')) {
                     urlAppScript = val;
-                  } else if (cleanKey.includes('profile') || cleanKey.includes('logo') || cleanKey.includes('foto') || cleanKey.includes('photo')) {
+                  } else if (cleanKey.includes('profile') || cleanKey.includes('logo') || cleanKey.includes('foto') || cleanKey.includes('photo') || cleanKey.includes('profilelembaga')) {
                     linkProfile = val;
-                  } else if (cleanKey.includes('absensi') || (cleanKey.includes('absen') && !cleanKey.includes('id'))) {
-                    urlAbsensi = val;
-                  } else if (cleanKey.includes('kelolaakun') || cleanKey.includes('kelolasubakun') || cleanKey.includes('linkaccounts') || cleanKey.includes('linkuser') || cleanKey.includes('urlkelola') || cleanKey.includes('linkkelola') || cleanKey.includes('kelolaakuun') || cleanKey.includes('linkkelolaakuun') || cleanKey.includes('linkakun')) {
-                    urlKelolaAkun = val;
+                  } else if (cleanKey === 'username' || cleanKey === 'user' || cleanKey === 'gmail' || cleanKey === 'email') {
+                    username = val;
                   }
                 });
 
-                if (!gmail) gmail = String(item['email'] || item['gmail'] || item['G-Mail'] || item['Gmail'] || '').trim();
-                if (!pasword) pasword = String(item['key'] || item['Pasword'] || item['Password'] || item['pasword'] || item['password'] || '').trim();
-                if (!lembaga) lembaga = String(item['lembaga'] || item['Lembaga USER NAME'] || item['Lembaga Username'] || item['Lembaga'] || '').trim();
-                if (!urlAppScript) urlAppScript = String(item['urlAppScript'] || item['Link_App_script'] || item['Link_App_Script'] || item['url_app_script'] || '').trim();
-                if (!linkProfile) linkProfile = String(item['linkProfile'] || item['profile lembaga'] || item['Profile Lembaga'] || item['link_profile'] || item['profile'] || '').trim();
-                if (!urlAbsensi) urlAbsensi = String(item['urlAbsensi'] || item['url_absensi'] || item['Url Absensi'] || '').trim();
-                if (!urlKelolaAkun) urlKelolaAkun = String(item['urlKelolaAkun'] || item['Link_Kelola_Akun'] || item['Link_Kelola_Akuun'] || item['link_kelola_akun'] || item['Kelola Akun'] || item['KELOLA AKUN'] || item['Link Kelola Akun'] || item['Link Kelola Akuun'] || '').trim();
+                if (!npsn) npsn = String(item['NPSN/NO'] || item['NPSN'] || item['No'] || item['npsn'] || '').trim();
+                if (!pasword) pasword = String(item['pasword'] || item['password'] || item['Pasword'] || item['Password'] || item['key'] || '').trim();
+                if (!lembaga) lembaga = String(item['Nama Lembaga'] || item['Lembaga'] || item['lembaga'] || '').trim();
+                if (!urlAppScript) urlAppScript = String(item['Link app script'] || item['urlAppScript'] || item['Link_App_Script'] || item['Link_App_script'] || item['url_app_script'] || '').trim();
+                if (!linkProfile) linkProfile = String(item['Profile Lembaga'] || item['profile_lembaga'] || item['linkProfile'] || item['profile'] || '').trim();
+                if (!username) username = String(item['username'] || item['Username'] || item['gmail'] || item['email'] || '').trim();
 
-                return { gmail, pasword, lembaga, urlAppScript, urlAbsensi, linkProfile, urlKelolaAkun };
-              }).filter(acc => acc.gmail || acc.lembaga);
+                return {
+                  npsn,
+                  pasword,
+                  lembaga,
+                  urlAppScript,
+                  linkProfile,
+                  username,
+                  gmail: username,
+                  urlAbsensi: '',
+                  urlKelolaAkun: ''
+                };
+              }).filter(acc => acc.username || acc.lembaga);
               setAkunList(localAkunList);
             }
           }
@@ -2742,13 +2765,16 @@ Schema requirements:
 
       let dataFetched = false;
       let parsedJson: any = null;
+      let detectedSheetName = 'ADMIN SAPTA DATA';
 
       // 1. Try Apps Script Web App first if available
       if (match.urlAppScript) {
         setLoginProgressText('Membuka koneksi & mengunduh database akun via Web App...');
         try {
-          const targetUrl = match.urlAppScript + (match.urlAppScript.includes('?') ? '&' : '?') + 'action=read&sheetName=' + encodeURIComponent('KELOLA AKUN');
-          const response = await fetch(targetUrl);
+          // Attempt 1: ADMIN SAPTA DATA
+          let targetUrl = match.urlAppScript + (match.urlAppScript.includes('?') ? '&' : '?') + 'action=read&sheetName=' + encodeURIComponent('ADMIN SAPTA DATA');
+          let response = await fetch(targetUrl);
+          let success = false;
           if (response.ok) {
             const resText = await response.text();
             try {
@@ -2756,15 +2782,40 @@ Schema requirements:
               if (parsed && !parsed.error) {
                 parsedJson = parsed;
                 dataFetched = true;
-              } else {
-                console.warn('Apps Script returned error or invalid format, trying CSV fallback...');
+                success = true;
+                detectedSheetName = 'ADMIN SAPTA DATA';
               }
             } catch (e) {
-              console.warn('Apps Script response not JSON, trying as CSV if possible...');
               const parsed = parseCSV(resText);
               if (parsed && parsed.length > 0) {
                 parsedJson = parsed;
                 dataFetched = true;
+                success = true;
+                detectedSheetName = 'ADMIN SAPTA DATA';
+              }
+            }
+          }
+
+          // Attempt 2 Fallback: KELOLA AKUN
+          if (!success) {
+            targetUrl = match.urlAppScript + (match.urlAppScript.includes('?') ? '&' : '?') + 'action=read&sheetName=' + encodeURIComponent('KELOLA AKUN');
+            response = await fetch(targetUrl);
+            if (response.ok) {
+              const resText = await response.text();
+              try {
+                const parsed = JSON.parse(resText);
+                if (parsed && !parsed.error) {
+                  parsedJson = parsed;
+                  dataFetched = true;
+                  detectedSheetName = 'KELOLA AKUN';
+                }
+              } catch (e) {
+                const parsed = parseCSV(resText);
+                if (parsed && parsed.length > 0) {
+                  parsedJson = parsed;
+                  dataFetched = true;
+                  detectedSheetName = 'KELOLA AKUN';
+                }
               }
             }
           }
@@ -2795,7 +2846,7 @@ Schema requirements:
       }
 
       if (!dataFetched) {
-        throw new Error('Konfigurasi server/tautan Kelola Akun lembaga belum diset atau tidak dapat diakses.');
+        throw new Error('Konfigurasi server/tautan Google Apps Script utama belum diset atau tidak dapat diakses.');
       }
 
       if (Array.isArray(parsedJson)) {
@@ -2832,12 +2883,13 @@ Schema requirements:
         }).filter(acc => acc.username || acc.nama);
 
         setLembagaAkunList(parsedAccounts);
+        setSubAccountSheetName(detectedSheetName);
         const cacheKey = 'cached_lembaga_akun_list_' + selectedLembaga.toLowerCase().replace(/\s+/g, '_');
         localStorage.setItem(cacheKey, JSON.stringify(parsedAccounts));
         setIsLembagaVerified(true);
         addToast('Lembaga Terhubung! Silakan masukkan username dan password akun Anda.', 'success');
       } else {
-        throw new Error('Sistem gagal membaca sheet "KELOLA AKUN". Buat sheet baru bernama KELOLA AKUN di Spreadsheet lembaga terlebih dahulu.');
+        throw new Error(`Sistem gagal membaca sheet "${detectedSheetName}". Buat sheet baru bernama "${detectedSheetName}" di Spreadsheet lembaga terlebih dahulu.`);
       }
     } catch (err: any) {
       console.warn("Koneksi gagal saat memverifikasi lembaga, mencari cache atau fallback...", err);
@@ -2941,6 +2993,7 @@ Schema requirements:
         localStorage.setItem('LINK_SCRIPT_UTAMA', match.urlAppScript || '');
         localStorage.setItem('LINK_ABSENSI', match.urlAbsensi || '');
         localStorage.setItem('LINK_KELOLA_AKUN', match.urlKelolaAkun || '');
+        localStorage.setItem('SUB_ACCOUNT_SHEET_NAME', subAccountSheetName);
         localStorage.setItem('G-MAIL_LOGIN', match.gmail);
         localStorage.setItem('LEMBAGA_LOGIN', match.lembaga);
         localStorage.setItem('LINK_PROFILE', match.linkProfile || '');
@@ -3127,7 +3180,7 @@ Schema requirements:
     
     const payload = {
       action: subAccountModalType === 'add' ? 'add' : 'edit',
-      sheetName: 'KELOLA AKUN',
+      sheetName: subAccountSheetName,
       targetId: subAccountModalType === 'edit' ? editingSubAccount.username : undefined,
       data: {
         nama: namaVal,
@@ -3201,7 +3254,7 @@ Schema requirements:
 
     const payload = {
       action: 'delete',
-      sheetName: 'KELOLA AKUN',
+      sheetName: subAccountSheetName,
       data: account,
       targetId: account.username
     };
@@ -3364,14 +3417,46 @@ Schema requirements:
     refreshAllData();
   }, []);
 
+  // Filter banners based on logged-in user role (Admin vs Siswa)
+  const displayedBanners = useMemo(() => {
+    const currentUsername = (localStorage.getItem('USER_USERNAME') || userUsername || '').toLowerCase();
+    const currentGmail = (localStorage.getItem('G-MAIL_LOGIN') || gmailLogin || '').toLowerCase();
+    const isMaster = isLoggedIn && currentUsername === currentGmail && currentGmail !== '';
+    const nama = (localStorage.getItem('USER_NAMA') || userNama || '').toLowerCase();
+    const removeMenu = (localStorage.getItem('USER_REMOVE_MENU') || userRemoveMenu || '').toLowerCase();
+
+    let role: 'Admin' | 'Siswa' = 'Admin';
+    if (nama.includes('siswa') || currentUsername.includes('siswa') || nama.includes('member') || currentUsername.includes('member')) {
+      role = 'Siswa';
+    } else if (removeMenu.includes('kelola_akun') || removeMenu.includes('pengaturan')) {
+      role = 'Siswa';
+    } else if (isMaster || nama === 'super admin' || nama.includes('admin') || currentUsername.includes('admin')) {
+      role = 'Admin';
+    }
+
+    return bannerList.filter(b => {
+      const sasaran = b.sasaran || 'Semua';
+      if (sasaran === 'Semua') return true;
+      if (sasaran === 'Admin' && role === 'Admin') return true;
+      if (sasaran === 'Siswa' && role === 'Siswa') return true;
+      return false;
+    });
+  }, [bannerList, userUsername, userNama, userRemoveMenu, isLoggedIn, gmailLogin]);
+
+  useEffect(() => {
+    if (activeBannerIndex >= displayedBanners.length && displayedBanners.length > 0) {
+      setActiveBannerIndex(0);
+    }
+  }, [displayedBanners, activeBannerIndex]);
+
   // Auto-scroll banner slides every 5 seconds
   useEffect(() => {
-    if (bannerList.length <= 1) return;
+    if (displayedBanners.length <= 1) return;
     const interval = setInterval(() => {
-      setActiveBannerIndex((prev) => (prev + 1) % bannerList.length);
+      setActiveBannerIndex((prev) => (prev + 1) % displayedBanners.length);
     }, 5000);
     return () => clearInterval(interval);
-  }, [bannerList]);
+  }, [displayedBanners]);
 
   // Close custom drop search when clicking outside
   useEffect(() => {
@@ -3934,7 +4019,8 @@ Schema requirements:
         fields: [
           { name: 'judul', label: 'Judul Banner', type: 'text', required: true, placeholder: 'Contoh: Selamat Datang / Informasi Pendaftaran Baru' },
           { name: 'linkFoto', label: 'Link Foto / Gambar / Video Banner (URL)', type: 'text', required: true, placeholder: 'Contoh: Link YouTube, Google Drive, direct video URL (.mp4), atau URL gambar' },
-          { name: 'linkArtikel', label: 'Link Artikel / Sumber (URL)', type: 'text', required: true, placeholder: 'https://... link artikel atau sumber info' }
+          { name: 'linkArtikel', label: 'Link Artikel / Sumber (URL)', type: 'text', required: true, placeholder: 'https://... link artikel atau sumber info' },
+          { name: 'sasaran', label: 'Sasaran Pengumuman', type: 'select', options: ['Semua', 'Admin', 'Siswa'], required: true }
         ]
       }
     };
@@ -3988,6 +4074,7 @@ Schema requirements:
       initialVals.judul = '';
       initialVals.linkFoto = '';
       initialVals.linkArtikel = '';
+      initialVals.sasaran = 'Semua';
       setBannerUploadMethod('url');
     }
     
@@ -4884,14 +4971,18 @@ Schema requirements:
   };
 
   const uniqueLembagaList = useMemo(() => {
-    const all = akunList.map(a => a.lembaga).filter(Boolean);
+    const all = akunList.map(acc => acc.lembaga).filter(Boolean);
     return Array.from(new Set(all)).sort((a: any, b: any) => a.localeCompare(b));
   }, [akunList]);
 
   if (!isLoggedIn) {
-    const filteredLembaga = uniqueLembagaList.filter((l: string) => 
-      l.toLowerCase().includes(lembagaSearch.toLowerCase())
-    );
+    const isSearchLongEnough = lembagaSearch.trim().length >= 8;
+    const filteredLembaga = !isSearchLongEnough ? [] : akunList.filter((acc: any) => {
+      const q = lembagaSearch.toLowerCase();
+      const matchNpsn = (acc.npsn || '').toLowerCase().includes(q);
+      const matchLembaga = (acc.lembaga || '').toLowerCase().includes(q);
+      return matchNpsn || matchLembaga;
+    });
 
     return (
       <div className="min-h-screen w-full bg-[#070a13] text-slate-100 flex flex-col justify-between p-4 md:p-8 relative font-sans select-none overflow-x-hidden overflow-y-auto">
@@ -5022,29 +5113,36 @@ Schema requirements:
                       {/* Combobox List dropdown */}
                       {isLembagaDropdownOpen && (
                         <div className="absolute left-0 right-0 mt-2 bg-[#0a0d1e] border border-slate-800 rounded-xl shadow-2xl z-30 max-h-48 overflow-y-auto divide-y divide-slate-800/60 animate-slide-down">
-                          {filteredLembaga.length === 0 ? (
+                          {!isSearchLongEnough ? (
+                            <div className="p-4 text-center text-xs text-indigo-400 font-medium font-sans">
+                              Ketik minimal 8 karakter untuk mencari NPSN/No atau Nama Lembaga...
+                            </div>
+                          ) : filteredLembaga.length === 0 ? (
                             <div className="p-4 text-center text-xs text-slate-500 font-medium font-sans">
                               {isFetchingAkun ? 'Memuat data lembaga...' : 'Lembaga tidak ditemukan'}
                             </div>
                           ) : (
-                            filteredLembaga.map((lemb) => (
+                            filteredLembaga.map((acc: any) => (
                               <button
-                                key={lemb}
+                                key={acc.lembaga}
                                 type="button"
                                 onClick={() => {
-                                  setSelectedLembaga(lemb);
-                                  setLembagaSearch(lemb);
+                                  setSelectedLembaga(acc.lembaga);
+                                  setLembagaSearch(acc.lembaga);
                                   setIsLembagaDropdownOpen(false);
                                   setLoginError(null);
                                 }}
                                 className={`w-full text-left px-4 py-3 text-xs font-semibold select-none flex items-center justify-between transition cursor-pointer ${
-                                  selectedLembaga === lemb 
+                                  selectedLembaga === acc.lembaga 
                                     ? 'bg-indigo-950/50 text-indigo-300 font-bold' 
                                     : 'text-slate-300 hover:bg-slate-900'
                                 }`}
                               >
-                                <span className="font-mono">{lemb}</span>
-                                {selectedLembaga === lemb && <Check className="w-3.5 h-3.5 text-indigo-400 shrink-0" />}
+                                <div className="flex flex-col text-left">
+                                  <span className="font-sans font-bold text-slate-200">{acc.lembaga}</span>
+                                  {acc.npsn && <span className="text-[10px] font-mono text-slate-500 mt-0.5">NPSN/NO: {acc.npsn}</span>}
+                                </div>
+                                {selectedLembaga === acc.lembaga && <Check className="w-3.5 h-3.5 text-indigo-400 shrink-0" />}
                               </button>
                             ))
                           )}
@@ -5788,17 +5886,17 @@ Schema requirements:
             <div className="space-y-6 animate-fade-in font-sans">
               
               {/* SLIDING BANNER CAROUSEL FOR SISWA / MEMBERS */}
-              {bannerList.length > 0 && (
+              {displayedBanners.length > 0 && activeBannerIndex < displayedBanners.length && (
                 <div className="relative w-full max-w-4xl mx-auto h-44 sm:h-56 md:h-64 rounded-2xl overflow-hidden shadow-sm border border-slate-100 group bg-slate-950">
-                  {isVideoUrl(bannerList[activeBannerIndex].linkFoto) ? (
+                  {isVideoUrl(displayedBanners[activeBannerIndex].linkFoto) ? (
                     <a
-                      href={bannerList[activeBannerIndex].linkArtikel || undefined}
-                      target={bannerList[activeBannerIndex].linkArtikel ? "_blank" : undefined}
-                      rel={bannerList[activeBannerIndex].linkArtikel ? "noopener noreferrer" : undefined}
-                      className={`block w-full h-full relative ${bannerList[activeBannerIndex].linkArtikel ? 'cursor-pointer' : 'cursor-default'}`}
+                      href={displayedBanners[activeBannerIndex].linkArtikel || undefined}
+                      target={displayedBanners[activeBannerIndex].linkArtikel ? "_blank" : undefined}
+                      rel={displayedBanners[activeBannerIndex].linkArtikel ? "noopener noreferrer" : undefined}
+                      className={`block w-full h-full relative ${displayedBanners[activeBannerIndex].linkArtikel ? 'cursor-pointer' : 'cursor-default'}`}
                     >
                       {(() => {
-                        const embedUrl = getVideoEmbedUrl(bannerList[activeBannerIndex].linkFoto);
+                        const embedUrl = getVideoEmbedUrl(displayedBanners[activeBannerIndex].linkFoto);
                         if (!embedUrl) return null;
                         
                         const isDirectVideo = /\.(mp4|webm|ogg|mov|m4v|3gp)(\?|$)/i.test(embedUrl);
@@ -5817,7 +5915,7 @@ Schema requirements:
                           return (
                             <iframe
                               src={embedUrl}
-                              title={bannerList[activeBannerIndex].judul || "Video Banner"}
+                              title={displayedBanners[activeBannerIndex].judul || "Video Banner"}
                               className="w-full h-full border-0"
                               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
                               allowFullScreen
@@ -5826,51 +5924,69 @@ Schema requirements:
                         }
                       })()}
                       {/* Ambient overlay vignette */}
-                      <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/30 to-transparent pointer-events-none"></div>
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/40 to-transparent pointer-events-none"></div>
                       
                       {/* Information Text (Bottom-Left) */}
-                      <div className="absolute bottom-4 left-4 sm:bottom-6 sm:left-6 text-white text-left max-w-[85%] pointer-events-none z-10">
-                        {bannerList[activeBannerIndex].judul && (
-                          <h4 className="text-sm sm:text-lg md:text-xl font-bold tracking-tight mb-1 sm:mb-1.5 drop-shadow-md text-white line-clamp-1 leading-tight">
-                            {bannerList[activeBannerIndex].judul}
+                      <div className="absolute bottom-4 left-4 sm:bottom-6 sm:left-6 text-white text-left max-w-[85%] pointer-events-none z-10 space-y-1">
+                        {/* Beautiful Colored Badge */}
+                        <div className="inline-flex items-center gap-1.5 bg-gradient-to-r from-rose-500 via-pink-500 to-red-600 text-white text-[9px] sm:text-[10px] font-extrabold tracking-wider uppercase px-2.5 py-1 rounded-md shadow-lg shadow-rose-500/30 mb-1.5 animate-pulse">
+                          <span className="w-1.5 h-1.5 rounded-full bg-white"></span>
+                          <span>MEDIA VIDEO &amp; INFORMASI AKTIF</span>
+                        </div>
+                        
+                        {displayedBanners[activeBannerIndex].judul && (
+                          <h4 className="text-sm sm:text-lg md:text-xl font-black tracking-tight drop-shadow-md text-white line-clamp-1 leading-tight uppercase bg-clip-text text-transparent bg-gradient-to-r from-white via-slate-100 to-rose-200">
+                            {displayedBanners[activeBannerIndex].judul}
                           </h4>
                         )}
+                        <p className="text-[10px] sm:text-xs text-rose-300 font-bold tracking-wide drop-shadow-sm">
+                          Klik untuk memutar &amp; membaca detail artikel selengkapnya
+                        </p>
                       </div>
                     </a>
                   ) : (
                     <a
-                      href={bannerList[activeBannerIndex].linkArtikel || undefined}
-                      target={bannerList[activeBannerIndex].linkArtikel ? "_blank" : undefined}
-                      rel={bannerList[activeBannerIndex].linkArtikel ? "noopener noreferrer" : undefined}
-                      className={`block w-full h-full relative ${bannerList[activeBannerIndex].linkArtikel ? 'cursor-pointer' : 'cursor-default'}`}
+                      href={displayedBanners[activeBannerIndex].linkArtikel || undefined}
+                      target={displayedBanners[activeBannerIndex].linkArtikel ? "_blank" : undefined}
+                      rel={displayedBanners[activeBannerIndex].linkArtikel ? "noopener noreferrer" : undefined}
+                      className={`block w-full h-full relative ${displayedBanners[activeBannerIndex].linkArtikel ? 'cursor-pointer' : 'cursor-default'}`}
                     >
                       <img
-                        src={bannerList[activeBannerIndex].linkFoto}
+                        src={displayedBanners[activeBannerIndex].linkFoto}
                         alt={`Banner ${activeBannerIndex + 1}`}
                         className="w-full h-full object-cover transition-all duration-700 ease-in-out hover:scale-105"
                         referrerPolicy="no-referrer"
                       />
                       {/* Ambient overlay vignette */}
-                      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent"></div>
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-transparent"></div>
                       
                       {/* Information Text (Bottom-Left) */}
-                      <div className="absolute bottom-4 left-4 sm:bottom-6 sm:left-6 text-white text-left max-w-[85%] z-10">
-                        {bannerList[activeBannerIndex].judul && (
-                          <h4 className="text-sm sm:text-lg md:text-xl font-bold tracking-tight mb-1 sm:mb-1.5 drop-shadow-md text-white line-clamp-1 leading-tight">
-                            {bannerList[activeBannerIndex].judul}
+                      <div className="absolute bottom-4 left-4 sm:bottom-6 sm:left-6 text-white text-left max-w-[85%] z-10 space-y-1">
+                        {/* Beautiful Colored Badge */}
+                        <div className="inline-flex items-center gap-1.5 bg-gradient-to-r from-violet-600 via-indigo-600 to-cyan-500 text-white text-[9px] sm:text-[10px] font-extrabold tracking-wider uppercase px-2.5 py-1 rounded-md shadow-lg shadow-indigo-500/30 mb-1.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-cyan-300 animate-ping"></span>
+                          <span>KABAR TERKINI &amp; PENGUMUMAN</span>
+                        </div>
+
+                        {displayedBanners[activeBannerIndex].judul && (
+                          <h4 className="text-sm sm:text-lg md:text-xl font-black tracking-tight drop-shadow-md text-white line-clamp-1 leading-tight uppercase bg-clip-text text-transparent bg-gradient-to-r from-white via-slate-50 to-indigo-100">
+                            {displayedBanners[activeBannerIndex].judul}
                           </h4>
                         )}
+                        <p className="text-[10px] sm:text-xs text-indigo-300 font-bold tracking-wide drop-shadow-sm">
+                          Klik untuk melihat lampiran informasi resmi selengkapnya
+                        </p>
                       </div>
                     </a>
                   )}
 
                   {/* Manual Arrow Controls */}
-                  {bannerList.length > 1 && (
+                  {displayedBanners.length > 1 && (
                     <>
                       <button
                         onClick={(e) => {
                           e.preventDefault();
-                          setActiveBannerIndex((prev) => (prev - 1 + bannerList.length) % bannerList.length);
+                          setActiveBannerIndex((prev) => (prev - 1 + displayedBanners.length) % displayedBanners.length);
                         }}
                         className="absolute left-3 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-slate-900/40 hover:bg-slate-900/70 text-white flex items-center justify-center backdrop-blur-xs transition opacity-0 group-hover:opacity-100 cursor-pointer z-10 border border-white/10"
                         title="Banner Sebelumnya"
@@ -5880,7 +5996,7 @@ Schema requirements:
                       <button
                         onClick={(e) => {
                           e.preventDefault();
-                          setActiveBannerIndex((prev) => (prev + 1) % bannerList.length);
+                          setActiveBannerIndex((prev) => (prev + 1) % displayedBanners.length);
                         }}
                         className="absolute right-3 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-slate-900/40 hover:bg-slate-900/70 text-white flex items-center justify-center backdrop-blur-xs transition opacity-0 group-hover:opacity-100 cursor-pointer z-10 border border-white/10"
                         title="Banner Selanjutnya"
@@ -5890,17 +6006,17 @@ Schema requirements:
 
                       {/* Dots Slide indicator tracker */}
                       <div className="absolute bottom-3 right-4 flex space-x-1.5 z-10">
-                        {bannerList.map((_, idx) => (
+                        {displayedBanners.map((_, idx) => (
                           <button
-                            key={idx}
-                            onClick={(e) => {
-                              e.preventDefault();
-                              setActiveBannerIndex(idx);
-                            }}
-                            className={`w-1.5 h-1.5 rounded-full transition-all duration-300 ${
-                              activeBannerIndex === idx ? 'bg-indigo-500 w-4' : 'bg-white/40'
-                            }`}
-                            title={`Slide ${idx + 1}`}
+                              key={idx}
+                              onClick={(e) => {
+                                e.preventDefault();
+                                setActiveBannerIndex(idx);
+                              }}
+                              className={`w-1.5 h-1.5 rounded-full transition-all duration-300 ${
+                                activeBannerIndex === idx ? 'bg-indigo-500 w-4' : 'bg-white/40'
+                              }`}
+                              title={`Slide ${idx + 1}`}
                           />
                         ))}
                       </div>
@@ -8137,6 +8253,7 @@ Schema requirements:
                       <tr className="bg-slate-50/70 text-[#475569] uppercase text-[9.5px] font-extrabold tracking-wider border-b border-slate-100">
                         <th className="py-4 px-6 text-center w-24">ID Banner</th>
                         <th className="py-4 px-6">Judul Banner</th>
+                        <th className="py-4 px-6 text-center w-32">Sasaran</th>
                         <th className="py-4 px-6">Link Foto Banner</th>
                         <th className="py-4 px-6">Link Artikel / Sumber</th>
                         <th className="py-4 px-6 text-center w-36">Tanggal Input</th>
@@ -8146,7 +8263,7 @@ Schema requirements:
                     <tbody className="divide-y divide-slate-100 text-xs text-slate-600 font-medium font-sans">
                       {bannerList.length === 0 ? (
                         <tr>
-                          <td colSpan={6} className="py-12 text-center text-slate-400">
+                          <td colSpan={7} className="py-12 text-center text-slate-400">
                             <div className="flex flex-col items-center justify-center space-y-2">
                               <Image className="w-8 h-8 text-slate-300 stroke-[1.5]" />
                               <p className="text-xs">Belum ada data banner informasi yang diinput.</p>
@@ -8169,6 +8286,32 @@ Schema requirements:
                               <div className="font-bold text-[#0f172a] max-w-xs truncate" title={row.judul || ''}>
                                 {row.judul || <span className="text-slate-400 font-normal italic">Tanpa Judul</span>}
                               </div>
+                            </td>
+
+                            {/* Sasaran */}
+                            <td className="py-4 px-6 text-center">
+                              {(() => {
+                                const sasaran = row.sasaran || 'Semua';
+                                if (sasaran === 'Semua') {
+                                  return (
+                                    <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-50 text-emerald-700 border border-emerald-100/60 uppercase tracking-wide">
+                                      Semua
+                                    </span>
+                                  );
+                                } else if (sasaran === 'Admin') {
+                                  return (
+                                    <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-indigo-50 text-indigo-700 border border-indigo-100/60 uppercase tracking-wide">
+                                      Admin
+                                    </span>
+                                  );
+                                } else {
+                                  return (
+                                    <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-50 text-amber-700 border border-amber-100/60 uppercase tracking-wide">
+                                      Siswa
+                                    </span>
+                                  );
+                                }
+                              })()}
                             </td>
 
                             {/* Link Foto */}
@@ -9099,7 +9242,7 @@ Schema requirements:
                                               headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
                                               body: new URLSearchParams({
                                                 action: 'delete',
-                                                sheetName: 'KELOLA AKUN',
+                                                sheetName: subAccountSheetName,
                                                 primaryKey: acc.username // Use username as key
                                               })
                                             });

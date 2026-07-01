@@ -1,22 +1,26 @@
 /**
  * ==============================================================================
- * GOOGLE APPS SCRIPT DATABASE INTEGRASI PORTAL SAPTA
+ * GOOGLE APPS SCRIPT DATABASE INTEGRASI PORTAL SAPTA (V8 AUTO-CREATE SHEETS & COLUMNS)
  * Mendukung Operasi: READ, ADD (INPUT), EDIT (UPDATE), DELETE
  * Khusus sheet "ABSENSI" / "REKAP ABSENSI" hanya mendukung READ (Hanya Baca)
  * ==============================================================================
+ * 
+ * FITUR DYNAMIC AUTO-CREATE:
+ * Setiap kali aplikasi membaca atau menulis data, script ini akan secara otomatis
+ * mendeteksi jika sheet atau kolom yang diperlukan belum ada, lalu membuatnya secara
+ * real-time tanpa memerlukan tindakan manual!
  */
 
 // Konfigurasi Skema Struktur Kolom Sesuai Permintaan Anda
 var SHEET_SCHEMAS = {
-  "KELOLA AKUN": ["Nama", "username", "pasword", "remove menu", "edit/add by"],
   "DATA ANGGOTA": ["NIA", "Nama Lengkap", "Tempat Lahir", "Tanggal Lahir", "Jenis Kelamin", "Jenjang Pendidikan", "Nama Sekolah", "Kelas", "Alamat", "No Hp", "E-Mail", "PIN", "Link-Profile", "Status", "edit/add by"],
   "PEMBAYARAN": ["ID Transaksi", "Tanggal", "Nia", "Nama Lengkap", "Nama Tagihan", "Keterangan", "Nominal", "Status", "Tercetak", "edit/add by"],
   "PRESTASI": ["ID Prestasi", "Tanggal", "NIA", "Nama lengkap", "Jenis Prestasi", "Deskripsi", "Link-foto", "edit/add by"],
   "PELANGGARAN": ["ID Pelanggaran", "Tanggal", "NIA", "Nama", "Jenis Pelanggaran", "Nama Pelanggaran", "Keterangan", "Ada Denda", "Nominal Denda", "Jenis Hukuman", "Status Tindak Lanjut", "edit/add by"],
-  "ABSENSI": ["NIA", "Nama Lengkap", "Kelas", "Tanggal", "Waktu", "Status", "Keterangan"], // Hanya Baca
+  "ABSENSI": ["ID Absensi", "NIA", "Nama Lengkap", "Kelas", "Tanggal", "Waktu", "Status", "Keterangan", "Jenis Kegiatan"],
   "INFORMASI": ["idInformasi", "Judul", "Isi", "Jenis kegiatan", "Tanggal", "Waktu", "edit/add by"],
   "INFORMASI ADMIN": ["idInformasiAdmin", "Judul", "Isi", "Jenis kegiatan", "Tanggal", "Waktu", "edit/add by"],
-  "BANNER": ["ID Banner", "Judul", "Link Foto", "Link Artikel", "Tanggal Input", "edit/add by"],
+  "BANNER": ["ID Banner", "Judul", "Link Foto", "Link Artikel", "Tanggal Input", "Sasaran", "edit/add by"],
   "SURAT": ["ID Surat", "Tanggal", "NIA", "Nama", "Perihal", "Link Dokumen", "edit/add by"],
   "PERATURAN": ["ID Peraturan", "Judul", "Sanksi", "Status", "edit/add by"],
   "LOG NOTIFIKASI": ["ID Log", "Tanggal", "Operator", "Tipe Aksi", "Menu", "Keterangan"]
@@ -35,41 +39,132 @@ function onOpen() {
 }
 
 /**
- * Fungsi otomatis mendokumentasikan dan memformat kolom database
- * Jalankan ini sekali untuk menyiapkan seluruh sheet & kolom secara instan!
+ * Mendapatkan Sheet secara aman secara case-insensitive.
  */
-function setupSpreadsheetColumns() {
+function getSheetCaseInsensitive(ss, name) {
+  var sheets = ss.getSheets();
+  var nameClean = name.toString().toLowerCase().trim();
+  for (var i = 0; i < sheets.length; i++) {
+    var sName = sheets[i].getName().toString().toLowerCase().trim();
+    if (sName === nameClean) {
+      return sheets[i];
+    }
+  }
+  return null;
+}
+
+/**
+ * Mendapatkan Sheet secara aman. Jika Sheet tidak ada, buat baru lengkap dengan kolomnya.
+ * Jika Sheet sudah ada, periksa apakah ada kolom skema yang belum ada, dan tambahkan otomatis.
+ * Mendukung pencarian sheet dan skema secara case-insensitive untuk keandalan maksimal!
+ */
+function getOrCreateSheetAndColumns(sheetName) {
   var ss = getActiveSpreadsheetRobust();
+  if (!sheetName) return null;
   
-  for (var sheetName in SHEET_SCHEMAS) {
-    var sheet = ss.getSheetByName(sheetName);
-    if (!sheet) {
-      sheet = ss.insertSheet(sheetName);
+  // Cari kecocokan casing resmi dari SHEET_SCHEMAS
+  var officialSheetName = sheetName;
+  for (var k in SHEET_SCHEMAS) {
+    if (k.toLowerCase().trim() === sheetName.toLowerCase().trim()) {
+      officialSheetName = k;
+      break;
+    }
+  }
+
+  // Dapatkan sheet secara case-insensitive
+  var sheet = getSheetCaseInsensitive(ss, officialSheetName);
+  var schemaHeaders = SHEET_SCHEMAS[officialSheetName] || [];
+  
+  if (!sheet) {
+    try {
+      sheet = ss.insertSheet(officialSheetName);
+    } catch (e) {
+      // Jika terjadi kegagalan (misalnya karena sheet name dianggap sudah ada/duplikat secara case-insensitive)
+      sheet = getSheetCaseInsensitive(ss, officialSheetName);
+      if (!sheet) {
+        throw new Error("Gagal membuat sheet '" + officialSheetName + "': " + e.toString());
+      }
     }
     
-    // Set Header Kolom di Baris 1
-    var headers = SHEET_SCHEMAS[sheetName];
-    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+    if (sheet && schemaHeaders.length > 0) {
+      sheet.getRange(1, 1, 1, schemaHeaders.length).setValues([schemaHeaders]);
+      
+      // Format Header agar rapi (Tebal, latar abu-abu muda, teks tengah)
+      var headerRange = sheet.getRange(1, 1, 1, schemaHeaders.length);
+      headerRange.setFontWeight("bold");
+      headerRange.setBackground("#f1f5f9");
+      headerRange.setHorizontalAlignment("center");
+      sheet.setFrozenRows(1);
+      
+      // Set otomatis lebar kolom yang pas
+      for (var i = 1; i <= schemaHeaders.length; i++) {
+        sheet.autoResizeColumn(i);
+      }
+    }
+    return sheet;
+  }
+  
+  // Jika sheet sudah ada, periksa apakah ada kolom dari skema yang belum ada di spreadsheet
+  if (schemaHeaders.length > 0) {
+    var lastCol = sheet.getLastColumn();
+    var existingHeaders = [];
+    if (lastCol > 0) {
+      existingHeaders = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(function(h) {
+        return h.toString().trim().toLowerCase();
+      });
+    } else {
+      // Baris pertama kosong, langsung isi schemaHeaders
+      sheet.getRange(1, 1, 1, schemaHeaders.length).setValues([schemaHeaders]);
+      var headerRange = sheet.getRange(1, 1, 1, schemaHeaders.length);
+      headerRange.setFontWeight("bold");
+      headerRange.setBackground("#f1f5f9");
+      headerRange.setHorizontalAlignment("center");
+      sheet.setFrozenRows(1);
+      for (var i = 1; i <= schemaHeaders.length; i++) {
+        sheet.autoResizeColumn(i);
+      }
+      return sheet;
+    }
     
-    // Format Header agar rapi (Tebal, latar abu-abu muda, teks tengah)
-    var headerRange = sheet.getRange(1, 1, 1, headers.length);
-    headerRange.setFontWeight("bold");
-    headerRange.setBackground("#f1f5f9");
-    headerRange.setHorizontalAlignment("center");
-    sheet.setFrozenRows(1);
+    var missingHeaders = [];
+    for (var i = 0; i < schemaHeaders.length; i++) {
+      var hName = schemaHeaders[i];
+      var hClean = hName.toString().trim().toLowerCase();
+      if (existingHeaders.indexOf(hClean) === -1) {
+        missingHeaders.push(hName);
+      }
+    }
     
-    // Set otomatis lebar kolom yang pas
-    for (var i = 1; i <= headers.length; i++) {
-      sheet.autoResizeColumn(i);
+    if (missingHeaders.length > 0) {
+      var startCol = lastCol + 1;
+      // Tambahkan kolom yang kurang di baris ke-1 (header)
+      for (var j = 0; j < missingHeaders.length; j++) {
+        var colIndex = startCol + j;
+        var cell = sheet.getRange(1, colIndex);
+        cell.setValue(missingHeaders[j]);
+        cell.setFontWeight("bold");
+        cell.setBackground("#f1f5f9");
+        cell.setHorizontalAlignment("center");
+        sheet.autoResizeColumn(colIndex);
+      }
     }
   }
   
-  if (typeof Browser !== 'undefined') {
-    try {
-      Browser.msgBox("Sukses!", "Semua sheet dan kolom database berhasil disinkronkan & disiapkan otomatis!", Browser.Buttons.OK);
-    } catch (e) {
-      // Diabaikan secara tenang tanpa log peringatan
+  return sheet;
+}
+
+// Fungsi otomatis mendokumentasikan dan memformat kolom database
+// Jalankan ini sekali untuk menyiapkan seluruh sheet & kolom secara instan!
+function setupSpreadsheetColumns() {
+  try {
+    for (var sheetName in SHEET_SCHEMAS) {
+      getOrCreateSheetAndColumns(sheetName);
     }
+    if (typeof Browser !== 'undefined') {
+      Browser.msgBox("Sukses!", "Semua sheet dan kolom database berhasil disinkronkan & disiapkan otomatis!", Browser.Buttons.OK);
+    }
+  } catch (e) {
+    // Diabaikan secara tenang tanpa log peringatan
   }
 }
 
@@ -133,6 +228,22 @@ function doPost(e) {
     if (!action) {
       return createJsonResponse({ error: "Parameter 'action' wajib disematkan." });
     }
+
+    // --- FITUR AUTO-UPLOAD FOTO/FILE KE GOOGLE DRIVE ---
+    if (action === "upload" || action === "uploadFile") {
+      var base64Data = payload.base64Data || payload.data;
+      var filename = payload.filename || "upload_file";
+      if (!base64Data) {
+        return createJsonResponse({ error: "Data base64 tidak ditemukan untuk proses upload." });
+      }
+      var uploadedUrl = uploadBase64Image(base64Data, filename, "UploadAction");
+      if (uploadedUrl) {
+        return createJsonResponse({ status: "success", url: uploadedUrl });
+      } else {
+        return createJsonResponse({ error: "Gagal mengunggah file ke Google Drive." });
+      }
+    }
+
     if (!sheetName) {
       return createJsonResponse({ error: "Parameter 'sheetName' wajib disematkan." });
     }
@@ -140,6 +251,21 @@ function doPost(e) {
     // PROTEKSI: Sesuai instruksi Anda, menu REKAP ABSENSI / ABSENSI dilarang menulis/mengedit/menghapus!
     if (sheetName === "ABSENSI" && action !== "read") {
       return createJsonResponse({ error: "AKSES DITOLAK: Fitur rekap absensi bersifat Read-Only (Hanya Baca)." });
+    }
+
+    // Fitur Otomatis: Jika ada kolom bertipe base64 image (fotoProfile, linkFoto, linkProfile, linkFile), otomatis simpan ke Drive dan ganti nilainya dengan Link Google Drive URL
+    if (data && typeof data === "object") {
+      for (var key in data) {
+        if (data.hasOwnProperty(key)) {
+          var val = data[key];
+          if (typeof val === "string" && val.indexOf("data:") === 0 && val.indexOf(";base64,") !== -1) {
+            var uploadedUrl = uploadBase64Image(val, key, sheetName);
+            if (uploadedUrl) {
+              data[key] = uploadedUrl;
+            }
+          }
+        }
+      }
     }
 
     switch (action) {
@@ -173,10 +299,7 @@ function doPost(e) {
  */
 function readData(sheetName) {
   var ss = getActiveSpreadsheetRobust();
-  var sheet = ss.getSheetByName(sheetName);
-  if (!sheet) {
-    return createJsonResponse({ error: "Sheet bernama '" + sheetName + "' tidak ditemukan dalam struktur Spreadsheet." });
-  }
+  var sheet = getOrCreateSheetAndColumns(sheetName);
 
   var lastRow = sheet.getLastRow();
   if (lastRow <= 1) {
@@ -215,8 +338,7 @@ function readData(sheetName) {
  */
 function addData(sheetName, data) {
   var ss = getActiveSpreadsheetRobust();
-  var sheet = ss.getSheetByName(sheetName);
-  if (!sheet) return createJsonResponse({ error: "Sheet tidak ditemukan." });
+  var sheet = getOrCreateSheetAndColumns(sheetName);
 
   var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
   var newRowValues = [];
@@ -241,8 +363,7 @@ function updateData(sheetName, targetId, data) {
   }
 
   var ss = getActiveSpreadsheetRobust();
-  var sheet = ss.getSheetByName(sheetName);
-  if (!sheet) return createJsonResponse({ error: "Sheet tidak ditemukan." });
+  var sheet = getOrCreateSheetAndColumns(sheetName);
 
   var lastRow = sheet.getLastRow();
   if (lastRow <= 1) return createJsonResponse({ error: "Tidak ada baris data untuk diedit." });
@@ -284,8 +405,7 @@ function deleteData(sheetName, targetId) {
   if (!targetId) return createJsonResponse({ error: "Sebutkan ID target (targetId) untuk dihapus." });
 
   var ss = getActiveSpreadsheetRobust();
-  var sheet = ss.getSheetByName(sheetName);
-  if (!sheet) return createJsonResponse({ error: "Sheet tidak ditemukan." });
+  var sheet = getOrCreateSheetAndColumns(sheetName);
 
   var lastRow = sheet.getLastRow();
   if (lastRow <= 1) return createJsonResponse({ error: "Tidak ada baris data untuk dihapus." });
@@ -334,8 +454,8 @@ function getSheetNameRobust(name) {
   }
   if (upper === "KELOLA AKUN" || upper === "AKUN SAPTA") {
     var ss = getActiveSpreadsheetRobust();
-    if (ss.getSheetByName("KELOLA AKUN")) return "KELOLA AKUN";
-    if (ss.getSheetByName("AKUN SAPTA")) return "AKUN SAPTA";
+    if (getSheetCaseInsensitive(ss, "KELOLA AKUN")) return "KELOLA AKUN";
+    if (getSheetCaseInsensitive(ss, "AKUN SAPTA")) return "AKUN SAPTA";
     return "KELOLA AKUN"; // Default
   }
   return name.toString().trim();
@@ -429,6 +549,53 @@ function createJsonResponse(data) {
 }
 
 /**
+ * FUNGSI BANTU UNGGAH FOTO/FILE BASE64 KE GOOGLE DRIVE
+ */
+function uploadBase64Image(base64Data, fieldName, sheetName) {
+  try {
+    var matches = base64Data.match(/^data:(.+);base64,(.+)$/);
+    var mimeType = "image/jpeg";
+    var base64Part = base64Data;
+    
+    if (matches && matches.length === 3) {
+      mimeType = matches[1];
+      basePart = matches[2]; // Fallback if re-parse needed
+      base64Part = matches[2];
+    }
+    
+    var decoded = Utilities.base64Decode(base64Part);
+    
+    var ext = "jpg";
+    if (mimeType.indexOf("png") !== -1) ext = "png";
+    else if (mimeType.indexOf("gif") !== -1) ext = "gif";
+    else if (mimeType.indexOf("pdf") !== -1) ext = "pdf";
+    else if (mimeType.indexOf("webp") !== -1) ext = "webp";
+    
+    var fileName = (sheetName || "Upload") + "_" + (fieldName || "file") + "_" + new Date().getTime() + "." + ext;
+    var blob = Utilities.newBlob(decoded, mimeType, fileName);
+    
+    var folderName = "Aplikasi_Upload_Foto";
+    var folders = DriveApp.getFoldersByName(folderName);
+    var folder;
+    if (folders.hasNext()) {
+      folder = folders.next();
+    } else {
+      folder = DriveApp.createFolder(folderName);
+    }
+    
+    var file = folder.createFile(blob);
+    file.setSharing(DriveApp.Access.ANYONE, DriveApp.Permission.VIEW);
+    
+    var fileId = file.getId();
+    var viewUrl = "https://drive.google.com/uc?export=view&id=" + fileId;
+    return viewUrl;
+  } catch (err) {
+    Logger.log("Gagal mengunggah foto base64: " + err.toString());
+    return base64Data; // Kembalikan data asli jika gagal
+  }
+}
+
+/**
  * FUNGSI MENCATAT NOTIFIKASI AKTIVITAS KE SHEET "LOG NOTIFIKASI"
  */
 function writeLogActivity(action, sheetName, data, targetId) {
@@ -436,14 +603,7 @@ function writeLogActivity(action, sheetName, data, targetId) {
   
   try {
     var ss = getActiveSpreadsheetRobust();
-    var sheet = ss.getSheetByName("LOG NOTIFIKASI");
-    if (!sheet) {
-      sheet = ss.insertSheet("LOG NOTIFIKASI");
-      var headers = ["ID Log", "Tanggal", "Operator", "Tipe Aksi", "Menu", "Keterangan"];
-      sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
-      sheet.getRange(1, 1, 1, headers.length).setFontWeight("bold").setBackground("#f1f5f9").setHorizontalAlignment("center");
-      sheet.setFrozenRows(1);
-    }
+    var sheet = getOrCreateSheetAndColumns("LOG NOTIFIKASI");
     
     // Tentukan nama Operator
     var operator = "Super Admin";

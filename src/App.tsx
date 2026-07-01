@@ -52,7 +52,8 @@ import {
   Sparkles,
   ArrowLeft,
   Bot,
-  Bell
+  Bell,
+  Copy
 } from 'lucide-react';
 
 import { initializeDatabase } from './dataSdk';
@@ -1386,17 +1387,33 @@ export default function App() {
                 if (response.ok) {
                   const resText = await response.text();
                   let parsed: any[] = [];
+                  let hasValidJson = false;
                   try {
                     const json = JSON.parse(resText);
+                    if (json && json.error) {
+                      console.warn(`[Sync] Sheet ${sheetName} returned error:`, json.error);
+                      return false; // Skip sync to prevent wiping out data
+                    }
                     if (Array.isArray(json)) {
                       parsed = json;
+                      hasValidJson = true;
                     } else if (json && Array.isArray(json.data)) {
                       parsed = json.data;
+                      hasValidJson = true;
                     } else if (json && Array.isArray(json.records)) {
                       parsed = json.records;
+                      hasValidJson = true;
                     }
                   } catch (e) {
-                    parsed = parseCSV(resText);
+                    if (resText && !resText.includes('"error"') && !resText.includes('Exception:')) {
+                      parsed = parseCSV(resText);
+                      hasValidJson = true;
+                    }
+                  }
+
+                  if (!hasValidJson && parsed.length === 0) {
+                    console.warn(`[Sync] Skipping sheet ${sheetName} synchronization to protect local cache because no valid array/records were returned.`);
+                    return false;
                   }
 
                   const formatted = (parsed || [])
@@ -4250,7 +4267,7 @@ Schema requirements:
         title: modalType === 'add' ? 'Tambah Anggota Baru' : 'Edit Data Anggota',
         sheetName: 'DATA ANGGOTA',
         fields: [
-          { name: 'nia', label: 'NIA', type: 'text', required: true, placeholder: 'Contoh: 20260005', disabled: modalType === 'edit' },
+          { name: 'nia', label: 'No. induk/NISN/NiA', type: 'text', required: true, placeholder: 'Contoh: 20260005', disabled: modalType === 'edit' },
           { name: 'namaLengkap', label: 'Nama Lengkap', type: 'text', required: true, placeholder: 'Nama sesuai identitas resmi' },
           { name: 'tempatLahir', label: 'Tempat Lahir', type: 'text', required: true, placeholder: 'Kota kelahiran' },
           { name: 'tanggalLahir', label: 'Tanggal Lahir', type: 'date', required: true },
@@ -4495,25 +4512,11 @@ Schema requirements:
         keterangan: description
       };
       
+      // Catat secara lokal untuk pembaruan UI instan.
+      // Kita tidak mengirimkan POST manual ke sheet "LOG NOTIFIKASI" lewat jaringan karena 
+      // sistem backend Google Apps Script secara otomatis mencatat dan membuat log 
+      // pada semua operasi CRUD (ADD, EDIT, DELETE) di tabel utama!
       window.dataSdk.create('LOG NOTIFIKASI', logItem);
-
-      // Send log to Google Sheets so other accounts get real-time notification alerts
-      const endpoint = appsScriptUrl || localStorage.getItem('LINK_SCRIPT_UTAMA') || localStorage.getItem('google_apps_script_url') || '';
-      if (endpoint) {
-        const payload = {
-          action: 'add',
-          sheetName: 'LOG NOTIFIKASI',
-          data: logItem,
-          targetId: logId
-        };
-        fetch(endpoint, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'text/plain'
-          },
-          body: JSON.stringify(payload)
-        }).catch(err => console.warn("Gagal sinkronisasi log aktivitas ke cloud:", err));
-      }
     } catch (e) {
       console.warn("Gagal membuat log aktivitas lokal:", e);
     }
@@ -4826,7 +4829,7 @@ Schema requirements:
       cleanPhone = '62' + cleanPhone.slice(1);
     }
     
-    const messageTemplate = `Halo Bapak/Ibu Wali dari ${row.namaLengkap} (NIA: ${row.nia}),\n\n` +
+    const messageTemplate = `Halo Bapak/Ibu Wali dari ${row.namaLengkap} (No. induk/NISN/NiA: ${row.nia}),\n\n` +
       `Kami menyampaikan surat resmi perihal: "${row.perihal || '-'}".\n\n` +
       `Silakan akses & unduh dokumen resmi melalui tautan berikut:\n` +
       `${row.linkGoogleDoc}\n\n` +
@@ -7055,7 +7058,7 @@ Schema requirements:
                               </div>
                               <div>
                                 <h4 className="text-xs font-bold text-[#0f172a] leading-tight line-clamp-1">{member.namaLengkap}</h4>
-                                <p className="text-[10px] text-[#64748b] font-mono mt-0.5">NIA: {member.nia}</p>
+                                <p className="text-[10px] text-[#64748b] font-mono mt-0.5">No. induk/NISN/NiA: {member.nia}</p>
                               </div>
                             </div>
                             <div className="flex flex-col items-end gap-1 shrink-0">
@@ -7113,7 +7116,7 @@ Schema requirements:
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="border-b border-[#f1f5f9] bg-[#f8fafc] text-[#64748b] text-[11px] tracking-wider uppercase font-semibold font-sans whitespace-nowrap">
-                      <th className="py-4 px-4">NIA</th>
+                      <th className="py-4 px-4">No. induk/NISN/NiA</th>
                       <th className="py-4 px-4">Nama Lengkap</th>
                       <th className="py-4 px-4">Tempat Lahir</th>
                       <th className="py-4 px-4">Tanggal Lahir</th>
@@ -7248,7 +7251,7 @@ Schema requirements:
                     <tr className="border-b border-[#f1f5f9] bg--[#f8fafc] text-[#64748b] text-[11px] tracking-wider uppercase font-semibold font-sans">
                       <th className="py-4 px-6">ID Transaksi</th>
                       <th className="py-4 px-6">Tanggal</th>
-                      <th className="py-4 px-6">NIA</th>
+                      <th className="py-4 px-6">No. induk/NISN/NiA</th>
                       <th className="py-4 px-6">Nama Anggota</th>
                       <th className="py-4 px-6">Nama Tagihan</th>
                       <th className="py-4 px-6">Keterangan</th>
@@ -7376,7 +7379,7 @@ Schema requirements:
                       <div className="p-5 flex-1 flex flex-col justify-between">
                         <div className="space-y-2">
                           <span className="text-[10px] font-mono text-[#64748b]">{formatDateString(item.tanggal)}</span>
-                          <h4 className="text-xs font-bold text-[#64748b] font-mono truncate">NIA: {item.nia}</h4>
+                          <h4 className="text-xs font-bold text-[#64748b] font-mono truncate">No. induk/NISN/NiA: {item.nia}</h4>
                           <h3 className="text-sm font-bold text-[#0f172a] leading-tight group-hover:text-[#6366f1] transition">{item.namaLengkap}</h3>
                           <p className="text-xs text-[#475569] leading-relaxed italic border-l-2 border-indigo-200 pl-3 py-1 bg-[#f8fafc] rounded-r-md">
                             "{item.deskripsi}"
@@ -7423,7 +7426,7 @@ Schema requirements:
                     <tr className="border-b border-[#f1f5f9] bg-[#f8fafc] text-[#64748b] text-[11px] tracking-wider uppercase font-semibold font-sans">
                       <th className="py-4 px-6">ID Kasus</th>
                       <th className="py-4 px-6">Tanggal</th>
-                      <th className="py-4 px-6">NIA</th>
+                      <th className="py-4 px-6">No. induk/NISN/NiA</th>
                       <th className="py-4 px-6">Nama Anggota</th>
                       <th className="py-4 px-6">Kadar</th>
                       <th className="py-4 px-6">Bentuk Pelanggaran</th>
@@ -7725,7 +7728,7 @@ Schema requirements:
                                 <Search className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                                 <input
                                   type="text"
-                                  placeholder="Cari nama atau NIA..."
+                                  placeholder="Cari nama atau No. induk/NISN/NiA..."
                                   value={searchNamaQuery}
                                   onChange={(e) => setSearchNamaQuery(e.target.value)}
                                   className="w-full bg-transparent border-none outline-none py-1.5 text-xs text-slate-800 placeholder-slate-400 font-medium font-sans"
@@ -7784,7 +7787,7 @@ Schema requirements:
                                         </span>
                                         {item.nia && (
                                           <span className="text-[9.5px] text-slate-400 font-mono font-medium block">
-                                            NIA: {item.nia}
+                                            No. induk/NISN/NiA: {item.nia}
                                           </span>
                                         )}
                                       </div>
@@ -7823,7 +7826,7 @@ Schema requirements:
                   <table className="w-full text-left border-collapse font-sans">
                     <thead>
                       <tr className="border-b border-[#f1f5f9] bg-[#f8fafc] text-[#64748b] text-[11px] tracking-wider uppercase font-extrabold font-sans">
-                        <th className="py-4 px-6">NIA</th>
+                        <th className="py-4 px-6">No. induk/NISN/NiA</th>
                         <th className="py-4 px-6">Nama Lengkap</th>
                         <th className="py-4 px-6">Kelas</th>
                         <th className="py-4 px-6">Tanggal</th>
@@ -8455,7 +8458,7 @@ Schema requirements:
                     <thead>
                       <tr className="bg-slate-50/70 text-[#475569] uppercase text-[9.5px] font-extrabold tracking-wider border-b border-slate-100">
                         <th className="py-4 px-6 text-center w-24">ID Surat</th>
-                        <th className="py-4 px-6 text-center w-28">NIA</th>
+                        <th className="py-4 px-6 text-center w-28">No. induk/NISN/NiA</th>
                         <th className="py-4 px-6">Nama</th>
                         <th className="py-4 px-6">Perihal</th>
                         <th className="py-4 px-6">Link Dokumen</th>
@@ -9013,6 +9016,56 @@ Schema requirements:
                     >
                       Simpan Konfigurasi Integrasi
                     </button>
+                  </div>
+
+                  {/* Google Apps Script Code Copier Helper */}
+                  <div className="mt-4 pt-4 border-t border-slate-100 space-y-3">
+                    <div className="flex items-center gap-2">
+                      <div className="p-1.5 bg-amber-50 rounded-lg text-amber-600">
+                        <FileText className="w-4 h-4" />
+                      </div>
+                      <span className="text-xs font-bold text-[#0f172a]">📋 Ambil Kode Google Apps Script (Kode.gs) Resmi</span>
+                    </div>
+                    <p className="text-[11px] text-[#64748b] leading-relaxed">
+                      Gunakan tombol di bawah untuk menyalin atau mengunduh kode basis data yang bersih. 
+                      Jangan salin file source TypeScript langsung untuk mencegah error <code className="text-rose-600 font-mono px-1 py-0.5 bg-rose-50 rounded font-semibold text-[10px]">Unexpected token 'export'</code> pada editor Google Apps Script.
+                    </p>
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard.writeText(GOOGLE_APPS_SCRIPT_CODE);
+                          addToast('Kode Google Apps Script bersih berhasil disalin ke papan klip!', 'success');
+                        }}
+                        className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold cursor-pointer flex items-center gap-1.5 transition active:scale-95"
+                      >
+                        <Copy className="w-3.5 h-3.5" /> Salin Kode Bersih
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const element = document.createElement("a");
+                          const file = new Blob([GOOGLE_APPS_SCRIPT_CODE], {type: 'text/javascript'});
+                          element.href = URL.createObjectURL(file);
+                          element.download = "Kode.gs";
+                          document.body.appendChild(element);
+                          element.click();
+                          document.body.removeChild(element);
+                          addToast('File Kode.gs berhasil diunduh!', 'success');
+                        }}
+                        className="px-3 py-1.5 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-xs font-semibold cursor-pointer flex items-center gap-1.5 transition active:scale-95"
+                      >
+                        <Download className="w-3.5 h-3.5" /> Unduh Kode.gs
+                      </button>
+                    </div>
+                    
+                    <div className="bg-[#0f172a] text-slate-300 rounded-lg p-3 font-mono text-[10px] max-h-40 overflow-y-auto border border-slate-800 text-left">
+                      <div className="flex justify-between items-center text-[9px] text-slate-500 pb-2 mb-2 border-b border-slate-800">
+                        <span>PRATINJAU KODE BERSIH (KODE.GS)</span>
+                        <span className="text-emerald-400">Siap pasang</span>
+                      </div>
+                      <pre className="whitespace-pre-wrap select-all">{GOOGLE_APPS_SCRIPT_CODE.substring(0, 1000)}...</pre>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -9584,7 +9637,7 @@ Schema requirements:
                             </div>
                             <div className="leading-none space-y-0.5">
                               <p className="text-[7.5px] font-black uppercase text-ellipsis overflow-hidden whitespace-nowrap max-w-[150px]">Achmad Fauzi</p>
-                              <p className="text-[6.5px] font-bold opacity-80">NIA: 20260001</p>
+                              <p className="text-[6.5px] font-bold opacity-80">No. induk/NISN/NiA: 20260001</p>
                               <p className="text-[5.5px] opacity-75">Kelas: Utama</p>
                               <p className="text-[5px] bg-black/25 px-1 py-0.2 rounded font-black uppercase text-white tracking-widest max-w-max">AKTIF</p>
                             </div>
@@ -10226,7 +10279,7 @@ Schema requirements:
                               type="text"
                               value={bulkPdfSearchTerm}
                               onChange={(e) => setBulkPdfSearchTerm(e.target.value)}
-                              placeholder="Cari anggota berdasarkan nama atau NIA..."
+                              placeholder="Cari anggota berdasarkan nama atau No. induk/NISN/NiA..."
                               className="w-full text-xs pl-9 pr-3 py-2 border border-slate-200 rounded-lg outline-none focus:border-indigo-500"
                             />
                           </div>
@@ -10290,7 +10343,7 @@ Schema requirements:
                                     </div>
                                     <div>
                                       <p className="text-xs font-bold text-slate-800">{member.namaLengkap}</p>
-                                      <p className="text-[10px] text-slate-500 font-mono">NIA: {member.nia} | {member.kelas || member.namaSekolah || '-'}</p>
+                                      <p className="text-[10px] text-slate-500 font-mono">No. induk/NISN/NiA: {member.nia} | {member.kelas || member.namaSekolah || '-'}</p>
                                     </div>
                                   </div>
                                   <div className="text-right">
@@ -10381,7 +10434,7 @@ Schema requirements:
                       <div>
                         <h5 className="text-xs font-bold text-slate-800">Preview Kolom Laporan</h5>
                         <p className="text-[11px] text-slate-500 mt-0.5">
-                          Tabel laporan PDF akan secara otomatis mencakup kolom: No, NIA, Nama Lengkap, Jenis Kelamin, Kelas, Sekolah, No Telepon, dan Status.
+                          Tabel laporan PDF akan secara otomatis mencakup kolom: No, No. induk/NISN/NiA, Nama Lengkap, Jenis Kelamin, Kelas, Sekolah, No Telepon, dan Status.
                         </p>
                       </div>
                     </div>
@@ -11820,7 +11873,7 @@ Schema requirements:
                                   <div className="absolute left-0 right-0 mt-1 bg-white border border-[#cbd5e1] rounded-xl shadow-xl z-50 p-2 space-y-2 max-h-56 overflow-y-auto">
                                     <input
                                       type="text"
-                                      placeholder="Ketik nama atau NIA..."
+                                      placeholder="Ketik nama atau No. induk/NISN/NiA..."
                                       value={memberSearchQuery}
                                       onChange={(e) => {
                                         setMemberSearchQuery(e.target.value);
@@ -11867,7 +11920,7 @@ Schema requirements:
                                             <div className="text-left">
                                               <span className="font-bold text-[#0f172a]">{member.namaLengkap}</span>
                                               <p className="text-[10px] text-[#64748b] font-mono mt-0.5">
-                                                NIA: {member.nia} • Kelas: {member.kelas || '-'}
+                                                No. induk/NISN/NiA: {member.nia} • Kelas: {member.kelas || '-'}
                                               </p>
                                             </div>
                                             <span className="text-[10px] bg-[#f1f5f9] text-[#475569] px-1.5 py-0.5 rounded font-mono font-bold shrink-0">{member.jenjangPendidikan}</span>
@@ -11903,7 +11956,7 @@ Schema requirements:
                               <div className="absolute left-0 right-0 mt-1 bg-white border border-[#cbd5e1] rounded-xl shadow-xl z-50 p-2 space-y-2 max-h-56 overflow-y-auto">
                                 <input
                                   type="text"
-                                  placeholder="Ketik NIA atau Nama lengkap..."
+                                  placeholder="Ketik No. induk/NISN/NiA atau Nama lengkap..."
                                   value={memberSearchQuery}
                                   onChange={(e) => {
                                     setMemberSearchQuery(e.target.value);
@@ -11949,7 +12002,7 @@ Schema requirements:
                                       >
                                         <div className="text-left">
                                           <span className="font-bold text-[#0f172a]">{member.namaLengkap}</span>
-                                          <p className="text-[10px] text-[#64748b] font-mono mt-0.5">NIA: {member.nia} • Kelas: {member.kelas || '-'} • {member.namaSekolah || 'Umum'}</p>
+                                          <p className="text-[10px] text-[#64748b] font-mono mt-0.5">No. induk/NISN/NiA: {member.nia} • Kelas: {member.kelas || '-'} • {member.namaSekolah || 'Umum'}</p>
                                         </div>
                                         <span className="text-[10px] bg-[#f1f5f9] text-[#475569] px-1.5 py-0.5 rounded font-mono font-bold shrink-0">{member.jenjangPendidikan}</span>
                                       </div>

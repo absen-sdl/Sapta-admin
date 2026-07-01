@@ -1386,33 +1386,70 @@ export default function App() {
                 const response = await fetch(cacheBusterUrl);
                 if (response.ok) {
                   const resText = await response.text();
+                  const trimmedText = resText.trim();
+                  
+                  // Guard against HTML error pages or redirect pages (e.g. login/authorization redirects)
+                  const isHtml = trimmedText.toLowerCase().startsWith('<!doctype html') || 
+                                 trimmedText.toLowerCase().startsWith('<html') || 
+                                 trimmedText.includes('</html>') ||
+                                 trimmedText.includes('</body>') ||
+                                 trimmedText.includes('google-site-verification') ||
+                                 trimmedText.includes('id="login"');
+                                 
+                  if (isHtml) {
+                    console.warn(`[Sync] Sheet ${sheetName} fetch returned HTML instead of data. Google may require authentication or there is an unknown error. Skipping sync to protect cache.`);
+                    return false;
+                  }
+
+                  // Guard against Apps Script runtime error keywords or authorization errors
+                  const lowerText = trimmedText.toLowerCase();
+                  if (
+                    lowerText.includes('exception:') || 
+                    lowerText.includes('authorization required') || 
+                    lowerText.includes('terjadi kesalahan') || 
+                    lowerText.includes('error tak dikenal') ||
+                    lowerText.includes('script function not found') ||
+                    lowerText.includes('htmloutput')
+                  ) {
+                    console.warn(`[Sync] Sheet ${sheetName} fetch returned error page/text:`, trimmedText.substring(0, 300));
+                    return false;
+                  }
+
                   let parsed: any[] = [];
-                  let hasValidJson = false;
+                  let parseSuccessful = false;
+
                   try {
-                    const json = JSON.parse(resText);
+                    const json = JSON.parse(trimmedText);
                     if (json && json.error) {
-                      console.warn(`[Sync] Sheet ${sheetName} returned error:`, json.error);
+                      console.warn(`[Sync] Sheet ${sheetName} returned JSON error:`, json.error);
                       return false; // Skip sync to prevent wiping out data
                     }
                     if (Array.isArray(json)) {
                       parsed = json;
-                      hasValidJson = true;
+                      parseSuccessful = true;
                     } else if (json && Array.isArray(json.data)) {
                       parsed = json.data;
-                      hasValidJson = true;
+                      parseSuccessful = true;
                     } else if (json && Array.isArray(json.records)) {
                       parsed = json.records;
-                      hasValidJson = true;
+                      parseSuccessful = true;
                     }
                   } catch (e) {
-                    if (resText && !resText.includes('"error"') && !resText.includes('Exception:')) {
-                      parsed = parseCSV(resText);
-                      hasValidJson = true;
+                    if (trimmedText.length > 0) {
+                      try {
+                        const csvParsed = parseCSV(trimmedText);
+                        if (csvParsed && csvParsed.length > 0) {
+                          parsed = csvParsed;
+                          parseSuccessful = true;
+                        }
+                      } catch (csvErr) {
+                        console.warn(`[Sync] Failed to parse CSV for sheet ${sheetName}:`, csvErr);
+                      }
                     }
                   }
 
-                  if (!hasValidJson && parsed.length === 0) {
-                    console.warn(`[Sync] Skipping sheet ${sheetName} synchronization to protect local cache because no valid array/records were returned.`);
+                  if (!parseSuccessful || parsed.length === 0) {
+                    console.warn(`[Sync] Skipping sheet ${sheetName} synchronization to protect local cache because no valid array/records were parsed.`);
                     return false;
                   }
 
@@ -1568,6 +1605,16 @@ export default function App() {
             linkArtikel: String(getProp(item, 'linkArtikel', 'linkartikel', 'artikel', 'url') || '').trim(),
             tanggalInput: String(getProp(item, 'tanggalInput', 'tanggalinput', 'tanggal', 'date') || '').trim(),
             sasaran: String(getProp(item, 'sasaran', 'target', 'role', 'pengumumanuntuk') || 'Semua').trim() as 'Semua' | 'Admin' | 'Siswa'
+          }));
+
+          // Sync PENGUMUMAN (Announcements/Files Data)
+          await fetchAndSyncSheet('PENGUMUMAN', 'idPengumuman', (item: any, idx: number) => ({
+            idPengumuman: String(getProp(item, 'idPengumuman', 'idpengumuman', 'id') || `PEN-CL-${idx + 10001}`).trim(),
+            tanggal: String(getProp(item, 'tanggal', 'tgl', 'date') || new Date().toISOString().split('T')[0]).trim(),
+            judul: String(getProp(item, 'judul', 'judul', 'title') || '').trim(),
+            linkFile: String(getProp(item, 'linkFile', 'linkfile', 'file', 'url', 'link') || '').trim(),
+            namaFile: String(getProp(item, 'namaFile', 'namafile', 'filename') || '').trim(),
+            tipeFile: String(getProp(item, 'tipeFile', 'tipefile', 'filetype') || 'file').trim()
           }));
 
           // Sync LOG NOTIFIKASI (Notification Logs)
@@ -3995,22 +4042,72 @@ Schema requirements:
       const response = await fetch(url);
       if (!response.ok) throw new Error('Koneksi Web App Server gagal.');
       const resText = await response.text();
+      const trimmedText = resText.trim();
       
+      // Guard against HTML error pages or redirect pages (e.g. login/authorization redirects)
+      const isHtml = trimmedText.toLowerCase().startsWith('<!doctype html') || 
+                     trimmedText.toLowerCase().startsWith('<html') || 
+                     trimmedText.includes('</html>') ||
+                     trimmedText.includes('</body>') ||
+                     trimmedText.includes('google-site-verification') ||
+                     trimmedText.includes('id="login"');
+                     
+      if (isHtml) {
+        addToast('Gagal memuat: Server mengembalikan respon HTML. Silakan verifikasi deployment Google Apps Script Anda dan pastikan telah diatur ke "Anyone" dengan akses "Me"!', 'error');
+        setIsLoading(false);
+        return;
+      }
+
+      // Guard against Apps Script runtime error keywords or authorization errors
+      const lowerText = trimmedText.toLowerCase();
+      if (
+        lowerText.includes('exception:') || 
+        lowerText.includes('authorization required') || 
+        lowerText.includes('terjadi kesalahan') || 
+        lowerText.includes('error tak dikenal') ||
+        lowerText.includes('script function not found') ||
+        lowerText.includes('htmloutput')
+      ) {
+        addToast('Gagal memuat: Terdeteksi kesalahan server atau otorisasi diperlukan pada Apps Script. Silakan buka spreadsheet dan berikan izin akses!', 'error');
+        setIsLoading(false);
+        return;
+      }
+
       let parsed: any[] = [];
+      let parseSuccessful = false;
+
       try {
-        const json = JSON.parse(resText);
+        const json = JSON.parse(trimmedText);
+        if (json && json.error) {
+          addToast(`Kesalahan dari server: ${json.error}`, 'error');
+          setIsLoading(false);
+          return;
+        }
         if (Array.isArray(json)) {
           parsed = json;
+          parseSuccessful = true;
         } else if (json && Array.isArray(json.data)) {
           parsed = json.data;
+          parseSuccessful = true;
         } else if (json && Array.isArray(json.records)) {
           parsed = json.records;
+          parseSuccessful = true;
         }
       } catch (jsonErr) {
-        parsed = parseCSV(resText);
+        if (trimmedText.length > 0) {
+          try {
+            const csvParsed = parseCSV(trimmedText);
+            if (csvParsed && csvParsed.length > 0) {
+              parsed = csvParsed;
+              parseSuccessful = true;
+            }
+          } catch (csvErr) {
+            console.warn('[Sync] Failed to parse CSV manual:', csvErr);
+          }
+        }
       }
       
-      if (parsed && parsed.length > 0) {
+      if (parseSuccessful && parsed && parsed.length > 0) {
         // Standardize properties keys slightly to match lowercase keys or expected schema inside app
         const formatted = parsed.map((item: any) => ({
           nia: String(getProp(item, 'nia', 'id', 'nomorinduk', 'nomor')).trim(),
@@ -4093,21 +4190,72 @@ Schema requirements:
       if (!response.ok) throw new Error('Koneksi Web App Server gagal.');
       
       const resText = await response.text();
+      const trimmedText = resText.trim();
+      
+      // Guard against HTML error pages or redirect pages (e.g. login/authorization redirects)
+      const isHtml = trimmedText.toLowerCase().startsWith('<!doctype html') || 
+                     trimmedText.toLowerCase().startsWith('<html') || 
+                     trimmedText.includes('</html>') ||
+                     trimmedText.includes('</body>') ||
+                     trimmedText.includes('google-site-verification') ||
+                     trimmedText.includes('id="login"');
+                     
+      if (isHtml) {
+        addToast('Gagal memuat: Server mengembalikan respon HTML. Silakan verifikasi deployment Google Apps Script Anda dan pastikan telah diatur ke "Anyone" dengan akses "Me"!', 'error');
+        setIsLoading(false);
+        return;
+      }
+
+      // Guard against Apps Script runtime error keywords or authorization errors
+      const lowerText = trimmedText.toLowerCase();
+      if (
+        lowerText.includes('exception:') || 
+        lowerText.includes('authorization required') || 
+        lowerText.includes('terjadi kesalahan') || 
+        lowerText.includes('error tak dikenal') ||
+        lowerText.includes('script function not found') ||
+        lowerText.includes('htmloutput')
+      ) {
+        addToast('Gagal memuat: Terdeteksi kesalahan server atau otorisasi diperlukan pada Apps Script. Silakan buka spreadsheet dan berikan izin akses!', 'error');
+        setIsLoading(false);
+        return;
+      }
+
       let parsed: any[] = [];
+      let parseSuccessful = false;
+
       try {
-        const json = JSON.parse(resText);
+        const json = JSON.parse(trimmedText);
+        if (json && json.error) {
+          addToast(`Kesalahan dari server: ${json.error}`, 'error');
+          setIsLoading(false);
+          return;
+        }
         if (Array.isArray(json)) {
           parsed = json;
+          parseSuccessful = true;
         } else if (json && Array.isArray(json.data)) {
           parsed = json.data;
+          parseSuccessful = true;
         } else if (json && Array.isArray(json.records)) {
           parsed = json.records;
+          parseSuccessful = true;
         }
       } catch (jsonErr) {
-        parsed = parseCSV(resText);
+        if (trimmedText.length > 0) {
+          try {
+            const csvParsed = parseCSV(trimmedText);
+            if (csvParsed && csvParsed.length > 0) {
+              parsed = csvParsed;
+              parseSuccessful = true;
+            }
+          } catch (csvErr) {
+            console.warn('[Sync] Failed to parse CSV manual:', csvErr);
+          }
+        }
       }
       
-      if (parsed && parsed.length > 0) {
+      if (parseSuccessful && parsed && parsed.length > 0) {
         const formatted = parsed.map((item: any, idx: number) => {
           const nia = String(getProp(item, 'nia', 'nomorinduk', 'idanggota', 'id')).trim();
           const tanggalAbsen = String(getProp(item, 'tanggal', 'tanggalAbsen', 'tanggalabsen', 'date') || new Date().toISOString().split('T')[0]).trim();

@@ -23,7 +23,8 @@ var SHEET_SCHEMAS = {
   "BANNER": ["ID Banner", "Judul", "Link Foto", "Link Artikel", "Tanggal Input", "Sasaran", "edit/add by"],
   "SURAT": ["ID Surat", "Tanggal", "NIA", "Nama", "Perihal", "Link Dokumen", "edit/add by"],
   "PERATURAN": ["ID Peraturan", "Judul", "Sanksi", "Status", "edit/add by"],
-  "LOG NOTIFIKASI": ["ID Log", "Tanggal", "Operator", "Tipe Aksi", "Menu", "Keterangan"]
+  "LOG NOTIFIKASI": ["ID Log", "Tanggal", "Operator", "Tipe Aksi", "Menu", "Keterangan"],
+  "PENGUMUMAN": ["ID Pengumuman", "Tanggal", "Judul", "Link File", "Nama File", "Tipe File", "edit/add by"]
 };
 
 // Menambahkan menu khusus di Google Sheets saat dokumen dibuka untuk memudahkan pembuatan kolom otomatis
@@ -484,7 +485,11 @@ function getObjectValueCaseInsensitive(obj, keyToFind) {
     "tingkat": ["status", "tingkat", "level"],
     "status": ["status", "tingkat", "level"],
     "tercetak": ["tercetak", "isprinted", "printed", "sudahcetak"],
-    "removemenu": ["removemenu", "removemenu", "remove_menu", "remove menu"]
+    "removemenu": ["removemenu", "removemenu", "remove_menu", "remove menu"],
+    "idpengumuman": ["idpengumuman", "id", "id_pengumuman"],
+    "linkfile": ["linkfile", "file", "url", "link", "link_file"],
+    "namafile": ["namafile", "filename", "nama_file"],
+    "tipefile": ["tipefile", "filetype", "tipe_file"]
   };
 
   // 1. Coba pencocokan langsung (clean key)
@@ -559,7 +564,7 @@ function uploadBase64Image(base64Data, fieldName, sheetName) {
     
     if (matches && matches.length === 3) {
       mimeType = matches[1];
-      basePart = matches[2]; // Fallback if re-parse needed
+      var basePart = matches[2]; // Fallback if re-parse needed
       base64Part = matches[2];
     }
     
@@ -652,4 +657,11 @@ function writeLogActivity(action, sheetName, data, targetId) {
     // Tangkap error secara tenang agar tidak menginterupsi proses CRUD utama
     console.error("Gagal mencatat log aktivitas:", err.toString());
   }
+}
+
+/**
+ * Dummy myFunction untuk mencegah error trigger Apps Script bawaan / lama.
+ */
+function myFunction() {
+  console.log("myFunction berhasil dipicu dan dijalankan dengan aman.");
 }

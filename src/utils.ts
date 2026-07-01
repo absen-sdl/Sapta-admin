@@ -144,18 +144,84 @@ export function terbilang(num: number): string {
 
 export function getProp(obj: any, ...keys: string[]): any {
   if (!obj) return '';
+
+  const cleanStr = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const cleanedSearchKeys = keys.map(k => cleanStr(k)).filter(Boolean);
+
+  // Helper to split a key into words/parts
+  const getWords = (s: string): string[] => {
+    return s.toLowerCase()
+      .split(/[\s\-_./\\,()\[\]]/)
+      .map(w => w.replace(/[^a-z0-9]/g, ''))
+      .filter(Boolean);
+  };
+
+  // PASS 1: Exact match with non-empty values
   for (const k of keys) {
-    if (obj[k] !== undefined && obj[k] !== null) return obj[k];
+    if (obj[k] !== undefined && obj[k] !== null && String(obj[k]).trim() !== '') {
+      return obj[k];
+    }
   }
-  const normalizedSearchKeys = keys.map(k => k.toLowerCase().replace(/[\s\-_.]/g, ''));
+
+  // PASS 2: Cleaned case-insensitive equal match with non-empty values
   for (const rawKey of Object.keys(obj)) {
-    const normRawKey = rawKey.toLowerCase().replace(/[\s\-_.]/g, '');
-    if (normalizedSearchKeys.includes(normRawKey)) {
+    const cleanedRaw = cleanStr(rawKey);
+    if (cleanedSearchKeys.includes(cleanedRaw)) {
+      if (obj[rawKey] !== undefined && obj[rawKey] !== null && String(obj[rawKey]).trim() !== '') {
+        return obj[rawKey];
+      }
+    }
+  }
+
+  // PASS 3: Word/part match with non-empty values (e.g. "No.Induk/NISN/NIA" matches "nia" because it has "nia" as a word)
+  for (const rawKey of Object.keys(obj)) {
+    const words = getWords(rawKey);
+    const match = words.some(w => cleanedSearchKeys.includes(w));
+    if (match) {
+      if (obj[rawKey] !== undefined && obj[rawKey] !== null && String(obj[rawKey]).trim() !== '') {
+        return obj[rawKey];
+      }
+    }
+  }
+
+  // PASS 4: Substring match with non-empty values
+  for (const rawKey of Object.keys(obj)) {
+    const cleanedRaw = cleanStr(rawKey);
+    const match = cleanedSearchKeys.some(sk => cleanedRaw.includes(sk) || sk.includes(cleanedRaw));
+    if (match) {
+      if (obj[rawKey] !== undefined && obj[rawKey] !== null && String(obj[rawKey]).trim() !== '') {
+        return obj[rawKey];
+      }
+    }
+  }
+
+  // FALLBACK PASSES: (If everything is empty, return the first defined value to preserve the schema key)
+  // Fallback 1: Exact match
+  for (const k of keys) {
+    if (obj[k] !== undefined && obj[k] !== null) {
+      return obj[k];
+    }
+  }
+  // Fallback 2: Cleaned match
+  for (const rawKey of Object.keys(obj)) {
+    const cleanedRaw = cleanStr(rawKey);
+    if (cleanedSearchKeys.includes(cleanedRaw)) {
       if (obj[rawKey] !== undefined && obj[rawKey] !== null) {
         return obj[rawKey];
       }
     }
   }
+  // Fallback 3: Word match
+  for (const rawKey of Object.keys(obj)) {
+    const words = getWords(rawKey);
+    const match = words.some(w => cleanedSearchKeys.includes(w));
+    if (match) {
+      if (obj[rawKey] !== undefined && obj[rawKey] !== null) {
+        return obj[rawKey];
+      }
+    }
+  }
+
   return '';
 }
 

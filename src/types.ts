@@ -58,8 +58,12 @@ export interface Absensi {
   namaLengkap: string;
   kelas: string;
   tanggalAbsen: string;
-  waktuAbsen: string;
-  keterangan: string;
+  waktuAbsen?: string;
+  jamDatang?: string;
+  jamPulang?: string;
+  status: string;
+  metodeAbsensi?: string;
+  keterangan?: string;
   jenisKegiatan: string;
 }
 

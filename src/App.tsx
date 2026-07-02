@@ -289,17 +289,19 @@ function MemberAvatar({ linkProfile, namaLengkap, className = "w-full h-full obj
   return <span className="select-none font-bold text-center tracking-normal leading-none flex items-center justify-center w-full h-full text-xs">{initials}</span>;
 }
 
-const getAbsensiStatus = (keterangan: string, status?: string): 'Hadir' | 'Izin' | 'Alpha' | 'Sakit' => {
+const getAbsensiStatus = (keterangan: string, status?: string): 'Hadir' | 'Izin' | 'Alpha' | 'Sakit' | 'Terlambat' => {
   const s = (status || '').trim().toLowerCase();
   if (s.includes('sakit') || s === 's') return 'Sakit';
   if (s.includes('izin') || s.includes('ijin') || s === 'i') return 'Izin';
   if (s.includes('alpha') || s.includes('alpa') || s === 'a' || s.includes('tanpa') || s === 'bolos') return 'Alpha';
+  if (s.includes('terlambat') || s.includes('telat') || s === 't') return 'Terlambat';
   if (s.includes('hadir') || s === 'h') return 'Hadir';
 
   const k = (keterangan || '').trim().toLowerCase();
   if (k.includes('sakit') || k === 's' || k.includes('dokter') || k.includes('opname') || k.includes('rawat')) return 'Sakit';
   if (k.includes('izin') || k.includes('ijin') || k === 'i' || k.includes('acara') || k.includes('keluarga') || k.includes('pergi') || k.includes('cuti') || k.includes('halangan') || k.includes('pulkam') || k.includes('dispen')) return 'Izin';
   if (k.includes('alpha') || k.includes('alpa') || k === 'a' || k.includes('tanpa keterangan') || k.includes('mangkir') || k === 'bolos') return 'Alpha';
+  if (k.includes('terlambat') || k.includes('telat') || k === 't') return 'Terlambat';
   return 'Hadir';
 };
 
@@ -1630,17 +1632,23 @@ export default function App() {
           // 2. ABSENSI (read 100% from Google Apps Script Web App as requested)
           onProgress?.('absensi', 'Menyelaraskan data Rekap Absensi secara realtime dari server...');
           syncAbsensiSuccess = await fetchAndSyncSheet('ABSENSI', 'idAbsensi', (item: any, idx: number) => {
-            const nia = String(getProp(item, 'nia', 'nomorinduk', 'idanggota', 'id')).trim();
+            const nia = String(getProp(item, 'nia', 'nomorinduk', 'idanggota')).trim();
             const tanggalAbsen = String(getProp(item, 'tanggal', 'tanggalAbsen', 'tanggalabsen', 'date') || new Date().toISOString().split('T')[0]).trim();
             const computedId = String(getProp(item, 'idAbsensi', 'idabsensi', 'id') || (nia && tanggalAbsen ? `${nia}-${tanggalAbsen}` : '') || `ABS-CL-${idx + 10001}`).trim();
+            const jamDatang = String(getProp(item, 'jamDatang', 'jamdatang', 'jam_datang', 'waktu', 'waktuAbsen', 'waktuabsen', 'waktu_absen', 'jamMasuk', 'jammasuk') || '--:--').trim();
+            const jamPulang = String(getProp(item, 'jamPulang', 'jampulang', 'jam_pulang', 'jamKeluar', 'jamkeluar') || '--:--').trim();
+            const metodeAbsensi = String(getProp(item, 'metodeAbsensi', 'metodeabsensi', 'metode_absensi', 'metode', 'metodeAbsen', 'metodeabsen') || 'PIN').trim();
             return {
               idAbsensi: computedId,
               nia: nia,
               namaLengkap: String(getProp(item, 'namaLengkap', 'namalengkap', 'nama', 'fullname')).trim(),
               kelas: String(getProp(item, 'kelas', 'class')).trim(),
               tanggalAbsen: tanggalAbsen,
-              waktuAbsen: String(getProp(item, 'waktu', 'waktuAbsen', 'waktuabsen', 'waktu_absen', 'jamMasuk', 'jammasuk', 'jam_masuk', 'jam', 'jamabsen', 'jam_absen') || '--:--').trim(),
+              waktuAbsen: jamDatang,
+              jamDatang: jamDatang,
+              jamPulang: jamPulang,
               status: String(getProp(item, 'status', 'kehadiran', 'state') || '').trim(),
+              metodeAbsensi: metodeAbsensi,
               keterangan: String(getProp(item, 'keterangan', 'notes', 'catatan', 'keteranganabsen', 'remarks') || '').trim(),
               jenisKegiatan: String(getProp(item, 'jenisKegiatan', 'jeniskegiatan', 'kegiatan') || '').trim()
             };
@@ -3600,7 +3608,7 @@ Schema requirements:
   // Dynamic Form Modal State
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
   const [modalType, setModalType] = useState<'add' | 'edit'>('add');
-  const [modalTargetTab, setModalTargetTab] = useState<Exclude<ActiveTab, 'dashboard' | 'absensi' | 'pengaturan'>>('anggota');
+  const [modalTargetTab, setModalTargetTab] = useState<Exclude<ActiveTab, 'dashboard' | 'pengaturan'>>('anggota');
   const [editTargetId, setEditTargetId] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [bannerUploadMethod, setBannerUploadMethod] = useState<'upload' | 'url'>('url');
@@ -3723,6 +3731,12 @@ Schema requirements:
   useEffect(() => {
     refreshAllData();
   }, []);
+
+  useEffect(() => {
+    if (activeTab === 'kelola_akun') {
+      fetchSubAccounts();
+    }
+  }, [activeTab]);
 
   // Filter banners based on logged-in user role (Admin vs Siswa)
   const displayedBanners = useMemo(() => {
@@ -4110,7 +4124,7 @@ Schema requirements:
       if (parseSuccessful && parsed && parsed.length > 0) {
         // Standardize properties keys slightly to match lowercase keys or expected schema inside app
         const formatted = parsed.map((item: any) => ({
-          nia: String(getProp(item, 'nia', 'id', 'nomorinduk', 'nomor')).trim(),
+          nia: String(getProp(item, 'nia', 'nomorinduk', 'nomor')).trim(),
           namaLengkap: String(getProp(item, 'namaLengkap', 'namalengkap', 'nama', 'fullname')).trim(),
           tempatLahir: String(getProp(item, 'tempatLahir', 'tempatlahir', 'tempat')).trim(),
           tanggalLahir: String(getProp(item, 'tanggalLahir', 'tanggallahir', 'tgllahir')).trim(),
@@ -4257,9 +4271,12 @@ Schema requirements:
       
       if (parseSuccessful && parsed && parsed.length > 0) {
         const formatted = parsed.map((item: any, idx: number) => {
-          const nia = String(getProp(item, 'nia', 'nomorinduk', 'idanggota', 'id')).trim();
+          const nia = String(getProp(item, 'nia', 'nomorinduk', 'idanggota')).trim();
           const tanggalAbsen = String(getProp(item, 'tanggal', 'tanggalAbsen', 'tanggalabsen', 'date') || new Date().toISOString().split('T')[0]).trim();
           const computedId = String(getProp(item, 'idAbsensi', 'idabsensi', 'id') || (nia && tanggalAbsen ? `${nia}-${tanggalAbsen}` : '') || `ABS-CL-${idx + 10001}`).trim();
+          const jamDatang = String(getProp(item, 'jamDatang', 'jamdatang', 'jam_datang', 'waktu', 'waktuAbsen', 'waktuabsen', 'waktu_absen', 'jamMasuk', 'jammasuk') || '--:--').trim();
+          const jamPulang = String(getProp(item, 'jamPulang', 'jampulang', 'jam_pulang', 'jamKeluar', 'jamkeluar') || '--:--').trim();
+          const metodeAbsensi = String(getProp(item, 'metodeAbsensi', 'metodeabsensi', 'metode_absensi', 'metode', 'metodeAbsen', 'metodeabsen') || 'PIN').trim();
 
           return {
             idAbsensi: computedId,
@@ -4267,8 +4284,11 @@ Schema requirements:
             namaLengkap: String(getProp(item, 'namaLengkap', 'namalengkap', 'nama', 'fullname')).trim(),
             kelas: String(getProp(item, 'kelas', 'class')).trim(),
             tanggalAbsen: tanggalAbsen,
-            waktuAbsen: String(getProp(item, 'waktu', 'waktuAbsen', 'waktuabsen', 'waktu_absen', 'jamMasuk', 'jammasuk', 'jam_masuk', 'jam', 'jamabsen', 'jam_absen') || '--:--').trim(),
+            waktuAbsen: jamDatang,
+            jamDatang: jamDatang,
+            jamPulang: jamPulang,
             status: String(getProp(item, 'status', 'kehadiran', 'state') || '').trim(),
+            metodeAbsensi: metodeAbsensi,
             keterangan: String(getProp(item, 'keterangan', 'notes', 'catatan', 'keteranganabsen', 'remarks') || '').trim(),
             jenisKegiatan: String(getProp(item, 'jenisKegiatan', 'jeniskegiatan', 'kegiatan') || '').trim()
           };
@@ -4528,12 +4548,25 @@ Schema requirements:
           { name: 'linkArtikel', label: 'Link Artikel / Sumber (URL)', type: 'text', required: true, placeholder: 'https://... link artikel atau sumber info' },
           { name: 'sasaran', label: 'Sasaran Pengumuman', type: 'select', options: ['Semua', 'Admin', 'Siswa'], required: true }
         ]
+      },
+      absensi: {
+        title: modalType === 'add' ? 'Tambah Data Absensi Baru' : 'Edit Status Absensi',
+        sheetName: 'ABSENSI',
+        fields: [
+          { name: 'nia', label: 'No. Induk/NISN/NIA', type: 'dropdown-search', required: true, disabled: modalType === 'edit' },
+          { name: 'tanggalAbsen', label: 'Tanggal', type: 'date', required: true, disabled: modalType === 'edit' },
+          { name: 'jamDatang', label: 'Jam Datang', type: 'text', required: true, placeholder: 'Contoh: 07:15', disabled: modalType === 'edit' },
+          { name: 'jamPulang', label: 'Jam Pulang', type: 'text', required: false, placeholder: 'Contoh: 14:00', disabled: modalType === 'edit' },
+          { name: 'status', label: 'Status Kehadiran', type: 'select', options: ['Hadir', 'Terlambat', 'Sakit', 'Izin', 'Alpha'], required: true },
+          { name: 'metodeAbsensi', label: 'Metode Absensi', type: 'text', required: false, placeholder: 'Contoh: QR Code, Face ID, PIN', disabled: modalType === 'edit' },
+          { name: 'jenisKegiatan', label: 'Jenis Kegiatan', type: 'text', required: false, placeholder: 'Contoh: Latihan Rutin, Upacara', disabled: modalType === 'edit' }
+        ]
       }
     };
   }, [modalType]);
 
   // --- OPEN FORM MODAL ACTION ---
-  const handleOpenAddModal = (tab: Exclude<ActiveTab, 'dashboard' | 'absensi' | 'pengaturan'>) => {
+  const handleOpenAddModal = (tab: Exclude<ActiveTab, 'dashboard' | 'pengaturan'>) => {
     setModalTargetTab(tab);
     setModalType('add');
     setModalSelectedKelas('Semua');
@@ -4547,6 +4580,13 @@ Schema requirements:
       initialVals.nominal = 0;
       initialVals.status = 'Lunas';
       setPaymentItems([{ namaTagihan: '', nominal: 0, keterangan: '' }]);
+    } else if (tab === 'absensi') {
+      initialVals.tanggalAbsen = today;
+      initialVals.status = 'Hadir';
+      initialVals.jamDatang = '07:30';
+      initialVals.jamPulang = '';
+      initialVals.metodeAbsensi = 'PIN';
+      initialVals.jenisKegiatan = 'Latihan Rutin';
     } else if (tab === 'prestasi') {
       initialVals.tanggal = today;
       initialVals.jenisPrestasi = 'Akademik';
@@ -4596,7 +4636,7 @@ Schema requirements:
     setIsModalOpen(true);
   };
 
-  const handleOpenEditModal = (tab: Exclude<ActiveTab, 'dashboard' | 'absensi' | 'pengaturan'>, row: any) => {
+  const handleOpenEditModal = (tab: Exclude<ActiveTab, 'dashboard' | 'pengaturan'>, row: any) => {
     setModalTargetTab(tab);
     setModalType('edit');
     setModalSelectedKelas('Semua');
@@ -4743,6 +4783,9 @@ Schema requirements:
       } else if (modalTargetTab === 'peraturan') {
         primaryKey = generateId('REG');
         submissionData.idPeraturan = primaryKey;
+      } else if (modalTargetTab === 'absensi') {
+        primaryKey = generateId('ABS');
+        submissionData.idAbsensi = primaryKey;
       } else if (modalTargetTab === 'banner') {
         primaryKey = generateId('BAN');
         submissionData.idBanner = primaryKey;
@@ -4770,6 +4813,8 @@ Schema requirements:
         submissionData.idSurat = primaryKey;
       } else if (modalTargetTab === 'peraturan') {
         submissionData.idPeraturan = primaryKey;
+      } else if (modalTargetTab === 'absensi') {
+        submissionData.idAbsensi = primaryKey;
       } else if (modalTargetTab === 'banner') {
         submissionData.idBanner = primaryKey;
       } else {
@@ -4785,6 +4830,9 @@ Schema requirements:
         if (matchedMember) {
           submissionData.namaLengkap = matchedMember.namaLengkap;
           submissionData.nama = matchedMember.namaLengkap; // Pelanggaran has 'nama' field, others 'namaLengkap'
+          if (modalTargetTab === 'absensi') {
+            submissionData.kelas = matchedMember.kelas || '';
+          }
         }
       }
     }
@@ -7974,19 +8022,23 @@ Schema requirements:
                   <table className="w-full text-left border-collapse font-sans">
                     <thead>
                       <tr className="border-b border-[#f1f5f9] bg-[#f8fafc] text-[#64748b] text-[11px] tracking-wider uppercase font-extrabold font-sans">
+                        <th className="py-4 px-6">ID Absensi</th>
                         <th className="py-4 px-6">No. induk/NISN/NiA</th>
                         <th className="py-4 px-6">Nama Lengkap</th>
                         <th className="py-4 px-6">Kelas</th>
                         <th className="py-4 px-6">Tanggal</th>
-                        <th className="py-4 px-6">Waktu</th>
+                        <th className="py-4 px-6">Jam Datang</th>
+                        <th className="py-4 px-6">Jam Pulang</th>
                         <th className="py-4 px-6 text-center">Status</th>
-                        <th className="py-4 px-6">Keterangan</th>
+                        <th className="py-4 px-6">Metode</th>
+                        <th className="py-4 px-6">Jenis Kegiatan</th>
+                        <th className="py-4 px-6 text-center">Aksi</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-[#f1f5f9] text-xs">
                       {filteredAbsensi.length === 0 ? (
                         <tr>
-                          <td colSpan={7} className="py-12 text-center text-[#94a3b8] font-sans">
+                          <td colSpan={11} className="py-12 text-center text-[#94a3b8] font-sans">
                             <p className="font-medium text-slate-500">Tidak ditemukan data absensi untuk saringan "{absensiStatusFilter}".</p>
                             <button
                               onClick={() => setAbsensiStatusFilter('Semua')}
@@ -8001,13 +8053,19 @@ Schema requirements:
                           const statusVal = getAbsensiStatus(row.keterangan, row.status);
                           return (
                             <tr key={row.idAbsensi} className="hover:bg-[#f8fafc]/40 transition duration-150 font-medium text-[#475569]">
+                              <td className="py-4 px-6 font-mono font-bold text-slate-600">{row.idAbsensi || '-'}</td>
                               <td className="py-4 px-6 font-mono font-bold text-[#6366f1]">{row.nia}</td>
                               <td className="py-4 px-6 font-black text-[#1e293b]">{row.namaLengkap}</td>
                               <td className="py-4 px-6 font-bold text-slate-700 font-mono">{row.kelas || '-'}</td>
                               <td className="py-4 px-6 text-[#64748b] font-mono">{formatDateString(row.tanggalAbsen)}</td>
                               <td className="py-4 px-6 font-mono font-bold text-slate-800">
                                 <span className="bg-slate-100 border border-slate-200 rounded-md px-2 py-0.5 text-[10.5px]">
-                                  {row.waktuAbsen || '--:--'}
+                                  {row.jamDatang || row.waktuAbsen || '--:--'}
+                                </span>
+                              </td>
+                              <td className="py-4 px-6 font-mono font-bold text-slate-800">
+                                <span className="bg-slate-100 border border-slate-200 rounded-md px-2 py-0.5 text-[10.5px]">
+                                  {row.jamPulang || '--:--'}
                                 </span>
                               </td>
                               <td className="py-4 px-6 text-center">
@@ -8023,9 +8081,31 @@ Schema requirements:
                                 {statusVal === 'Hadir' && (
                                   <span className="inline-flex items-center px-2 py-0.5 rounded text-[9px] font-black bg-emerald-50 text-emerald-700 border border-emerald-150 uppercase font-sans">HADIR</span>
                                 )}
+                                {statusVal === 'Terlambat' && (
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded text-[9px] font-black bg-yellow-50 text-yellow-705 border border-yellow-150 uppercase font-sans">TERLAMBAT</span>
+                                )}
                               </td>
-                              <td className="py-4 px-6 italic text-slate-500 max-w-[200px] truncate" title={row.keterangan || '-'}>
-                                {row.keterangan || '-'}
+                              <td className="py-4 px-6 font-bold text-slate-600 font-mono">{row.metodeAbsensi || '-'}</td>
+                              <td className="py-4 px-6 italic text-slate-500 max-w-[200px] truncate" title={row.jenisKegiatan || '-'}>
+                                {row.jenisKegiatan || '-'}
+                              </td>
+                              <td className="py-4 px-6 text-center">
+                                <div className="flex items-center justify-center gap-1.5">
+                                  <button
+                                    onClick={() => handleOpenEditModal('absensi' as any, row)}
+                                    className="p-1 text-indigo-600 hover:text-indigo-900 hover:bg-indigo-50 rounded transition cursor-pointer"
+                                    title="Ubah Status Absensi"
+                                  >
+                                    <Edit className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeleteRow('absensi' as any, row)}
+                                    className="p-1 text-rose-600 hover:text-rose-900 hover:bg-rose-50 rounded transition cursor-pointer"
+                                    title="Hapus Data Absensi"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
                               </td>
                             </tr>
                           );
@@ -11141,15 +11221,15 @@ Schema requirements:
                 });
 
                 // Compute counters using the base selection and correct helper
-                const hadirCount = baseAbsensi.filter(a => getAbsensiStatus(a.keterangan) === 'Hadir').length;
-                const izinCount = baseAbsensi.filter(a => getAbsensiStatus(a.keterangan) === 'Izin').length;
-                const sakitCount = baseAbsensi.filter(a => getAbsensiStatus(a.keterangan) === 'Sakit').length;
-                const alfaCount = baseAbsensi.filter(a => getAbsensiStatus(a.keterangan) === 'Alpha').length;
+                const hadirCount = baseAbsensi.filter(a => getAbsensiStatus(a.keterangan, a.status) === 'Hadir').length;
+                const izinCount = baseAbsensi.filter(a => getAbsensiStatus(a.keterangan, a.status) === 'Izin').length;
+                const sakitCount = baseAbsensi.filter(a => getAbsensiStatus(a.keterangan, a.status) === 'Sakit').length;
+                const alfaCount = baseAbsensi.filter(a => getAbsensiStatus(a.keterangan, a.status) === 'Alpha').length;
 
                 // Get final printed/displayed target filtered by status selection
                 const targetAbsensi = baseAbsensi.filter(item => {
                   if (cetakSelectedStatus === 'Semua') return true;
-                  const statusVal = getAbsensiStatus(item.keterangan);
+                  const statusVal = getAbsensiStatus(item.keterangan, item.status);
                   return statusVal === cetakSelectedStatus;
                 });
 
@@ -11287,7 +11367,7 @@ Schema requirements:
                               </tr>
                             ) : (
                               targetAbsensi.map((a, idx) => {
-                                const statusValue = getAbsensiStatus(a.keterangan);
+                                const statusValue = getAbsensiStatus(a.keterangan, a.status);
                                 return (
                                   <tr key={idx} className="hover:bg-slate-50/50">
                                     <td className="px-4 py-2 font-mono font-bold text-slate-800">{a.nia}</td>

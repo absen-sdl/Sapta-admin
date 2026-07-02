@@ -176,7 +176,7 @@ export function getProp(obj: any, ...keys: string[]): any {
   // PASS 3: Word/part match with non-empty values (e.g. "No.Induk/NISN/NIA" matches "nia" because it has "nia" as a word)
   for (const rawKey of Object.keys(obj)) {
     const words = getWords(rawKey);
-    const match = words.some(w => cleanedSearchKeys.includes(w));
+    const match = words.some(w => cleanedSearchKeys.includes(w) && (w !== 'id' || cleanedSearchKeys.filter(x => x !== 'id').length === 0));
     if (match) {
       if (obj[rawKey] !== undefined && obj[rawKey] !== null && String(obj[rawKey]).trim() !== '') {
         return obj[rawKey];
@@ -187,7 +187,7 @@ export function getProp(obj: any, ...keys: string[]): any {
   // PASS 4: Substring match with non-empty values
   for (const rawKey of Object.keys(obj)) {
     const cleanedRaw = cleanStr(rawKey);
-    const match = cleanedSearchKeys.some(sk => cleanedRaw.includes(sk) || sk.includes(cleanedRaw));
+    const match = cleanedSearchKeys.some(sk => (sk !== 'id' || cleanedSearchKeys.filter(x => x !== 'id').length === 0) && (cleanedRaw.includes(sk) || sk.includes(cleanedRaw)));
     if (match) {
       if (obj[rawKey] !== undefined && obj[rawKey] !== null && String(obj[rawKey]).trim() !== '') {
         return obj[rawKey];

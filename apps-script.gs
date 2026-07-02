@@ -1,8 +1,8 @@
 /**
  * ==============================================================================
  * GOOGLE APPS SCRIPT DATABASE INTEGRASI PORTAL SAPTA (V8 AUTO-CREATE SHEETS & COLUMNS)
- * Mendukung Operasi: READ, ADD (INPUT), EDIT (UPDATE), DELETE
- * Khusus sheet "ABSENSI" / "REKAP ABSENSI" hanya mendukung READ (Hanya Baca)
+ * Mendukung Operasi: READ, ADD (INPUT), EDIT (UPDATE), DELETE untuk semua menu tanpa terkecuali
+ * Khusus untuk ABSENSI, pengeditan dibatasi hanya pada kolom Status (Hadir, Terlambat, Sakit, Izin, Alpha)
  * ==============================================================================
  * 
  * FITUR DYNAMIC AUTO-CREATE:
@@ -13,18 +13,19 @@
 
 // Konfigurasi Skema Struktur Kolom Sesuai Permintaan Anda
 var SHEET_SCHEMAS = {
-  "DATA ANGGOTA": ["NIA", "Nama Lengkap", "Tempat Lahir", "Tanggal Lahir", "Jenis Kelamin", "Jenjang Pendidikan", "Nama Sekolah", "Kelas", "Alamat", "No Hp", "E-Mail", "PIN", "Link-Profile", "Status", "edit/add by"],
-  "PEMBAYARAN": ["ID Transaksi", "Tanggal", "Nia", "Nama Lengkap", "Nama Tagihan", "Keterangan", "Nominal", "Status", "Tercetak", "edit/add by"],
-  "PRESTASI": ["ID Prestasi", "Tanggal", "NIA", "Nama lengkap", "Jenis Prestasi", "Deskripsi", "Link-foto", "edit/add by"],
-  "PELANGGARAN": ["ID Pelanggaran", "Tanggal", "NIA", "Nama", "Jenis Pelanggaran", "Nama Pelanggaran", "Keterangan", "Ada Denda", "Nominal Denda", "Jenis Hukuman", "Status Tindak Lanjut", "edit/add by"],
-  "ABSENSI": ["ID Absensi", "NIA", "Nama Lengkap", "Kelas", "Tanggal", "Waktu", "Status", "Keterangan", "Jenis Kegiatan"],
-  "INFORMASI": ["idInformasi", "Judul", "Isi", "Jenis kegiatan", "Tanggal", "Waktu", "edit/add by"],
+  "KELOLA AKUN": ["Nama", "username", "pasword", "remove menu", "Foto Profile"],
+  "DATA ANGGOTA": ["No.Induk/NISN/NIA", "Nama Lengkap", "Tempat Lahir", "Tanggal Lahir", "Jenis Kelamin", "Jenjang Pendidikan", "Nama Sekolah", "Kelas", "Alamat", "No Hp", "E-Mail", "Pin", "Link-Profile", "Status", "edit/add by"],
+  "ABSENSI": ["ID ABSENSI", "No.Induk/NISN/NIA", "Nama Lengkap", "Kelas", "Tanggal", "Jam Datang", "Jam Pulang", "Status", "Metode Absensi", "Jenis Kegiatan"],
+  "PELANGGARAN": ["ID Pelanggaran", "Tanggal", "No.Induk/NISN/NIA", "Nama", "Jenis Pelanggaran", "Nama Pelanggaran", "Keterangan", "Ada Denda", "Nominal Denda", "Jenis Hukuman", "Status Tindak Lanjut", "edit/add by"],
+  "PEMBAYARAN": ["ID Transaksi", "Tanggal", "No.Induk/NISN/NIA", "Nama Lengkap", "Nama Tagihan", "Keterangan", "Nominal", "Status", "Tercetak", "edit/add by"],
+  "PRESTASI": ["ID Prestasi", "Tanggal", "No.Induk/NISN/NIA", "Nama lengkap", "Jenis Prestasi", "Deskripsi", "Link-foto", "edit/add by"],
+  "SURAT": ["ID Surat", "Tanggal", "No.Induk/NISN/NIA", "Nama", "Perihal", "Link Dokumen", "edit/add by"],
+  "PERATURAN": ["ID Peraturan", "Judul", "Sanksi", "Status", "edit/add by"],
+  "INFORMASI": ["idInformasI", "Judul", "Isi", "Jenis kegiatan", "Tanggal", "Waktu", "edit/add by"],
   "INFORMASI ADMIN": ["idInformasiAdmin", "Judul", "Isi", "Jenis kegiatan", "Tanggal", "Waktu", "edit/add by"],
   "BANNER": ["ID Banner", "Judul", "Link Foto", "Link Artikel", "Tanggal Input", "Sasaran", "edit/add by"],
-  "SURAT": ["ID Surat", "Tanggal", "NIA", "Nama", "Perihal", "Link Dokumen", "edit/add by"],
-  "PERATURAN": ["ID Peraturan", "Judul", "Sanksi", "Status", "edit/add by"],
-  "LOG NOTIFIKASI": ["ID Log", "Tanggal", "Operator", "Tipe Aksi", "Menu", "Keterangan"],
-  "PENGUMUMAN": ["ID Pengumuman", "Tanggal", "Judul", "Link File", "Nama File", "Tipe File", "edit/add by"]
+  "PENGUMUMAN": ["ID Pengumuman", "Tanggal", "Judul", "Link File", "Nama File", "Tipe File", "edit/add by"],
+  "LOG NOTIFIKASI": ["ID Log", "Tanggal", "Operator", "Tipe Aksi", "Menu", "Keterangan"]
 };
 
 // Menambahkan menu khusus di Google Sheets saat dokumen dibuka untuk memudahkan pembuatan kolom otomatis
@@ -249,11 +250,6 @@ function doPost(e) {
       return createJsonResponse({ error: "Parameter 'sheetName' wajib disematkan." });
     }
 
-    // PROTEKSI: Sesuai instruksi Anda, menu REKAP ABSENSI / ABSENSI dilarang menulis/mengedit/menghapus!
-    if (sheetName === "ABSENSI" && action !== "read") {
-      return createJsonResponse({ error: "AKSES DITOLAK: Fitur rekap absensi bersifat Read-Only (Hanya Baca)." });
-    }
-
     // Fitur Otomatis: Jika ada kolom bertipe base64 image (fotoProfile, linkFoto, linkProfile, linkFile), otomatis simpan ke Drive dan ganti nilainya dengan Link Google Drive URL
     if (data && typeof data === "object") {
       for (var key in data) {
@@ -363,6 +359,21 @@ function updateData(sheetName, targetId, data) {
     return createJsonResponse({ error: "Silakan tentukan ID penunjuk (targetId) yang ingin diedit." });
   }
 
+  // Khusus ABSENSI, saring data agar hanya mengizinkan pengubahan kolom Status
+  if (sheetName.toUpperCase().trim() === "ABSENSI") {
+    var statusVal = getObjectValueCaseInsensitive(data, "Status");
+    if (statusVal === undefined) {
+      return createJsonResponse({ error: "Khusus untuk ABSENSI, hanya diperbolehkan mengedit kolom Status." });
+    }
+    var validOptions = ["hadir", "terlambat", "sakit", "izin", "alpha"];
+    var cleanStatus = statusVal.toString().toLowerCase().trim();
+    if (validOptions.indexOf(cleanStatus) === -1) {
+      return createJsonResponse({ error: "Nilai Status tidak valid. Pilihan yang tersedia: Hadir, Terlambat, Sakit, Izin, Alpha." });
+    }
+    // Ganti data hanya dengan field Status
+    data = { "Status": statusVal };
+  }
+
   var ss = getActiveSpreadsheetRobust();
   var sheet = getOrCreateSheetAndColumns(sheetName);
 
@@ -458,6 +469,12 @@ function getSheetNameRobust(name) {
     if (getSheetCaseInsensitive(ss, "KELOLA AKUN")) return "KELOLA AKUN";
     if (getSheetCaseInsensitive(ss, "AKUN SAPTA")) return "AKUN SAPTA";
     return "KELOLA AKUN"; // Default
+  }
+  if (upper === "INFORMASI ADMIN" || upper === "INFOMASI: ADMIN" || upper === "INFORMASI: ADMIN" || upper === "INFOMASI ADMIN" || upper === "INFORMASI_ADMIN") {
+    return "INFORMASI ADMIN";
+  }
+  if (upper === "INFORMASI" || upper === "INFOMASI") {
+    return "INFORMASI";
   }
   return name.toString().trim();
 }

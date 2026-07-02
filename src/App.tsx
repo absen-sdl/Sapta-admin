@@ -66,6 +66,21 @@ import * as XLSX from 'xlsx';
 import html2canvas from 'html2canvas';
 
 // Local fetch override to transparently proxy external requests and bypass iframe sandbox CORS limitations
+// We ONLY use the proxy on development (localhost/127.0.0.1) or the AI Studio preview environment (*.run.app).
+// On custom domains/production hosts, we fetch directly because there is no iframe wrapping and no proxy server exists.
+const isDevelopmentOrPreview = typeof window !== 'undefined' && (
+  window.location.hostname === 'localhost' || 
+  window.location.hostname === '127.0.0.1' || 
+  window.location.hostname.endsWith('run.app')
+);
+
+const getProxyOrDirectUrl = (url: string): string => {
+  if (isDevelopmentOrPreview && url && (url.startsWith('http://') || url.startsWith('https://')) && !url.includes(window.location.host)) {
+    return `/api/proxy?url=${encodeURIComponent(url)}`;
+  }
+  return url;
+};
+
 const originalFetch = window.fetch;
 const fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
   let url = '';
@@ -77,7 +92,7 @@ const fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Resp
     url = (input as any).url;
   }
 
-  if (url && (url.startsWith('http://') || url.startsWith('https://')) && !url.includes(window.location.host)) {
+  if (isDevelopmentOrPreview && url && (url.startsWith('http://') || url.startsWith('https://')) && !url.includes(window.location.host)) {
     const proxyUrl = `/api/proxy?url=${encodeURIComponent(url)}`;
     if (typeof input === 'string') {
       return originalFetch(proxyUrl, init);
@@ -557,7 +572,8 @@ export default function App() {
     username: '',
     pasword: '',
     remove_menu: '',
-    fotoProfile: ''
+    fotoProfile: '',
+    akses_sapta_absen: false
   });
   const [subAccountPhotoMethod, setSubAccountPhotoMethod] = useState<'url' | 'upload'>('url');
   const [isSavingSubAccount, setIsSavingSubAccount] = useState<boolean>(false);
@@ -1124,6 +1140,7 @@ export default function App() {
           let removeMenu = '';
           let menu = '';
           let fotoProfile = '';
+          let akses_sapta_absen = '';
 
           Object.keys(item).forEach(key => {
             const lowerK = key.toLowerCase().replace(/_/g, ' ');
@@ -1140,6 +1157,8 @@ export default function App() {
               removeMenu = val;
             } else if (lowerK === 'foto profile' || lowerK === 'fotoprofile' || lowerK === 'profile' || lowerK === 'photo' || lowerK === 'foto' || lowerK.includes('foto') || lowerK.includes('profile')) {
               fotoProfile = val;
+            } else if (lowerK === 'akses sapta absen' || lowerK === 'akses_sapta_absen' || lowerK === 'aksessaptaabsen' || lowerK.includes('sapta absen') || lowerK.includes('absen')) {
+              akses_sapta_absen = val;
             }
           });
 
@@ -1149,8 +1168,9 @@ export default function App() {
           if (!removeMenu) removeMenu = String(item['remove_menu'] || item['remove menu'] || item['hapus_menu'] || item['hapus menu'] || '').trim();
           if (!menu) menu = String(item['menu'] || item['aksesMenu'] || item['akses_menu'] || '').trim();
           if (!fotoProfile) fotoProfile = String(item['fotoProfile'] || item['fotoprofile'] || item['foto_profile'] || item['linkProfile'] || item['link_profile'] || item['profile'] || item['foto'] || '').trim();
+          if (!akses_sapta_absen) akses_sapta_absen = String(item['akses_sapta_absen'] || item['akses sapta absen'] || item['aksesSaptaAbsen'] || item['Akses Aplikasi Sapta Absen'] || '').trim();
 
-          return { nama, username, pasword, remove_menu: removeMenu, menu, fotoProfile };
+          return { nama, username, pasword, remove_menu: removeMenu, menu, fotoProfile, akses_sapta_absen };
         }).filter(acc => acc.username || acc.nama);
         setSubAccountList(parsedAccounts);
       } else {
@@ -1991,7 +2011,7 @@ export default function App() {
       if (member.linkProfile) {
         try {
           // Attempt to load via the local backend proxy to guarantee CORS bypass
-          const proxyUrl = `/api/proxy?url=${encodeURIComponent(member.linkProfile)}`;
+          const proxyUrl = getProxyOrDirectUrl(member.linkProfile);
           const response = await originalFetch(proxyUrl);
           if (response.ok) {
             const blob = await response.blob();
@@ -2071,7 +2091,7 @@ export default function App() {
       let qrLoaded = false;
       try {
         const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(member.nia || '')}`;
-        const proxyQrUrl = `/api/proxy?url=${encodeURIComponent(qrUrl)}`;
+        const proxyQrUrl = getProxyOrDirectUrl(qrUrl);
         const response = await originalFetch(proxyQrUrl);
         if (response.ok) {
           const blob = await response.blob();
@@ -2290,7 +2310,7 @@ export default function App() {
         if (member.linkProfile) {
           try {
             // Attempt to load via the local backend proxy to guarantee CORS bypass
-            const proxyUrl = `/api/proxy?url=${encodeURIComponent(member.linkProfile)}`;
+            const proxyUrl = getProxyOrDirectUrl(member.linkProfile);
             const response = await originalFetch(proxyUrl);
             if (response.ok) {
               const blob = await response.blob();
@@ -2373,7 +2393,7 @@ export default function App() {
         let qrLoaded = false;
         try {
           const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(member.nia || '')}`;
-          const proxyQrUrl = `/api/proxy?url=${encodeURIComponent(qrUrl)}`;
+          const proxyQrUrl = getProxyOrDirectUrl(qrUrl);
           const response = await originalFetch(proxyQrUrl);
           if (response.ok) {
             const blob = await response.blob();
@@ -3209,6 +3229,7 @@ Schema requirements:
           let menu = '';
           let removeMenu = '';
           let fotoProfile = '';
+          let akses_sapta_absen = '';
 
           Object.keys(item).forEach(key => {
             const lowerK = key.toLowerCase().replace(/_/g, ' ').trim();
@@ -3229,6 +3250,8 @@ Schema requirements:
               removeMenu = val;
             } else if (lowerK === 'foto profile' || lowerK === 'fotoprofile' || lowerK === 'profile' || lowerK === 'photo' || lowerK === 'foto' || lowerK.includes('foto') || lowerK.includes('profile')) {
               fotoProfile = val;
+            } else if (lowerK === 'akses sapta absen' || lowerK === 'akses_sapta_absen' || lowerK === 'aksessaptaabsen' || lowerK.includes('sapta absen') || lowerK.includes('absen')) {
+              akses_sapta_absen = val;
             }
           });
 
@@ -3239,8 +3262,9 @@ Schema requirements:
           if (!menu) menu = String(item['menu'] || item['aksesMenu'] || item['akses_menu'] || '').trim();
           if (!removeMenu) removeMenu = String(item['remove_menu'] || item['remove menu'] || item['hapus_menu'] || item['hapus menu'] || '').trim();
           if (!fotoProfile) fotoProfile = String(item['fotoProfile'] || item['fotoprofile'] || item['foto_profile'] || item['linkProfile'] || item['link_profile'] || item['profile'] || item['foto'] || '').trim();
+          if (!akses_sapta_absen) akses_sapta_absen = String(item['akses_sapta_absen'] || item['akses sapta absen'] || item['aksesSaptaAbsen'] || item['Akses Aplikasi Sapta Absen'] || '').trim();
 
-          return { nama, username, pasword, menu, remove_menu: removeMenu, fotoProfile };
+          return { nama, username, pasword, menu, remove_menu: removeMenu, fotoProfile, akses_sapta_absen };
         }).filter(acc => acc.username || acc.nama);
 
         setLembagaAkunList(loadedAccounts);
@@ -3269,6 +3293,22 @@ Schema requirements:
         u.pasword === passwordTrimmed
       );
 
+      if (matchedUser) {
+        const isAllowedSaptaAbsen = matchedUser.akses_sapta_absen === 'YA' || 
+                                    matchedUser.akses_sapta_absen === 'Y' || 
+                                    matchedUser.akses_sapta_absen === 'TRUE' || 
+                                    matchedUser.akses_sapta_absen === true || 
+                                    String(matchedUser.akses_sapta_absen).toLowerCase() === 'ya' || 
+                                    String(matchedUser.akses_sapta_absen).toLowerCase() === 'true';
+        if (!isAllowedSaptaAbsen) {
+          setLoginError('Akun Anda tidak memiliki izin akses untuk Aplikasi Sapta Absen. Silakan hubungi Super Admin.');
+          setIsLoggingIn(false);
+          setLoginProgressStep('idle');
+          setLoginProgressText('');
+          return;
+        }
+      }
+
       // Check credentials against Master Administrator from Induk Link
       if (!matchedUser) {
         const isMasterMatch = match.gmail.toLowerCase() === usernameTrimmed.toLowerCase() && match.pasword === passwordTrimmed;
@@ -3279,7 +3319,8 @@ Schema requirements:
             pasword: match.pasword,
             menu: '', // Empty means all privileges
             removeMenu: '',
-            fotoProfile: match.linkProfile || ''
+            fotoProfile: match.linkProfile || '',
+            akses_sapta_absen: 'YA'
           };
         }
       }
@@ -3427,7 +3468,8 @@ Schema requirements:
       username: '',
       pasword: '',
       remove_menu: '',
-      fotoProfile: ''
+      fotoProfile: '',
+      akses_sapta_absen: false
     });
     setIsSubAccountModalOpen(true);
   };
@@ -3438,12 +3480,21 @@ Schema requirements:
     const photoUrl = acc.fotoProfile || acc.linkProfile || '';
     const isBase64 = String(photoUrl).startsWith('data:');
     setSubAccountPhotoMethod(isBase64 ? 'upload' : 'url');
+    
+    const isAksesSaptaAbsen = acc.akses_sapta_absen === 'YA' || 
+                              acc.akses_sapta_absen === 'Y' || 
+                              acc.akses_sapta_absen === 'TRUE' || 
+                              acc.akses_sapta_absen === true || 
+                              String(acc.akses_sapta_absen).toLowerCase() === 'ya' || 
+                              String(acc.akses_sapta_absen).toLowerCase() === 'true';
+
     setSubAccountFormValues({
       nama: acc.nama,
       username: acc.username,
       pasword: acc.pasword,
       remove_menu: acc.remove_menu || '',
-      fotoProfile: photoUrl
+      fotoProfile: photoUrl,
+      akses_sapta_absen: isAksesSaptaAbsen
     });
     setIsSubAccountModalOpen(true);
   };
@@ -3504,6 +3555,7 @@ Schema requirements:
         remove_menu: subAccountFormValues.remove_menu,
         menu: '',
         fotoProfile: subAccountFormValues.fotoProfile || '',
+        akses_sapta_absen: subAccountFormValues.akses_sapta_absen ? 'YA' : 'TIDAK',
         'edit/add by': localStorage.getItem('USER_NAMA') || localStorage.getItem('USER_USERNAME') || 'Super Admin'
       }
     };
@@ -9945,13 +9997,14 @@ Schema requirements:
                         <th className="px-6 py-3.5">username</th>
                         <th className="px-6 py-3.5">pasword</th>
                         <th className="px-6 py-3.5">remove menu</th>
+                        <th className="px-6 py-3.5">Akses Sapta Absen</th>
                         <th className="px-6 py-3.5 text-right">Aksi</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-[#f1f5f9] text-[11px] font-semibold text-[#334155]">
                       {isLoadingSubAccounts ? (
                         <tr>
-                          <td colSpan={5} className="px-6 py-10 text-center text-slate-400 select-none">
+                          <td colSpan={6} className="px-6 py-10 text-center text-slate-400 select-none">
                             <div className="flex flex-col items-center justify-center space-y-2">
                               <RefreshCw className="w-6 h-6 animate-spin text-indigo-600" />
                               <span>Memuat data Akun Sapta...</span>
@@ -9960,13 +10013,13 @@ Schema requirements:
                         </tr>
                       ) : subAccountsError ? (
                         <tr>
-                          <td colSpan={5} className="px-6 py-10 text-center text-rose-500 select-none">
+                          <td colSpan={6} className="px-6 py-10 text-center text-rose-500 select-none">
                             {subAccountsError}
                           </td>
                         </tr>
                       ) : subAccountList.length === 0 ? (
                         <tr>
-                          <td colSpan={5} className="px-6 py-10 text-center text-slate-400 select-none">
+                          <td colSpan={6} className="px-6 py-10 text-center text-slate-400 select-none">
                             Belum ada sub-akun dikonfigurasi. Klik tombol "Tambah Sub-Akun" di atas.
                           </td>
                         </tr>
@@ -9980,6 +10033,14 @@ Schema requirements:
                             const blockedMenus = acc.remove_menu
                               ? acc.remove_menu.split(',').map((s: string) => s.trim()).filter(Boolean)
                               : [];
+                            
+                            const isAllowedSaptaAbsen = acc.akses_sapta_absen === 'YA' || 
+                                                        acc.akses_sapta_absen === 'Y' || 
+                                                        acc.akses_sapta_absen === 'TRUE' || 
+                                                        acc.akses_sapta_absen === true || 
+                                                        String(acc.akses_sapta_absen).toLowerCase() === 'ya' || 
+                                                        String(acc.akses_sapta_absen).toLowerCase() === 'true';
+
                             return (
                               <tr key={index} className="hover:bg-slate-50/50 transition">
                                 <td className="px-6 py-4">
@@ -10021,24 +10082,23 @@ Schema requirements:
                                     </div>
                                   )}
                                 </td>
+                                <td className="px-6 py-4">
+                                  {isAllowedSaptaAbsen ? (
+                                    <span className="text-emerald-700 bg-emerald-50 border border-emerald-100 text-[10px] px-2.5 py-1 rounded-full font-bold inline-flex items-center gap-1.5">
+                                      <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                      Diizinkan
+                                    </span>
+                                  ) : (
+                                    <span className="text-slate-500 bg-slate-50 border border-slate-200 text-[10px] px-2.5 py-1 rounded-full font-bold inline-flex items-center gap-1.5">
+                                      <X className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                      Terblokir
+                                    </span>
+                                  )}
+                                </td>
                                 <td className="px-6 py-4 text-right">
                                   <div className="flex items-center justify-end space-x-1.5">
                                     <button
-                                      onClick={() => {
-                                        setEditingSubAccount(acc);
-                                        const photoUrl = acc.fotoProfile || acc.linkProfile || '';
-                                        const isBase64 = String(photoUrl).startsWith('data:');
-                                        setSubAccountPhotoMethod(isBase64 ? 'upload' : 'url');
-                                        setSubAccountFormValues({
-                                          nama: acc.nama,
-                                          username: acc.username,
-                                          pasword: acc.pasword,
-                                          remove_menu: acc.remove_menu || '',
-                                          fotoProfile: photoUrl
-                                        });
-                                        setSubAccountModalType('edit');
-                                        setIsSubAccountModalOpen(true);
-                                      }}
+                                      onClick={() => handleOpenEditSubAccount(acc)}
                                       title="Edit Akun"
                                       className="p-1 px-2.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded transition cursor-pointer flex items-center space-x-1"
                                     >
@@ -10310,6 +10370,29 @@ Schema requirements:
                         );
                       })}
                     </div>
+                  </div>
+
+                  {/* Field: AKSES APLIKASI SAPTA ABSEN */}
+                  <div className="pt-4 border-t border-slate-150 text-left">
+                    <label className="block text-xs font-black text-slate-700 uppercase tracking-wider mb-1.5">
+                      AKSES APLIKASI SAPTA ABSEN
+                    </label>
+                    <p className="text-[10px] text-slate-400 mb-3 leading-relaxed">
+                      Centang di bawah ini untuk mengizinkan sub-akun ini mengakses aplikasi Sapta Absensi secara mandiri.
+                    </p>
+                    <label className={`flex items-center space-x-2.5 p-3 rounded-lg border transition cursor-pointer select-none text-xs font-bold ${
+                      subAccountFormValues.akses_sapta_absen
+                        ? 'border-indigo-200 bg-indigo-50/50 text-indigo-700 font-bold'
+                        : 'border-slate-200 hover:bg-slate-50 text-slate-700'
+                    }`}>
+                      <input
+                        type="checkbox"
+                        checked={subAccountFormValues.akses_sapta_absen}
+                        onChange={(e) => setSubAccountFormValues(prev => ({ ...prev, akses_sapta_absen: e.target.checked }))}
+                        className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 accent-indigo-600 cursor-pointer"
+                      />
+                      <span>Izinkan Akses Aplikasi Sapta Absen</span>
+                    </label>
                   </div>
 
                   {/* Action Buttons */}

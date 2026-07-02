@@ -13,7 +13,7 @@
 
 // Konfigurasi Skema Struktur Kolom Sesuai Permintaan Anda
 var SHEET_SCHEMAS = {
-  "KELOLA AKUN": ["Nama", "username", "pasword", "remove menu", "Foto Profile"],
+  "KELOLA AKUN": ["Nama Lengkap", "username", "pasword", "remove menu", "Akses Aplikasi Sapta Absen", "Foto Profile"],
   "DATA ANGGOTA": ["No.Induk/NISN/NIA", "Nama Lengkap", "Tempat Lahir", "Tanggal Lahir", "Jenis Kelamin", "Jenjang Pendidikan", "Nama Sekolah", "Kelas", "Alamat", "No Hp", "E-Mail", "Pin", "Link-Profile", "Status", "edit/add by"],
   "ABSENSI": ["ID ABSENSI", "No.Induk/NISN/NIA", "Nama Lengkap", "Kelas", "Tanggal", "Jam Datang", "Jam Pulang", "Status", "Metode Absensi", "Jenis Kegiatan"],
   "PELANGGARAN": ["ID Pelanggaran", "Tanggal", "No.Induk/NISN/NIA", "Nama", "Jenis Pelanggaran", "Nama Pelanggaran", "Keterangan", "Ada Denda", "Nominal Denda", "Jenis Hukuman", "Status Tindak Lanjut", "edit/add by"],
@@ -506,7 +506,8 @@ function getObjectValueCaseInsensitive(obj, keyToFind) {
     "idpengumuman": ["idpengumuman", "id", "id_pengumuman"],
     "linkfile": ["linkfile", "file", "url", "link", "link_file"],
     "namafile": ["namafile", "filename", "nama_file"],
-    "tipefile": ["tipefile", "filetype", "tipe_file"]
+    "tipefile": ["tipefile", "filetype", "tipe_file"],
+    "aksesaplikasisaptaabsen": ["aksesaplikasisaptaabsen", "aksessaptaabsen", "akses_sapta_absen", "sapta_absen_akses", "sapta_absen", "saptaabsen", "akses aplikasi sapta absen"]
   };
 
   // 1. Coba pencocokan langsung (clean key)

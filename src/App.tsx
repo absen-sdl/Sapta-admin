@@ -1103,7 +1103,7 @@ export default function App() {
     setIsLoadingSubAccounts(true);
     setSubAccountsError(null);
     try {
-      const targetUrl = endpoint + (endpoint.includes('?') ? '&' : '?') + 'action=read&sheetName=' + encodeURIComponent(subAccountSheetName);
+      const targetUrl = endpoint + (endpoint.includes('?') ? '&' : '?') + 'action=read&sheetName=' + encodeURIComponent(subAccountSheetName) + '&t=' + Date.now();
       const response = await fetch(targetUrl);
       if (!response.ok) throw new Error('Gagal menghubungi App Script lembaga.');
       const resText = await response.text();
@@ -1226,7 +1226,8 @@ export default function App() {
     setIsFetchingAkun(true);
     // Don't disturb previous state until we successfully fetch
     try {
-      const url = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQlr9fg7nNZTIJ0v7s_qmQeXGEUL6iSW45TWeUy2pyPz-_660IiiQsbihqXX6oRxuOEPJ9P1uCmFtti/pub?gid=0&single=true&output=csv';
+      const baseUrl = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQlr9fg7nNZTIJ0v7s_qmQeXGEUL6iSW45TWeUy2pyPz-_660IiiQsbihqXX6oRxuOEPJ9P1uCmFtti/pub?gid=0&single=true&output=csv';
+      const url = baseUrl + '&t=' + Date.now();
       const response = await fetch(url);
       if (!response.ok) throw new Error('Koneksi sheet AKUN SAPTA gagal.');
       const csvText = await response.text();
@@ -2782,7 +2783,8 @@ Schema requirements:
       let localAkunList = akunList;
       if (localAkunList.length === 0) {
         try {
-          const url = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQlr9fg7nNZTIJ0v7s_qmQeXGEUL6iSW45TWeUy2pyPz-_660IiiQsbihqXX6oRxuOEPJ9P1uCmFtti/pub?gid=0&single=true&output=csv';
+          const baseUrl = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQlr9fg7nNZTIJ0v7s_qmQeXGEUL6iSW45TWeUy2pyPz-_660IiiQsbihqXX6oRxuOEPJ9P1uCmFtti/pub?gid=0&single=true&output=csv';
+          const url = baseUrl + '&t=' + Date.now();
           const response = await fetch(url);
           if (response.ok) {
             const csvText = await response.text();
@@ -2861,7 +2863,7 @@ Schema requirements:
         setLoginProgressText('Membuka koneksi & mengunduh database akun via Web App...');
         try {
           // Attempt 1: ADMIN SAPTA DATA
-          let targetUrl = match.urlAppScript + (match.urlAppScript.includes('?') ? '&' : '?') + 'action=read&sheetName=' + encodeURIComponent('ADMIN SAPTA DATA');
+          let targetUrl = match.urlAppScript + (match.urlAppScript.includes('?') ? '&' : '?') + 'action=read&sheetName=' + encodeURIComponent('ADMIN SAPTA DATA') + '&t=' + Date.now();
           let response = await fetch(targetUrl);
           let success = false;
           if (response.ok) {
@@ -2887,7 +2889,7 @@ Schema requirements:
 
           // Attempt 2 Fallback: KELOLA AKUN
           if (!success) {
-            targetUrl = match.urlAppScript + (match.urlAppScript.includes('?') ? '&' : '?') + 'action=read&sheetName=' + encodeURIComponent('KELOLA AKUN');
+            targetUrl = match.urlAppScript + (match.urlAppScript.includes('?') ? '&' : '?') + 'action=read&sheetName=' + encodeURIComponent('KELOLA AKUN') + '&t=' + Date.now();
             response = await fetch(targetUrl);
             if (response.ok) {
               const resText = await response.text();
@@ -2920,7 +2922,8 @@ Schema requirements:
           const targetGidMatch = match.urlKelolaAkun.match(/gid=(\d+)/);
           const targetGid = targetGidMatch && targetGidMatch[1] ? targetGidMatch[1] : '0';
           const csvUrl = getCSVUrlForGid(match.urlKelolaAkun, targetGid);
-          const response = await fetch(csvUrl);
+          const cacheBusterUrl = csvUrl + (csvUrl.includes('?') ? '&' : '?') + 't=' + Date.now();
+          const response = await fetch(cacheBusterUrl);
           if (response.ok) {
             const csvText = await response.text();
             const parsed = parseCSV(csvText);
@@ -3053,7 +3056,8 @@ Schema requirements:
       // 1. Fetch latest registered institutions from INDUK LINK to ensure we have up-to-date data
       let currentAkunList = akunList;
       try {
-        const url = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQlr9fg7nNZTIJ0v7s_qmQeXGEUL6iSW45TWeUy2pyPz-_660IiiQsbihqXX6oRxuOEPJ9P1uCmFtti/pub?gid=0&single=true&output=csv';
+        const baseUrl = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQlr9fg7nNZTIJ0v7s_qmQeXGEUL6iSW45TWeUy2pyPz-_660IiiQsbihqXX6oRxuOEPJ9P1uCmFtti/pub?gid=0&single=true&output=csv';
+        const url = baseUrl + '&t=' + Date.now();
         const response = await fetch(url);
         if (response.ok) {
           const csvText = await response.text();
@@ -3140,7 +3144,7 @@ Schema requirements:
 
       try {
         // Attempt 1: ADMIN SAPTA DATA sheet
-        let targetUrl = match.urlAppScript + (match.urlAppScript.includes('?') ? '&' : '?') + 'action=read&sheetName=' + encodeURIComponent('ADMIN SAPTA DATA');
+        let targetUrl = match.urlAppScript + (match.urlAppScript.includes('?') ? '&' : '?') + 'action=read&sheetName=' + encodeURIComponent('ADMIN SAPTA DATA') + '&t=' + Date.now();
         let response = await fetch(targetUrl);
         let success = false;
         if (response.ok) {
@@ -3166,7 +3170,7 @@ Schema requirements:
 
         // Attempt 2 Fallback: KELOLA AKUN sheet
         if (!success) {
-          targetUrl = match.urlAppScript + (match.urlAppScript.includes('?') ? '&' : '?') + 'action=read&sheetName=' + encodeURIComponent('KELOLA AKUN');
+          targetUrl = match.urlAppScript + (match.urlAppScript.includes('?') ? '&' : '?') + 'action=read&sheetName=' + encodeURIComponent('KELOLA AKUN') + '&t=' + Date.now();
           response = await fetch(targetUrl);
           if (response.ok) {
             const resText = await response.text();
@@ -4052,7 +4056,7 @@ Schema requirements:
         return;
       }
       addToast('Memulai pembaruan data dari basis data pusat...', 'info');
-      const url = activeScriptUrl + (activeScriptUrl.includes('?') ? '&' : '?') + 'action=read&sheetName=DATA%20ANGGOTA';
+      const url = activeScriptUrl + (activeScriptUrl.includes('?') ? '&' : '?') + 'action=read&sheetName=DATA%20ANGGOTA' + '&t=' + Date.now();
       const response = await fetch(url);
       if (!response.ok) throw new Error('Koneksi Web App Server gagal.');
       const resText = await response.text();
@@ -4374,7 +4378,7 @@ Schema requirements:
         return;
       }
       addToast('Memeriksa keanggotaan aktif dari basis data pusat...', 'info');
-      const url = activeScriptUrl + (activeScriptUrl.includes('?') ? '&' : '?') + 'action=read&sheetName=DATA%20ANGGOTA';
+      const url = activeScriptUrl + (activeScriptUrl.includes('?') ? '&' : '?') + 'action=read&sheetName=DATA%20ANGGOTA' + '&t=' + Date.now();
       const response = await fetch(url);
       if (!response.ok) throw new Error('Koneksi Web App Server gagal.');
       const resText = await response.text();

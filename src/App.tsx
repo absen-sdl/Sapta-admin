@@ -279,6 +279,134 @@ function getRowPrimaryKey(tab: string, row: any): string {
   return '';
 }
 
+const tryDeleteDriveFile = async (url: string, manualScriptUrl?: string) => {
+  if (!url) return;
+  const regExp = /(?:id=|\/file\/d\/|\/open\?id=)([a-zA-Z0-9_-]{25,})/;
+  const match = url.match(regExp);
+  if (match && match[1]) {
+    const fileId = match[1];
+    const endpoint = manualScriptUrl || localStorage.getItem('LINK_SCRIPT_UTAMA') || '';
+    if (endpoint) {
+      try {
+        console.log(`Mengirim permintaan hapus file Google Drive (${fileId}) ke server.`);
+        await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({
+            action: 'delete_drive_file',
+            fileId: fileId
+          })
+        });
+      } catch (e) {
+        console.warn("Gagal menghapus file Google Drive:", e);
+      }
+    }
+  }
+};
+
+const uploadFileToGoogleDrive = async (
+  base64Data: string,
+  filename: string,
+  manualScriptUrl?: string,
+  lembaga?: string,
+  sheetName?: string
+): Promise<string> => {
+  const endpoint = manualScriptUrl || localStorage.getItem('LINK_SCRIPT_UTAMA') || '';
+  if (!endpoint) {
+    throw new Error('Tautan Google Apps Script belum dikonfigurasi. Silakan atur URL Utama di Pengaturan Aplikasi.');
+  }
+  const payload = {
+    action: 'upload',
+    base64Data: base64Data,
+    filename: filename,
+    lembaga: lembaga || '',
+    sheetName: sheetName || 'UploadAction'
+  };
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain' },
+    body: JSON.stringify(payload)
+  });
+  const resText = await response.text();
+  let resJson: any = null;
+  try {
+    resJson = JSON.parse(resText);
+  } catch (err) {
+    throw new Error('Gagal membaca respons dari Google Apps Script. Pastikan URL Utama aktif.');
+  }
+  if (resJson && resJson.status === 'success' && resJson.url) {
+    return resJson.url;
+  } else {
+    throw new Error(resJson?.error || 'Gagal mengunggah file ke Google Drive.');
+  }
+};
+
+const triggerDriveUpload = (
+  allowedTypes: string[],
+  onSuccess: (url: string, filename: string) => void,
+  onError: (errorMsg: string) => void,
+  manualScriptUrl?: string,
+  addToastFn?: (msg: string, type: 'success' | 'error' | 'info') => void,
+  lembaga?: string,
+  sheetName?: string
+) => {
+  const input = document.createElement('input');
+  input.type = 'file';
+  if (allowedTypes && allowedTypes.length > 0) {
+    input.accept = allowedTypes.join(',');
+  }
+  input.onchange = async (e: Event) => {
+    const file = (e.target as HTMLInputElement).files?.[0];
+    if (!file) return;
+
+    if (allowedTypes && allowedTypes.length > 0) {
+      const extension = '.' + (file.name.split('.').pop()?.toLowerCase() || '');
+      const mimeType = file.type.toLowerCase();
+      const isAllowed = allowedTypes.some(type => {
+        const typeLower = type.toLowerCase();
+        if (typeLower.startsWith('.')) {
+          return extension === typeLower;
+        }
+        if (typeLower.endsWith('/*')) {
+          return mimeType.startsWith(typeLower.substring(0, typeLower.length - 2));
+        }
+        return mimeType === typeLower;
+      });
+      if (!isAllowed) {
+        if (addToastFn) addToastFn(`Format file ${file.name} tidak didukung.`, 'error');
+        else onError(`Format file ${file.name} tidak didukung.`);
+        return;
+      }
+    }
+
+    if (addToastFn) addToastFn('Membaca file...', 'info');
+
+    const reader = new FileReader();
+    reader.onload = async (ev) => {
+      const base64 = ev.target?.result as string;
+      if (!base64) {
+        onError('Gagal membaca file.');
+        return;
+      }
+
+      if (addToastFn) addToastFn('Sedang mengunggah file ke Google Drive...', 'info');
+
+      try {
+        const driveUrl = await uploadFileToGoogleDrive(base64, file.name, manualScriptUrl, lembaga, sheetName);
+        if (addToastFn) addToastFn('Berhasil mengunggah dan menautkan file ke Google Drive!', 'success');
+        onSuccess(driveUrl, file.name);
+      } catch (err: any) {
+        console.error(err);
+        const errorMsg = err?.message || String(err);
+        if (addToastFn) addToastFn(`Gagal mengunggah ke Google Drive: ${errorMsg}`, 'error');
+        onError(errorMsg);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+  input.click();
+};
+
 function MemberAvatar({ linkProfile, namaLengkap, className = "w-full h-full object-cover" }: { linkProfile: string; namaLengkap: string; className?: string }) {
   const [hasError, setHasError] = useState(false);
   const initials = namaLengkap ? namaLengkap.trim().substring(0, 2).toUpperCase() : '??';
@@ -575,7 +703,6 @@ export default function App() {
     fotoProfile: '',
     akses_sapta_absen: false
   });
-  const [subAccountPhotoMethod, setSubAccountPhotoMethod] = useState<'url' | 'upload'>('url');
   const [isSavingSubAccount, setIsSavingSubAccount] = useState<boolean>(false);
 
   // --- STATES FOR CETAK & SIMPAN DATA TAB ---
@@ -611,6 +738,8 @@ export default function App() {
   const [isSendingEmails, setIsSendingEmails] = useState<boolean>(false);
   const [cetakCardBgFront, setCetakCardBgFront] = useState<string | null>(() => localStorage.getItem('CETAK_CARD_BG_FRONT') || null);
   const [cetakCardBgBack, setCetakCardBgBack] = useState<string | null>(() => localStorage.getItem('CETAK_CARD_BG_BACK') || null);
+  const [isUploadingBgFront, setIsUploadingBgFront] = useState<boolean>(false);
+  const [isUploadingBgBack, setIsUploadingBgBack] = useState<boolean>(false);
   const [cetakCardTextColorFront, setCetakCardTextColorFront] = useState<'white' | 'black'>(() => (localStorage.getItem('CETAK_CARD_TEXT_COLOR_FRONT') as any) || 'white');
   const [cetakCardTextColorBack, setCetakCardTextColorBack] = useState<'white' | 'black'>(() => (localStorage.getItem('CETAK_CARD_TEXT_COLOR_BACK') as any) || 'black');
   const [cetakCardHideHeader, setCetakCardHideHeader] = useState<boolean>(() => localStorage.getItem('CETAK_CARD_HIDE_HEADER') === 'true');
@@ -629,6 +758,135 @@ export default function App() {
       "4. Jika menemukan kartu ini, harap hubungi pengelola sekretariat."
     ];
   });
+
+  const [isSavingCardConfig, setIsSavingCardConfig] = useState<boolean>(false);
+
+  const handleDeleteDriveFile = async (url: string | null) => {
+    if (!url) return;
+    if (url.includes('drive.google.com') || url.includes('googleusercontent.com')) {
+      const endpoint = appsScriptUrl || localStorage.getItem('LINK_SCRIPT_UTAMA') || localStorage.getItem('google_apps_script_url') || '';
+      if (!endpoint) return;
+      try {
+        await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain' },
+          body: JSON.stringify({
+            action: 'deleteFile',
+            url: url
+          })
+        });
+        console.log('File deleted from Google Drive:', url);
+      } catch (err) {
+        console.error('Error deleting file from Google Drive:', err);
+      }
+    }
+  };
+
+  const saveCardConfigToCloud = async (
+    customBgFront?: string | null,
+    customBgBack?: string | null,
+    customTheme?: 'blue' | 'gold' | 'red' | 'emerald',
+    customOrientation?: 'horizontal' | 'vertical',
+    customTextColorFront?: 'white' | 'black',
+    customTextColorBack?: 'white' | 'black',
+    customHideHeader?: boolean,
+    customHideFooter?: boolean,
+    customKetentuan?: string[]
+  ) => {
+    const activeLembaga = lembagaLogin || localStorage.getItem('LEMBAGA_LOGIN') || '';
+    if (!activeLembaga) {
+      console.warn('Lembaga tidak teridentifikasi. Penyimpanan cloud dilewati.');
+      return;
+    }
+
+    const endpoint = appsScriptUrl || localStorage.getItem('LINK_SCRIPT_UTAMA') || localStorage.getItem('google_apps_script_url') || '';
+    if (!endpoint) {
+      console.warn('Google Apps Script URL tidak terkonfigurasi.');
+      return;
+    }
+
+    setIsSavingCardConfig(true);
+
+    const bgFront = customBgFront !== undefined ? customBgFront : cetakCardBgFront;
+    const bgBack = customBgBack !== undefined ? customBgBack : cetakCardBgBack;
+    const theme = customTheme !== undefined ? customTheme : cetakCardTheme;
+    const orientation = customOrientation !== undefined ? customOrientation : cetakCardOrientation;
+    const textColorFront = customTextColorFront !== undefined ? customTextColorFront : cetakCardTextColorFront;
+    const textColorBack = customTextColorBack !== undefined ? customTextColorBack : cetakCardTextColorBack;
+    const hideHeader = customHideHeader !== undefined ? customHideHeader : cetakCardHideHeader;
+    const hideFooter = customHideFooter !== undefined ? customHideFooter : cetakCardHideFooter;
+    const ketentuan = customKetentuan !== undefined ? customKetentuan : cetakCardKetentuan;
+
+    const dataPayload = {
+      'Lembaga': activeLembaga,
+      'Tema Warna': theme,
+      'Orientasi': orientation,
+      'Bg Depan': bgFront || '',
+      'Bg Belakang': bgBack || '',
+      'Warna Teks Depan': textColorFront,
+      'Warna Teks Belakang': textColorBack,
+      'Sembunyikan Header': String(hideHeader),
+      'Sembunyikan Footer': String(hideFooter),
+      'Ketentuan': JSON.stringify(ketentuan),
+      'edit/add by': userNama || 'Admin'
+    };
+
+    try {
+      // Attempt 1: Edit/Update existing record
+      const editResponse = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body: JSON.stringify({
+          action: 'edit',
+          sheetName: 'CONFIG KARTU',
+          targetId: activeLembaga,
+          data: dataPayload,
+          lembaga: activeLembaga
+        })
+      });
+
+      const editResultText = await editResponse.text();
+      let editResult: any = {};
+      try {
+        editResult = JSON.parse(editResultText);
+      } catch(e) {}
+
+      // If record wasn't found or edit failed because of ID missing, try 2: Add new record
+      if (editResult.error && (editResult.error.includes('tidak ditemukan') || editResult.error.includes('targetId') || editResult.error.includes('Pilih ID'))) {
+        console.log('Record not found in CONFIG KARTU, attempting to add new record...');
+        const addResponse = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain' },
+          body: JSON.stringify({
+            action: 'add',
+            sheetName: 'CONFIG KARTU',
+            data: dataPayload,
+            lembaga: activeLembaga
+          })
+        });
+        const addResultText = await addResponse.text();
+        console.log('CONFIG KARTU Add Result:', addResultText);
+      } else {
+        console.log('CONFIG KARTU Edit Result:', editResultText);
+      }
+
+      // Sync local SDK cache
+      const currentConfigs = window.dataSdk.read('CONFIG KARTU') || [];
+      const matchLocal = currentConfigs.find((c: any) => String(c.Lembaga || '').toLowerCase().trim() === activeLembaga.toLowerCase().trim());
+      if (matchLocal) {
+        window.dataSdk.update('CONFIG KARTU', activeLembaga, dataPayload);
+      } else {
+        window.dataSdk.create('CONFIG KARTU', dataPayload);
+      }
+
+      addToast('Desain kartu berhasil disimpan & diterapkan untuk semua admin lembaga!', 'success');
+    } catch (err: any) {
+      console.error('Gagal menyimpan konfigurasi desain ke cloud:', err);
+      addToast('Gagal menyimpan ke basis data awan: ' + (err.message || String(err)), 'error');
+    } finally {
+      setIsSavingCardConfig(false);
+    }
+  };
 
   // --- GEMINI AI STATES ---
   const [aiIsGenerating, setAiIsGenerating] = useState<boolean>(false);
@@ -914,7 +1172,7 @@ export default function App() {
               body: JSON.stringify(payload)
             });
           } catch (cloudErr) {
-            console.error("Gagal sinkronisasi cetak ke Apps Script:", cloudErr);
+            console.warn("Sinkronisasi cetak ke Apps Script ditunda/gagal (ini normal jika URL belum diatur atau offline):", cloudErr);
           }
         }
       }));
@@ -984,7 +1242,7 @@ export default function App() {
                 body: JSON.stringify(payload)
               });
             } catch (cloudErr) {
-              console.error("Gagal sinkronisasi cetak ke Apps Script:", cloudErr);
+              console.warn("Sinkronisasi cetak ke Apps Script ditunda/gagal (ini normal jika URL belum diatur atau offline):", cloudErr);
             }
           }
         }));
@@ -1130,7 +1388,7 @@ export default function App() {
         throw new Error('Data dari server tidak berformat JSON valid.');
       }
       if (parsedJson && parsedJson.error) {
-        throw new Error(parsedJson.message || 'Error internal Google Sheets App Script.');
+        throw new Error(parsedJson.error || parsedJson.message || 'Error internal Google Sheets App Script.');
       }
       if (Array.isArray(parsedJson)) {
         const parsedAccounts = parsedJson.map((item: any) => {
@@ -1151,14 +1409,14 @@ export default function App() {
               username = val;
             } else if (lowerK === 'pasword' || lowerK === 'password' || lowerK.includes('pass') || lowerK.includes('word')) {
               pasword = val;
+            } else if (lowerK === 'akses sapta absen' || lowerK === 'akses_sapta_absen' || lowerK === 'aksessaptaabsen' || lowerK.includes('sapta absen') || lowerK.includes('absen')) {
+              akses_sapta_absen = val;
             } else if (lowerK === 'menu' || lowerK.includes('akses') || lowerK.includes('fitur') || lowerK.includes('role')) {
               menu = val;
             } else if (lowerK === 'remove menu' || lowerK === 'remove_menu' || lowerK === 'removemenu' || lowerK.includes('hapus menu') || lowerK.includes('tidak diizinkan') || lowerK.includes('restricted')) {
               removeMenu = val;
             } else if (lowerK === 'foto profile' || lowerK === 'fotoprofile' || lowerK === 'profile' || lowerK === 'photo' || lowerK === 'foto' || lowerK.includes('foto') || lowerK.includes('profile')) {
               fotoProfile = val;
-            } else if (lowerK === 'akses sapta absen' || lowerK === 'akses_sapta_absen' || lowerK === 'aksessaptaabsen' || lowerK.includes('sapta absen') || lowerK.includes('absen')) {
-              akses_sapta_absen = val;
             }
           });
 
@@ -1260,6 +1518,8 @@ export default function App() {
           let urlAppScript = '';
           let username = '';
           let pasword = '';
+          let urlAbsensi = '';
+          let urlKelolaAkun = '';
 
           // Dynamically matches keys-case/space insensitive and handles any automated transformations by parseCSV
           Object.keys(item).forEach(key => {
@@ -1275,6 +1535,10 @@ export default function App() {
               lembaga = val;
             } else if (cleanKey.includes('appscript') || cleanKey.includes('appsscript') || cleanKey.includes('linkserver') || cleanKey.includes('urlserver') || cleanKey.includes('script')) {
               urlAppScript = val;
+            } else if (cleanKey.includes('absensi') || cleanKey.includes('absen') || cleanKey.includes('linkabsensi') || cleanKey.includes('urlabsensi')) {
+              urlAbsensi = val;
+            } else if (cleanKey.includes('kelolaakun') || cleanKey.includes('kelolajurusan') || cleanKey.includes('linkkelolaakun') || cleanKey.includes('urlkelolaakun') || cleanKey.includes('linkakun') || cleanKey.includes('urlakun')) {
+              urlKelolaAkun = val;
             } else if (cleanKey.includes('profile') || cleanKey.includes('logo') || cleanKey.includes('foto') || cleanKey.includes('photo') || cleanKey.includes('profilelembaga')) {
               linkProfile = val;
             } else if (cleanKey === 'username' || cleanKey === 'user' || cleanKey === 'gmail' || cleanKey === 'email') {
@@ -1287,6 +1551,8 @@ export default function App() {
           if (!pasword) pasword = String(item['pasword'] || item['password'] || item['Pasword'] || item['Password'] || item['key'] || '').trim();
           if (!lembaga) lembaga = String(item['Nama Lembaga'] || item['Lembaga'] || item['lembaga'] || '').trim();
           if (!urlAppScript) urlAppScript = String(item['Link app script'] || item['urlAppScript'] || item['Link_App_Script'] || item['Link_App_script'] || item['url_app_script'] || '').trim();
+          if (!urlAbsensi) urlAbsensi = String(item['urlAbsensi'] || item['Link Absensi'] || item['Link_Absensi'] || item['link_absensi'] || item['Link Absen'] || item['link_absen'] || '').trim();
+          if (!urlKelolaAkun) urlKelolaAkun = String(item['urlKelolaAkun'] || item['Link Kelola Akun'] || item['Link_Kelola_Akun'] || item['link_kelola_akun'] || item['Link Akun'] || item['link_akun'] || '').trim();
           if (!linkProfile) linkProfile = String(item['Profile Lembaga'] || item['profile_lembaga'] || item['linkProfile'] || item['profile'] || '').trim();
           if (!username) username = String(item['username'] || item['Username'] || item['gmail'] || item['email'] || '').trim();
 
@@ -1299,8 +1565,8 @@ export default function App() {
             linkProfile,
             username,
             gmail: username,
-            urlAbsensi: '',
-            urlKelolaAkun: ''
+            urlAbsensi,
+            urlKelolaAkun
           };
         }).filter(acc => acc.username || acc.lembaga);
         
@@ -1609,7 +1875,9 @@ export default function App() {
             nia: String(getProp(item, 'nia', 'idanggota', 'nomorinduk')).trim(),
             namaLengkap: String(getProp(item, 'namaLengkap', 'namalengkap', 'nama', 'fullname')).trim(),
             perihal: String(getProp(item, 'perihal', 'perihalsurat', 'hal', 'about') || '').trim(),
-            linkGoogleDoc: String(getProp(item, 'linkGoogleDoc', 'linkgoogledoc', 'linkdokumen', 'url', 'link') || '').trim()
+            linkGoogleDoc: String(getProp(item, 'linkGoogleDoc', 'linkgoogledoc', 'linkdokumen', 'url', 'link') || '').trim(),
+            namaFileSurat: String(getProp(item, 'namaFileSurat', 'namafilesurat') || '').trim(),
+            tipeFileSurat: String(getProp(item, 'tipeFileSurat', 'tipefilesurat') || '').trim()
           }));
 
           // Sync PERATURAN (Rules Data)
@@ -1648,6 +1916,21 @@ export default function App() {
             tipeAksi: String(getProp(item, 'tipeAksi', 'tipeaksi', 'aksi', 'action') || '').trim(),
             menu: String(getProp(item, 'menu', 'sheet') || '').trim(),
             keterangan: String(getProp(item, 'keterangan', 'desc', 'keterangan') || '').trim()
+          }));
+
+          // Sync CONFIG KARTU (Card Configurations)
+          await fetchAndSyncSheet('CONFIG KARTU', 'Lembaga', (item: any, idx: number) => ({
+            Lembaga: String(getProp(item, 'Lembaga', 'lembaga') || '').trim(),
+            'Tema Warna': String(getProp(item, 'Tema Warna', 'temawarna', 'tema') || 'blue').trim(),
+            'Orientasi': String(getProp(item, 'Orientasi', 'orientasi') || 'horizontal').trim(),
+            'Bg Depan': String(getProp(item, 'Bg Depan', 'bgdepan') || '').trim(),
+            'Bg Belakang': String(getProp(item, 'Bg Belakang', 'bgbelakang') || '').trim(),
+            'Warna Teks Depan': String(getProp(item, 'Warna Teks Depan', 'warnateksdepan') || 'white').trim(),
+            'Warna Teks Belakang': String(getProp(item, 'Warna Teks Belakang', 'warnateksbelakang') || 'black').trim(),
+            'Sembunyikan Header': String(getProp(item, 'Sembunyikan Header', 'sembunyikanheader') || 'false').trim(),
+            'Sembunyikan Footer': String(getProp(item, 'Sembunyikan Footer', 'sembunyikanfooter') || 'false').trim(),
+            'Ketentuan': String(getProp(item, 'Ketentuan', 'ketentuan') || '').trim(),
+            'edit/add by': String(getProp(item, 'edit/add by', 'editby', 'operator') || '').trim()
           }));
 
           // 2. ABSENSI (read 100% from Google Apps Script Web App as requested)
@@ -2817,6 +3100,8 @@ Schema requirements:
                 let urlAppScript = '';
                 let username = '';
                 let pasword = '';
+                let urlAbsensi = '';
+                let urlKelolaAkun = '';
 
                 Object.keys(item).forEach(key => {
                   const rawKey = key.trim();
@@ -2831,6 +3116,10 @@ Schema requirements:
                     lembaga = val;
                   } else if (cleanKey.includes('appscript') || cleanKey.includes('appsscript') || cleanKey.includes('linkserver') || cleanKey.includes('urlserver') || cleanKey.includes('script')) {
                     urlAppScript = val;
+                  } else if (cleanKey.includes('absensi') || cleanKey.includes('absen') || cleanKey.includes('linkabsensi') || cleanKey.includes('urlabsensi')) {
+                    urlAbsensi = val;
+                  } else if (cleanKey.includes('kelolaakun') || cleanKey.includes('kelolajurusan') || cleanKey.includes('linkkelolaakun') || cleanKey.includes('urlkelolaakun') || cleanKey.includes('linkakun') || cleanKey.includes('urlakun')) {
+                    urlKelolaAkun = val;
                   } else if (cleanKey.includes('profile') || cleanKey.includes('logo') || cleanKey.includes('foto') || cleanKey.includes('photo') || cleanKey.includes('profilelembaga')) {
                     linkProfile = val;
                   } else if (cleanKey === 'username' || cleanKey === 'user' || cleanKey === 'gmail' || cleanKey === 'email') {
@@ -2842,6 +3131,8 @@ Schema requirements:
                 if (!pasword) pasword = String(item['pasword'] || item['password'] || item['Pasword'] || item['Password'] || item['key'] || '').trim();
                 if (!lembaga) lembaga = String(item['Nama Lembaga'] || item['Lembaga'] || item['lembaga'] || '').trim();
                 if (!urlAppScript) urlAppScript = String(item['Link app script'] || item['urlAppScript'] || item['Link_App_Script'] || item['Link_App_script'] || item['url_app_script'] || '').trim();
+                if (!urlAbsensi) urlAbsensi = String(item['urlAbsensi'] || item['Link Absensi'] || item['Link_Absensi'] || item['link_absensi'] || item['Link Absen'] || item['link_absen'] || '').trim();
+                if (!urlKelolaAkun) urlKelolaAkun = String(item['urlKelolaAkun'] || item['Link Kelola Akun'] || item['Link_Kelola_Akun'] || item['link_kelola_akun'] || item['Link Akun'] || item['link_akun'] || '').trim();
                 if (!linkProfile) linkProfile = String(item['Profile Lembaga'] || item['profile_lembaga'] || item['linkProfile'] || item['profile'] || '').trim();
                 if (!username) username = String(item['username'] || item['Username'] || item['gmail'] || item['email'] || '').trim();
 
@@ -2853,8 +3144,8 @@ Schema requirements:
                   linkProfile,
                   username,
                   gmail: username,
-                  urlAbsensi: '',
-                  urlKelolaAkun: ''
+                  urlAbsensi,
+                  urlKelolaAkun
                 };
               }).filter(acc => acc.username || acc.lembaga);
               setAkunList(localAkunList);
@@ -2885,7 +3176,6 @@ Schema requirements:
           // Attempt 1: ADMIN SAPTA DATA
           let targetUrl = match.urlAppScript + (match.urlAppScript.includes('?') ? '&' : '?') + 'action=read&sheetName=' + encodeURIComponent('ADMIN SAPTA DATA') + '&t=' + Date.now();
           let response = await fetch(targetUrl);
-          let success = false;
           if (response.ok) {
             const resText = await response.text();
             try {
@@ -2893,7 +3183,6 @@ Schema requirements:
               if (parsed && !parsed.error) {
                 parsedJson = parsed;
                 dataFetched = true;
-                success = true;
                 detectedSheetName = 'ADMIN SAPTA DATA';
               }
             } catch (e) {
@@ -2901,14 +3190,13 @@ Schema requirements:
               if (parsed && parsed.length > 0) {
                 parsedJson = parsed;
                 dataFetched = true;
-                success = true;
                 detectedSheetName = 'ADMIN SAPTA DATA';
               }
             }
           }
 
           // Attempt 2 Fallback: KELOLA AKUN
-          if (!success) {
+          if (!dataFetched) {
             targetUrl = match.urlAppScript + (match.urlAppScript.includes('?') ? '&' : '?') + 'action=read&sheetName=' + encodeURIComponent('KELOLA AKUN') + '&t=' + Date.now();
             response = await fetch(targetUrl);
             if (response.ok) {
@@ -2926,6 +3214,30 @@ Schema requirements:
                   parsedJson = parsed;
                   dataFetched = true;
                   detectedSheetName = 'KELOLA AKUN';
+                }
+              }
+            }
+          }
+
+          // Attempt 3 Fallback: AKUN SAPTA
+          if (!dataFetched) {
+            targetUrl = match.urlAppScript + (match.urlAppScript.includes('?') ? '&' : '?') + 'action=read&sheetName=' + encodeURIComponent('AKUN SAPTA') + '&t=' + Date.now();
+            response = await fetch(targetUrl);
+            if (response.ok) {
+              const resText = await response.text();
+              try {
+                const parsed = JSON.parse(resText);
+                if (parsed && !parsed.error) {
+                  parsedJson = parsed;
+                  dataFetched = true;
+                  detectedSheetName = 'AKUN SAPTA';
+                }
+              } catch (e) {
+                const parsed = parseCSV(resText);
+                if (parsed && parsed.length > 0) {
+                  parsedJson = parsed;
+                  dataFetched = true;
+                  detectedSheetName = 'AKUN SAPTA';
                 }
               }
             }
@@ -3090,6 +3402,8 @@ Schema requirements:
               let urlAppScript = '';
               let username = '';
               let pasword = '';
+              let urlAbsensi = '';
+              let urlKelolaAkun = '';
 
               Object.keys(item).forEach(key => {
                 const rawKey = key.trim();
@@ -3104,6 +3418,10 @@ Schema requirements:
                   lembaga = val;
                 } else if (cleanKey.includes('appscript') || cleanKey.includes('appsscript') || cleanKey.includes('linkserver') || cleanKey.includes('urlserver') || cleanKey.includes('script')) {
                   urlAppScript = val;
+                } else if (cleanKey.includes('absensi') || cleanKey.includes('absen') || cleanKey.includes('linkabsensi') || cleanKey.includes('urlabsensi')) {
+                  urlAbsensi = val;
+                } else if (cleanKey.includes('kelolaakun') || cleanKey.includes('kelolajurusan') || cleanKey.includes('linkkelolaakun') || cleanKey.includes('urlkelolaakun') || cleanKey.includes('linkakun') || cleanKey.includes('urlakun')) {
+                  urlKelolaAkun = val;
                 } else if (cleanKey.includes('profile') || cleanKey.includes('logo') || cleanKey.includes('foto') || cleanKey.includes('photo') || cleanKey.includes('profilelembaga')) {
                   linkProfile = val;
                 } else if (cleanKey === 'username' || cleanKey === 'user' || cleanKey === 'gmail' || cleanKey === 'email') {
@@ -3115,6 +3433,8 @@ Schema requirements:
               if (!pasword) pasword = String(item['pasword'] || item['password'] || item['Pasword'] || item['Password'] || item['key'] || '').trim();
               if (!lembaga) lembaga = String(item['Nama Lembaga'] || item['Lembaga'] || item['lembaga'] || '').trim();
               if (!urlAppScript) urlAppScript = String(item['Link app script'] || item['urlAppScript'] || item['Link_App_Script'] || item['Link_App_script'] || item['url_app_script'] || '').trim();
+              if (!urlAbsensi) urlAbsensi = String(item['urlAbsensi'] || item['Link Absensi'] || item['Link_Absensi'] || item['link_absensi'] || item['Link Absen'] || item['link_absen'] || '').trim();
+              if (!urlKelolaAkun) urlKelolaAkun = String(item['urlKelolaAkun'] || item['Link Kelola Akun'] || item['Link_Kelola_Akun'] || item['link_kelola_akun'] || item['Link Akun'] || item['link_akun'] || '').trim();
               if (!linkProfile) linkProfile = String(item['Profile Lembaga'] || item['profile_lembaga'] || item['linkProfile'] || item['profile'] || '').trim();
               if (!username) username = String(item['username'] || item['Username'] || item['gmail'] || item['email'] || '').trim();
 
@@ -3126,8 +3446,8 @@ Schema requirements:
                 linkProfile,
                 username,
                 gmail: username,
-                urlAbsensi: '',
-                urlKelolaAkun: ''
+                urlAbsensi,
+                urlKelolaAkun
               };
             }).filter(acc => acc.username || acc.lembaga);
             setAkunList(currentAkunList);
@@ -3166,7 +3486,6 @@ Schema requirements:
         // Attempt 1: ADMIN SAPTA DATA sheet
         let targetUrl = match.urlAppScript + (match.urlAppScript.includes('?') ? '&' : '?') + 'action=read&sheetName=' + encodeURIComponent('ADMIN SAPTA DATA') + '&t=' + Date.now();
         let response = await fetch(targetUrl);
-        let success = false;
         if (response.ok) {
           const resText = await response.text();
           try {
@@ -3174,7 +3493,6 @@ Schema requirements:
             if (parsed && !parsed.error) {
               parsedJson = parsed;
               dataFetched = true;
-              success = true;
               detectedSheetName = 'ADMIN SAPTA DATA';
             }
           } catch (e) {
@@ -3182,14 +3500,13 @@ Schema requirements:
             if (parsed && parsed.length > 0) {
               parsedJson = parsed;
               dataFetched = true;
-              success = true;
               detectedSheetName = 'ADMIN SAPTA DATA';
             }
           }
         }
 
         // Attempt 2 Fallback: KELOLA AKUN sheet
-        if (!success) {
+        if (!dataFetched) {
           targetUrl = match.urlAppScript + (match.urlAppScript.includes('?') ? '&' : '?') + 'action=read&sheetName=' + encodeURIComponent('KELOLA AKUN') + '&t=' + Date.now();
           response = await fetch(targetUrl);
           if (response.ok) {
@@ -3207,6 +3524,30 @@ Schema requirements:
                 parsedJson = parsed;
                 dataFetched = true;
                 detectedSheetName = 'KELOLA AKUN';
+              }
+            }
+          }
+        }
+
+        // Attempt 3 Fallback: AKUN SAPTA sheet
+        if (!dataFetched) {
+          targetUrl = match.urlAppScript + (match.urlAppScript.includes('?') ? '&' : '?') + 'action=read&sheetName=' + encodeURIComponent('AKUN SAPTA') + '&t=' + Date.now();
+          response = await fetch(targetUrl);
+          if (response.ok) {
+            const resText = await response.text();
+            try {
+              const parsed = JSON.parse(resText);
+              if (parsed && !parsed.error) {
+                parsedJson = parsed;
+                dataFetched = true;
+                detectedSheetName = 'AKUN SAPTA';
+              }
+            } catch (e) {
+              const parsed = parseCSV(resText);
+              if (parsed && parsed.length > 0) {
+                parsedJson = parsed;
+                dataFetched = true;
+                detectedSheetName = 'AKUN SAPTA';
               }
             }
           }
@@ -3244,14 +3585,14 @@ Schema requirements:
               username = val;
             } else if (lowerK === 'pasword' || lowerK === 'password' || lowerK.includes('pass') || lowerK.includes('word')) {
               pasword = val;
+            } else if (lowerK === 'akses sapta absen' || lowerK === 'akses_sapta_absen' || lowerK === 'aksessaptaabsen' || lowerK.includes('sapta absen') || lowerK.includes('absen')) {
+              akses_sapta_absen = val;
             } else if (lowerK === 'menu' || lowerK.includes('akses') || lowerK.includes('fitur') || lowerK.includes('role')) {
               menu = val;
             } else if (lowerK === 'remove menu' || lowerK === 'remove_menu' || lowerK === 'removemenu' || lowerK.includes('hapus menu') || lowerK.includes('tidak diizinkan') || lowerK.includes('restricted')) {
               removeMenu = val;
             } else if (lowerK === 'foto profile' || lowerK === 'fotoprofile' || lowerK === 'profile' || lowerK === 'photo' || lowerK === 'foto' || lowerK.includes('foto') || lowerK.includes('profile')) {
               fotoProfile = val;
-            } else if (lowerK === 'akses sapta absen' || lowerK === 'akses_sapta_absen' || lowerK === 'aksessaptaabsen' || lowerK.includes('sapta absen') || lowerK.includes('absen')) {
-              akses_sapta_absen = val;
             }
           });
 
@@ -3462,7 +3803,6 @@ Schema requirements:
   const handleOpenAddSubAccount = () => {
     setSubAccountModalType('add');
     setEditingSubAccount(null);
-    setSubAccountPhotoMethod('url');
     setSubAccountFormValues({
       nama: '',
       username: '',
@@ -3478,8 +3818,6 @@ Schema requirements:
     setSubAccountModalType('edit');
     setEditingSubAccount(acc);
     const photoUrl = acc.fotoProfile || acc.linkProfile || '';
-    const isBase64 = String(photoUrl).startsWith('data:');
-    setSubAccountPhotoMethod(isBase64 ? 'upload' : 'url');
     
     const isAksesSaptaAbsen = acc.akses_sapta_absen === 'YA' || 
                               acc.akses_sapta_absen === 'Y' || 
@@ -3544,26 +3882,39 @@ Schema requirements:
     
     setIsSavingSubAccount(true);
     
+    const localData = {
+      nama: namaVal,
+      username: usernameVal,
+      pasword: passwordVal,
+      remove_menu: subAccountFormValues.remove_menu,
+      menu: '',
+      fotoProfile: subAccountFormValues.fotoProfile || '',
+      akses_sapta_absen: subAccountFormValues.akses_sapta_absen ? 'YA' : 'TIDAK'
+    };
+
     const payload = {
       action: subAccountModalType === 'add' ? 'add' : 'edit',
       sheetName: subAccountSheetName,
       targetId: subAccountModalType === 'edit' ? editingSubAccount.username : undefined,
       data: {
+        'Nama Lengkap': namaVal,
+        'username': usernameVal,
+        'pasword': passwordVal,
+        'remove menu': subAccountFormValues.remove_menu,
+        'Akses Aplikasi Sapta Absen': subAccountFormValues.akses_sapta_absen ? 'YA' : 'TIDAK',
+        'Foto Profile': subAccountFormValues.fotoProfile || '',
+        'edit/add by': localStorage.getItem('USER_NAMA') || localStorage.getItem('USER_USERNAME') || 'Super Admin',
         nama: namaVal,
-        username: usernameVal,
-        pasword: passwordVal,
         remove_menu: subAccountFormValues.remove_menu,
-        menu: '',
         fotoProfile: subAccountFormValues.fotoProfile || '',
-        akses_sapta_absen: subAccountFormValues.akses_sapta_absen ? 'YA' : 'TIDAK',
-        'edit/add by': localStorage.getItem('USER_NAMA') || localStorage.getItem('USER_USERNAME') || 'Super Admin'
+        akses_sapta_absen: subAccountFormValues.akses_sapta_absen ? 'YA' : 'TIDAK'
       }
     };
 
     if (subAccountModalType === 'add') {
-      setSubAccountList(prev => [...prev, payload.data]);
+      setSubAccountList(prev => [...prev, localData]);
     } else {
-      setSubAccountList(prev => prev.map(acc => acc.username === editingSubAccount.username ? payload.data : acc));
+      setSubAccountList(prev => prev.map(acc => acc.username === editingSubAccount.username ? localData : acc));
     }
 
     try {
@@ -3589,7 +3940,7 @@ Schema requirements:
       } catch (err) {}
 
       if (resJson && resJson.error) {
-        throw new Error(resJson.message || 'Error dari server Sheets.');
+        throw new Error(resJson.error || resJson.message || 'Error dari server Sheets.');
       }
 
       addToast(subAccountModalType === 'add' ? 'Akun sub-member berhasil ditambahkan!' : 'Akun sub-member berhasil disimpan!', 'success');
@@ -3644,7 +3995,7 @@ Schema requirements:
       } catch (err) {}
 
       if (resJson && resJson.error) {
-        throw new Error(resJson.message || 'Error dari server Sheets.');
+        throw new Error(resJson.error || resJson.message || 'Error dari server Sheets.');
       }
 
       addToast('Akun sub-member berhasil dihapus dari Google Sheets!', 'success');
@@ -3782,6 +4133,55 @@ Schema requirements:
     
     const logs = window.dataSdk.read('LOG NOTIFIKASI') || [];
     setNotificationList([...logs].reverse());
+
+    // Apply shared Card Design configurations for the current active Lembaga from the synchronized Google Sheet
+    const cardConfigs = window.dataSdk.read('CONFIG KARTU') || [];
+    const activeLembaga = lembagaLogin || localStorage.getItem('LEMBAGA_LOGIN') || '';
+    if (activeLembaga && cardConfigs.length > 0) {
+      const match = cardConfigs.find((c: any) => String(c.Lembaga || '').toLowerCase().trim() === activeLembaga.toLowerCase().trim());
+      if (match) {
+        const themeVal = match['Tema Warna'] || match['tema'] || 'blue';
+        if (themeVal && cetakCardTheme !== themeVal) setCetakCardTheme(themeVal as any);
+
+        const orientVal = match['Orientasi'] || match['orientasi'] || 'horizontal';
+        if (orientVal && cetakCardOrientation !== orientVal) setCetakCardOrientation(orientVal as any);
+
+        const bgFrontVal = match['Bg Depan'] || match['bgdepan'] || null;
+        if (cetakCardBgFront !== bgFrontVal) setCetakCardBgFront(bgFrontVal);
+
+        const bgBackVal = match['Bg Belakang'] || match['bgbelakang'] || null;
+        if (cetakCardBgBack !== bgBackVal) setCetakCardBgBack(bgBackVal);
+
+        const textFrontVal = match['Warna Teks Depan'] || match['warnateksdepan'] || 'white';
+        if (cetakCardTextColorFront !== textFrontVal) setCetakCardTextColorFront(textFrontVal as any);
+
+        const textBackVal = match['Warna Teks Belakang'] || match['warnateksbelakang'] || 'black';
+        if (cetakCardTextColorBack !== textBackVal) setCetakCardTextColorBack(textBackVal as any);
+
+        const hideHeaderVal = String(match['Sembunyikan Header'] || match['sembunyikanheader']) === 'true';
+        if (cetakCardHideHeader !== hideHeaderVal) setCetakCardHideHeader(hideHeaderVal);
+
+        const hideFooterVal = String(match['Sembunyikan Footer'] || match['sembunyikanfooter']) === 'true';
+        if (cetakCardHideFooter !== hideFooterVal) setCetakCardHideFooter(hideFooterVal);
+
+        const ketentuanVal = match['Ketentuan'] || match['ketentuan'];
+        if (ketentuanVal) {
+          try {
+            const parsed = JSON.parse(ketentuanVal);
+            if (Array.isArray(parsed) && JSON.stringify(cetakCardKetentuan) !== JSON.stringify(parsed)) {
+              setCetakCardKetentuan(parsed);
+            }
+          } catch (e) {
+            if (typeof ketentuanVal === 'string' && ketentuanVal.trim()) {
+              const splitted = ketentuanVal.split('|');
+              if (JSON.stringify(cetakCardKetentuan) !== JSON.stringify(splitted)) {
+                setCetakCardKetentuan(splitted);
+              }
+            }
+          }
+        }
+      }
+    }
   };
 
   useEffect(() => {
@@ -4095,6 +4495,22 @@ Schema requirements:
 
   const removeToast = (id: string) => {
     setToastList((prev) => prev.filter((t) => t.id !== id));
+  };
+
+  const checkFileConstraints = (file: File, isPhoto: boolean): boolean => {
+    const sizeInMB = file.size / (1024 * 1024);
+    if (isPhoto) {
+      if (sizeInMB > 1) {
+        addToast(`Gagal: Ukuran foto "${file.name}" melebihi batas maksimal 1MB. (Ukuran: ${sizeInMB.toFixed(2)}MB)`, 'error');
+        return false;
+      }
+    } else {
+      if (sizeInMB > 5) {
+        addToast(`Gagal: Ukuran file "${file.name}" melebihi batas maksimal 5MB. (Ukuran: ${sizeInMB.toFixed(2)}MB)`, 'error');
+        return false;
+      }
+    }
+    return true;
   };
 
   // --- SYNC FROM GOOGLE APPS SCRIPT WEB APP (DATA ANGGOTA) ---
@@ -4583,7 +4999,7 @@ Schema requirements:
           { name: 'tanggal', label: 'Tanggal Surat', type: 'date', required: true },
           { name: 'nia', label: 'Pilih Anggota Terkait', type: 'dropdown-search', required: true },
           { name: 'perihal', label: 'Perihal Surat', type: 'textarea', required: true, placeholder: 'Keterangan perihal surat, contoh: Pemanggilan atas pelanggaran tingkat berat...' },
-          { name: 'linkGoogleDoc', label: 'Link Dokumen', type: 'text', required: true, placeholder: 'https://docs.google.com/document/d/...' }
+          { name: 'linkGoogleDoc', label: 'UPLOAD FILE .pdf, .doc, .docx, .xls, .xlsx, .csv, .ppt, .pptx, .txt DENGAN MAXIMAL UKURAN FILE 5MB', type: 'text', required: true }
         ]
       },
       peraturan: {
@@ -4668,6 +5084,8 @@ Schema requirements:
       initialVals.tanggal = today;
       initialVals.perihal = '';
       initialVals.linkGoogleDoc = '';
+      initialVals.namaFileSurat = '';
+      initialVals.tipeFileSurat = '';
     } else if (tab === 'peraturan') {
       initialVals.status = 'Ringan';
       initialVals.judul = '';
@@ -4797,6 +5215,112 @@ Schema requirements:
         addToast('Harap isi minimal 1 item pembayaran!', 'error');
         setIsSubmitting(false);
         return;
+      }
+    }
+
+    // --- DUPLICATE PREVENTION CHECK ---
+    if (modalType === 'add') {
+      if (modalTargetTab === 'anggota') {
+        const inputNia = String(formValues.nia || '').trim();
+        const exists = anggotaList.some(item => String(item.nia || '').trim().toLowerCase() === inputNia.toLowerCase());
+        if (exists) {
+          addToast(`No.Induk/NISN/NIA "${inputNia}" sudah terdaftar dalam sistem!`, 'error');
+          setIsSubmitting(false);
+          return;
+        }
+      } else if (modalTargetTab === 'absensi') {
+        const inputNia = String(formValues.nia || '').trim();
+        const inputTanggal = String(formValues.tanggal || '').trim();
+        const inputKegiatan = String(formValues.jenisKegiatan || '').trim();
+        const exists = absensiList.some(item => 
+          String(item.nia || '').trim().toLowerCase() === inputNia.toLowerCase() &&
+          String(item.tanggal || '').trim() === inputTanggal &&
+          String(item.jenisKegiatan || '').trim().toLowerCase() === inputKegiatan.toLowerCase()
+        );
+        if (exists) {
+          addToast(`Data absensi untuk anggota "${inputNia}" pada tanggal dan kegiatan ini sudah ada!`, 'error');
+          setIsSubmitting(false);
+          return;
+        }
+      } else if (modalTargetTab === 'peraturan') {
+        const inputJudul = String(formValues.judul || '').trim();
+        const exists = peraturanList.some(item => String(item.judul || '').trim().toLowerCase() === inputJudul.toLowerCase());
+        if (exists) {
+          addToast(`Peraturan dengan judul "${inputJudul}" sudah terdaftar!`, 'error');
+          setIsSubmitting(false);
+          return;
+        }
+      } else if (modalTargetTab === 'banner') {
+        const inputJudul = String(formValues.judul || '').trim();
+        const exists = bannerList.some(item => String(item.judul || '').trim().toLowerCase() === inputJudul.toLowerCase());
+        if (exists) {
+          addToast(`Banner dengan judul "${inputJudul}" sudah terdaftar!`, 'error');
+          setIsSubmitting(false);
+          return;
+        }
+      } else if (modalTargetTab === 'informasi') {
+        const inputJudul = String(formValues.judul || '').trim();
+        const exists = informasiList.some(item => String(item.judul || '').trim().toLowerCase() === inputJudul.toLowerCase());
+        if (exists) {
+          addToast(`Informasi dengan judul "${inputJudul}" sudah terdaftar!`, 'error');
+          setIsSubmitting(false);
+          return;
+        }
+      } else if (modalTargetTab === 'informasi_admin') {
+        const inputJudul = String(formValues.judul || '').trim();
+        const exists = informasiAdminList.some(item => String(item.judul || '').trim().toLowerCase() === inputJudul.toLowerCase());
+        if (exists) {
+          addToast(`Informasi Admin dengan judul "${inputJudul}" sudah terdaftar!`, 'error');
+          setIsSubmitting(false);
+          return;
+        }
+      } else if (modalTargetTab === 'pengumuman') {
+        const inputJudul = String(formValues.judul || '').trim();
+        const exists = pengumumanList.some(item => String(item.judul || '').trim().toLowerCase() === inputJudul.toLowerCase());
+        if (exists) {
+          addToast(`Pengumuman dengan judul "${inputJudul}" sudah terdaftar!`, 'error');
+          setIsSubmitting(false);
+          return;
+        }
+      } else if (modalTargetTab === 'prestasi') {
+        const inputNia = String(formValues.nia || '').trim();
+        const inputJenis = String(formValues.jenisPrestasi || '').trim();
+        const exists = prestasiList.some(item => 
+          String(item.nia || '').trim().toLowerCase() === inputNia.toLowerCase() &&
+          String(item.jenisPrestasi || '').trim().toLowerCase() === inputJenis.toLowerCase()
+        );
+        if (exists) {
+          addToast(`Prestasi "${inputJenis}" untuk anggota "${inputNia}" sudah terdaftar!`, 'error');
+          setIsSubmitting(false);
+          return;
+        }
+      } else if (modalTargetTab === 'pelanggaran') {
+        const inputNia = String(formValues.nia || '').trim();
+        const inputNamaPelanggaran = String(formValues.namaPelanggaran || '').trim();
+        const inputTanggal = String(formValues.tanggal || '').trim();
+        const exists = pelanggaranList.some(item => 
+          String(item.nia || '').trim().toLowerCase() === inputNia.toLowerCase() &&
+          String(item.namaPelanggaran || '').trim().toLowerCase() === inputNamaPelanggaran.toLowerCase() &&
+          String(item.tanggal || '').trim() === inputTanggal
+        );
+        if (exists) {
+          addToast(`Pelanggaran "${inputNamaPelanggaran}" untuk anggota "${inputNia}" pada tanggal tersebut sudah terdaftar!`, 'error');
+          setIsSubmitting(false);
+          return;
+        }
+      } else if (modalTargetTab === 'pembayaran') {
+        const inputNia = String(formValues.nia || '').trim();
+        if (inputNia !== 'ALL_MEMBERS') {
+          const existingNiaPays = pembayaranList.filter(item => String(item.nia || '').trim().toLowerCase() === inputNia.toLowerCase());
+          for (const payItem of validItems) {
+            const exists = existingNiaPays.some(item => String(item.namaTagihan || '').trim().toLowerCase() === String(payItem.namaTagihan || '').trim().toLowerCase());
+            if (exists) {
+              addToast(`Tagihan "${payItem.namaTagihan}" untuk anggota "${inputNia}" sudah terdaftar!`, 'error');
+              setIsSubmitting(false);
+              return;
+            }
+          }
+        }
       }
     }
     
@@ -5030,7 +5554,8 @@ Schema requirements:
               action: modalType === 'add' ? 'add' : 'edit',
               sheetName: sheetName,
               data: item.data,
-              targetId: item.targetId
+              targetId: item.targetId,
+              lembaga: lembagaLogin || ''
             };
 
             await fetch(endpoint, {
@@ -5045,7 +5570,7 @@ Schema requirements:
         // Automatically fetch latest data from Google Sheets to completely sync up
         syncDataFromCloudUrls();
       } catch (cloudErr) {
-        console.error("Gagal sinkronisasi data ke cloud Google Apps Script:", cloudErr);
+        console.warn("Sinkronisasi data ke cloud Google Apps Script ditunda/gagal (ini normal jika URL belum diatur atau offline):", cloudErr);
       }
     };
 
@@ -5128,6 +5653,16 @@ Schema requirements:
     }
 
     const targetId = getRowPrimaryKey(tab, row);
+
+    // Google Drive file deletion if present
+    let urlToDelete = '';
+    if (tab === 'anggota') urlToDelete = row.linkProfile || '';
+    else if (tab === 'banner') urlToDelete = row.linkFoto || '';
+    else if (tab === 'prestasi') urlToDelete = row.linkFoto || '';
+    else if (tab === 'pengumuman') urlToDelete = row.linkFile || '';
+    if (urlToDelete) {
+      tryDeleteDriveFile(urlToDelete, appsScriptUrl);
+    }
 
     // 1. Local Delete with try-catch
     try {
@@ -8799,25 +9334,38 @@ Schema requirements:
                               <td className="py-4 px-6">
                                 {row.linkGoogleDoc ? (
                                   <div className="flex items-center space-x-1.5" onClick={(e) => e.stopPropagation()}>
-                                    <a
-                                      href={row.linkGoogleDoc}
-                                      target="_blank"
-                                      rel="noreferrer"
-                                      className="inline-flex items-center space-x-1 bg-sky-50 text-sky-700 hover:bg-sky-100 border border-sky-100/60 px-2.5 py-1 rounded-lg text-[10.5px] font-bold tracking-wide transition"
-                                    >
-                                      <span>Buka Dokumen</span>
-                                      <span className="text-[10px]">↗</span>
-                                    </a>
-                                    <button
-                                      onClick={() => {
-                                        navigator.clipboard.writeText(row.linkGoogleDoc);
-                                        addToast('Tautan disalin ke papan klip!', 'success');
-                                      }}
-                                      className="p-1 rounded bg-slate-100 text-slate-600 hover:bg-slate-200 transition cursor-pointer text-[10.5px] font-bold px-2 py-1 border border-slate-200 inline"
-                                      title="Salin Tautan Dokumen"
-                                    >
-                                      Salin
-                                    </button>
+                                    {String(row.linkGoogleDoc).startsWith('data:') ? (
+                                      <a
+                                        href={row.linkGoogleDoc}
+                                        download={row.namaFileSurat || `surat-${row.idSurat}`}
+                                        className="inline-flex items-center space-x-1 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-100/60 px-2.5 py-1 rounded-lg text-[10.5px] font-bold tracking-wide transition"
+                                      >
+                                        <span>Unduh File</span>
+                                        <span className="text-[10px]">↓</span>
+                                      </a>
+                                    ) : (
+                                      <a
+                                        href={row.linkGoogleDoc}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="inline-flex items-center space-x-1 bg-sky-50 text-sky-700 hover:bg-sky-100 border border-sky-100/60 px-2.5 py-1 rounded-lg text-[10.5px] font-bold tracking-wide transition"
+                                      >
+                                        <span>Buka Dokumen</span>
+                                        <span className="text-[10px]">↗</span>
+                                      </a>
+                                    )}
+                                    {!String(row.linkGoogleDoc).startsWith('data:') && (
+                                      <button
+                                        onClick={() => {
+                                          navigator.clipboard.writeText(row.linkGoogleDoc);
+                                          addToast('Tautan disalin ke papan klip!', 'success');
+                                        }}
+                                        className="p-1 rounded bg-slate-100 text-slate-600 hover:bg-slate-200 transition cursor-pointer text-[10.5px] font-bold px-2 py-1 border border-slate-200 inline"
+                                        title="Salin Tautan Dokumen"
+                                      >
+                                        Salin
+                                      </button>
+                                    )}
                                   </div>
                                 ) : (
                                   <span className="text-slate-300 italic text-[11px]">Belum diisi</span>
@@ -9704,11 +10252,17 @@ Schema requirements:
                         {(cetakCardBgFront || cetakCardBgBack) && (
                           <button
                             type="button"
-                            onClick={() => {
+                            onClick={async () => {
+                              const oldFront = cetakCardBgFront;
+                              const oldBack = cetakCardBgBack;
                               setCetakCardBgFront(null);
                               setCetakCardBgBack(null);
                               setCetakCardTextColorFront('white');
                               setCetakCardTextColorBack('black');
+                              addToast('Menghapus file background dari Google Drive...', 'info');
+                              if (oldFront) await handleDeleteDriveFile(oldFront);
+                              if (oldBack) await handleDeleteDriveFile(oldBack);
+                              await saveCardConfigToCloud(null, null);
                             }}
                             className="text-[9px] text-rose-600 hover:underline font-bold cursor-pointer"
                           >
@@ -9727,26 +10281,57 @@ Schema requirements:
                                 <img src={cetakCardBgFront} className="w-full h-full object-cover" />
                                 <button
                                   type="button"
-                                  onClick={() => setCetakCardBgFront(null)}
+                                  onClick={async () => {
+                                    const oldFront = cetakCardBgFront;
+                                    setCetakCardBgFront(null);
+                                    addToast('Menghapus background depan dari Google Drive...', 'info');
+                                    if (oldFront) await handleDeleteDriveFile(oldFront);
+                                    await saveCardConfigToCloud(null, undefined);
+                                  }}
                                   className="absolute inset-0 bg-black/70 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white text-[8px] font-bold cursor-pointer"
                                 >
                                   Hapus
                                 </button>
                               </div>
                             )}
-                            <label className="flex-1 border border-dashed border-slate-300 hover:border-indigo-500 bg-slate-50 hover:bg-indigo-50/20 p-2.5 rounded-lg text-center cursor-pointer transition text-[10px] font-bold text-slate-600 block leading-none">
-                              <span>📁 Unggah Gambar</span>
+                            <label className={`flex-1 border border-dashed border-slate-300 hover:border-indigo-500 bg-slate-50 hover:bg-indigo-50/20 p-2.5 rounded-lg text-center cursor-pointer transition text-[10px] font-bold text-slate-600 block leading-none ${isUploadingBgFront ? 'opacity-50 pointer-events-none' : ''}`}>
+                              <span>{isUploadingBgFront ? '⏳ Mengunggah...' : '📁 Unggah Gambar'}</span>
                               <input
                                 type="file"
                                 accept="image/*"
                                 className="hidden"
+                                disabled={isUploadingBgFront}
                                 onChange={(e) => {
                                   const file = e.target.files?.[0];
                                   if (file) {
+                                    if (!checkFileConstraints(file, true)) return;
+                                    setIsUploadingBgFront(true);
+                                    addToast('Membaca file...', 'info');
                                     const r = new FileReader();
-                                    r.onload = (ev) => {
-                                      if (ev.target?.result) {
-                                        setCetakCardBgFront(ev.target.result as string);
+                                    r.onload = async (ev) => {
+                                      try {
+                                        const base64 = ev.target?.result as string;
+                                        if (!base64) {
+                                          addToast('Gagal membaca file.', 'error');
+                                          setIsUploadingBgFront(false);
+                                          return;
+                                        }
+                                        addToast('Sedang mengunggah background depan ke Google Drive...', 'info');
+                                        const driveUrl = await uploadFileToGoogleDrive(
+                                          base64,
+                                          file.name,
+                                          undefined,
+                                          lembagaLogin || '',
+                                          'KARTU IDENTITAS'
+                                        );
+                                        setCetakCardBgFront(driveUrl);
+                                        addToast('Berhasil mengunggah background depan ke Google Drive!', 'success');
+                                        await saveCardConfigToCloud(driveUrl, undefined);
+                                      } catch (err: any) {
+                                        console.error(err);
+                                        addToast('Gagal mengunggah ke Google Drive: ' + (err.message || String(err)), 'error');
+                                      } finally {
+                                        setIsUploadingBgFront(false);
                                       }
                                     };
                                     r.readAsDataURL(file);
@@ -9766,26 +10351,57 @@ Schema requirements:
                                 <img src={cetakCardBgBack} className="w-full h-full object-cover" />
                                 <button
                                   type="button"
-                                  onClick={() => setCetakCardBgBack(null)}
+                                  onClick={async () => {
+                                    const oldBack = cetakCardBgBack;
+                                    setCetakCardBgBack(null);
+                                    addToast('Menghapus background belakang dari Google Drive...', 'info');
+                                    if (oldBack) await handleDeleteDriveFile(oldBack);
+                                    await saveCardConfigToCloud(undefined, null);
+                                  }}
                                   className="absolute inset-0 bg-black/70 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white text-[8px] font-bold cursor-pointer"
                                 >
                                   Hapus
                                 </button>
                               </div>
                             )}
-                            <label className="flex-1 border border-dashed border-slate-300 hover:border-indigo-500 bg-slate-50 hover:bg-indigo-50/20 p-2.5 rounded-lg text-center cursor-pointer transition text-[10px] font-bold text-slate-600 block leading-none">
-                              <span>📁 Unggah Gambar</span>
+                            <label className={`flex-1 border border-dashed border-slate-300 hover:border-indigo-500 bg-slate-50 hover:bg-indigo-50/20 p-2.5 rounded-lg text-center cursor-pointer transition text-[10px] font-bold text-slate-600 block leading-none ${isUploadingBgBack ? 'opacity-50 pointer-events-none' : ''}`}>
+                              <span>{isUploadingBgBack ? '⏳ Mengunggah...' : '📁 Unggah Gambar'}</span>
                               <input
                                 type="file"
                                 accept="image/*"
                                 className="hidden"
+                                disabled={isUploadingBgBack}
                                 onChange={(e) => {
                                   const file = e.target.files?.[0];
                                   if (file) {
+                                    if (!checkFileConstraints(file, true)) return;
+                                    setIsUploadingBgBack(true);
+                                    addToast('Membaca file...', 'info');
                                     const r = new FileReader();
-                                    r.onload = (ev) => {
-                                      if (ev.target?.result) {
-                                        setCetakCardBgBack(ev.target.result as string);
+                                    r.onload = async (ev) => {
+                                      try {
+                                        const base64 = ev.target?.result as string;
+                                        if (!base64) {
+                                          addToast('Gagal membaca file.', 'error');
+                                          setIsUploadingBgBack(false);
+                                          return;
+                                        }
+                                        addToast('Sedang mengunggah background belakang ke Google Drive...', 'info');
+                                        const driveUrl = await uploadFileToGoogleDrive(
+                                          base64,
+                                          file.name,
+                                          undefined,
+                                          lembagaLogin || '',
+                                          'KARTU IDENTITAS'
+                                        );
+                                        setCetakCardBgBack(driveUrl);
+                                        addToast('Berhasil mengunggah background belakang ke Google Drive!', 'success');
+                                        await saveCardConfigToCloud(undefined, driveUrl);
+                                      } catch (err: any) {
+                                        console.error(err);
+                                        addToast('Gagal mengunggah ke Google Drive: ' + (err.message || String(err)), 'error');
+                                      } finally {
+                                        setIsUploadingBgBack(false);
                                       }
                                     };
                                     r.readAsDataURL(file);
@@ -9870,6 +10486,23 @@ Schema requirements:
                           >
                             <span>{cetakCardHideFooter ? '❌ Sembunyikan Kontak Bawah' : '👁️ Tampilkan Kontak Bawah'}</span>
                           </button>
+                        </div>
+
+                        {/* Save card configuration to cloud */}
+                        <div className="pt-3 border-t border-slate-200/50 flex flex-col">
+                          <button
+                            type="button"
+                            disabled={isSavingCardConfig}
+                            onClick={() => saveCardConfigToCloud()}
+                            className={`w-full py-2 px-3 rounded-lg text-white font-extrabold text-[10.5px] uppercase tracking-wider shadow-sm transition flex items-center justify-center space-x-2 cursor-pointer ${
+                              isSavingCardConfig ? 'bg-indigo-400 cursor-not-allowed' : 'bg-indigo-650 hover:bg-indigo-750'
+                            }`}
+                          >
+                            <span>{isSavingCardConfig ? '⏳ Menyimpan ke Cloud...' : '💾 Simpan Desain untuk Semua Admin'}</span>
+                          </button>
+                          <span className="text-[9px] text-slate-500 text-center mt-1">
+                            Menyimpan desain agar seragam untuk semua akun admin dalam lembaga Anda.
+                          </span>
                         </div>
                       </div>
                     </div>
@@ -10113,6 +10746,11 @@ Schema requirements:
                                             const endpoint = appsScriptUrl || localStorage.getItem('LINK_SCRIPT_UTAMA') || '';
                                             if (!endpoint) throw new Error('Script URL Utama kosong.');
 
+                                            // Trigger Google Drive deletion if present
+                                            if (acc.fotoProfile) {
+                                              tryDeleteDriveFile(acc.fotoProfile, endpoint);
+                                            }
+
                                             const targetUrl = endpoint;
                                             const response = await fetch(targetUrl, {
                                               method: 'POST',
@@ -10238,30 +10876,6 @@ Schema requirements:
                     <label className="block text-xs font-black text-slate-700 uppercase tracking-wider">
                       FOTO PROFILE
                     </label>
-                    <div className="flex space-x-2 p-0.5 bg-slate-100 rounded-lg w-fit">
-                      <button
-                        type="button"
-                        onClick={() => setSubAccountPhotoMethod('url')}
-                        className={`px-3 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider transition cursor-pointer ${
-                          subAccountPhotoMethod === 'url'
-                            ? 'bg-white text-indigo-600 shadow-sm'
-                            : 'text-slate-500 hover:text-slate-700'
-                        }`}
-                      >
-                        Tautan URL
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setSubAccountPhotoMethod('upload')}
-                        className={`px-3 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider transition cursor-pointer ${
-                          subAccountPhotoMethod === 'upload'
-                            ? 'bg-white text-indigo-600 shadow-sm'
-                            : 'text-slate-500 hover:text-slate-700'
-                        }`}
-                      >
-                        Unggah File
-                      </button>
-                    </div>
 
                     <div className="flex items-center space-x-3 pt-1">
                       {subAccountFormValues.fotoProfile ? (
@@ -10287,42 +10901,40 @@ Schema requirements:
                         </div>
                       )}
 
-                      {subAccountPhotoMethod === 'url' ? (
-                        <input
-                          type="text"
-                          placeholder="https://contoh.com/foto.jpg"
-                          value={subAccountFormValues.fotoProfile}
-                          onChange={(e) => setSubAccountFormValues(prev => ({ ...prev, fotoProfile: e.target.value }))}
-                          className="flex-1 px-3.5 py-2 border border-slate-200 rounded-lg text-xs font-mono outline-none focus:border-indigo-500 bg-slate-50/50 text-slate-850"
-                        />
-                      ) : (
-                        <label className="flex-1 border border-dashed border-slate-300 hover:border-indigo-500 bg-slate-50 hover:bg-indigo-50/20 px-3.5 py-2 rounded-lg text-center cursor-pointer transition text-xs font-bold text-slate-600 block leading-none">
-                          <span className="flex items-center justify-center space-x-1">
-                            <span>📁 Pilih File JPEG/JPG/PNG</span>
-                          </span>
-                          <input
-                            type="file"
-                            accept="image/jpeg,image/jpg,image/png"
-                            className="hidden"
-                            onChange={(e) => {
-                              const file = e.target.files?.[0];
-                              if (file) {
-                                if (!['image/jpeg', 'image/jpg', 'image/png'].includes(file.type)) {
-                                  addToast('Hanya mendukung file JPEG, JPG, atau PNG.', 'error');
-                                  return;
-                                }
-                                const r = new FileReader();
-                                r.onload = (ev) => {
-                                  if (ev.target?.result) {
-                                    setSubAccountFormValues(prev => ({ ...prev, fotoProfile: ev.target.result as string }));
+                      <div className="flex-1 flex flex-col space-y-2">
+                        <div className="flex gap-2">
+                          <label className="flex-1 border border-dashed border-slate-300 hover:border-indigo-500 bg-slate-50 hover:bg-indigo-50/20 px-3 py-2.5 rounded-lg text-center cursor-pointer transition text-[11px] font-bold text-slate-600 block leading-none">
+                            <span className="flex items-center justify-center space-x-1">
+                              <span>📁 Pilih File Foto (PNG, JPG, HEIC/HEIF)</span>
+                            </span>
+                            <input
+                              type="file"
+                              accept="image/jpeg,image/jpg,image/png,image/heic,image/heif,.heic,.heif"
+                              className="hidden"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) {
+                                  const ext = file.name.split('.').pop()?.toLowerCase() || '';
+                                  const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/heic', 'image/heif'];
+                                  const allowedExts = ['jpeg', 'jpg', 'png', 'heic', 'heif'];
+                                  if (!allowedTypes.includes(file.type) && !allowedExts.includes(ext)) {
+                                    addToast('Hanya mendukung file PNG, JPG, JPEG, atau HEIC/HEIF.', 'error');
+                                    return;
                                   }
-                                };
-                                r.readAsDataURL(file);
-                              }
-                            }}
-                          />
-                        </label>
-                      )}
+                                  if (!checkFileConstraints(file, true)) return;
+                                  const r = new FileReader();
+                                  r.onload = (ev) => {
+                                    if (ev.target?.result) {
+                                      setSubAccountFormValues(prev => ({ ...prev, fotoProfile: ev.target.result as string }));
+                                    }
+                                  };
+                                  r.readAsDataURL(file);
+                                }
+                              }}
+                            />
+                          </label>
+                        </div>
+                      </div>
                     </div>
                   </div>
 
@@ -10870,13 +11482,19 @@ Schema requirements:
                           {(cetakCardBgFront || cetakCardBgBack) && (
                             <button
                               type="button"
-                              onClick={() => {
+                              onClick={async () => {
+                                const oldFront = cetakCardBgFront;
+                                const oldBack = cetakCardBgBack;
                                 setCetakCardBgFront(null);
                                 setCetakCardBgBack(null);
                                 setCetakCardTextColorFront('white');
                                 setCetakCardTextColorBack('black');
                                 setCetakCardHideHeader(false);
                                 setCetakCardHideFooter(false);
+                                addToast('Menghapus file background dari Google Drive...', 'info');
+                                if (oldFront) await handleDeleteDriveFile(oldFront);
+                                if (oldBack) await handleDeleteDriveFile(oldBack);
+                                await saveCardConfigToCloud(null, null);
                               }}
                               className="text-[9px] text-rose-600 hover:underline font-bold cursor-pointer"
                             >
@@ -10894,25 +11512,58 @@ Schema requirements:
                                 <img src={cetakCardBgFront} className="w-full h-full object-cover animate-fade-in" />
                                 <button
                                   type="button"
-                                  onClick={() => setCetakCardBgFront(null)}
+                                  onClick={async () => {
+                                    const oldFront = cetakCardBgFront;
+                                    setCetakCardBgFront(null);
+                                    addToast('Menghapus background depan dari Google Drive...', 'info');
+                                    if (oldFront) await handleDeleteDriveFile(oldFront);
+                                    await saveCardConfigToCloud(null, undefined);
+                                  }}
                                   className="absolute inset-0 bg-black/70 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white text-[8px] font-bold cursor-pointer"
                                 >
                                   Hapus
                                 </button>
                               </div>
                             ) : null}
-                            <label className="flex-1 border border-dashed border-slate-300 hover:border-indigo-500 bg-slate-50 hover:bg-indigo-50/20 p-2.5 rounded-lg text-center cursor-pointer transition text-[10px] font-bold text-slate-600 block leading-none">
-                              <span>📁 Pilih File Gambar</span>
+                            <label className={`flex-1 border border-dashed border-slate-300 hover:border-indigo-500 bg-slate-50 hover:bg-indigo-50/20 p-2.5 rounded-lg text-center cursor-pointer transition text-[10px] font-bold text-slate-600 block leading-none ${isUploadingBgFront ? 'opacity-50 pointer-events-none' : ''}`}>
+                              <span>{isUploadingBgFront ? '⏳ Mengunggah...' : '📁 Pilih File Gambar'}</span>
                               <input
                                 type="file"
                                 accept="image/*"
                                 className="hidden"
+                                disabled={isUploadingBgFront}
                                 onChange={(e) => {
                                   const file = e.target.files?.[0];
                                   if (file) {
+                                    if (!checkFileConstraints(file, true)) return;
+                                    setIsUploadingBgFront(true);
+                                    addToast('Membaca file...', 'info');
                                     const reader = new FileReader();
-                                    reader.onload = (reEv) => {
-                                      setCetakCardBgFront(reEv.target?.result as string);
+                                    reader.onload = async (reEv) => {
+                                      try {
+                                        const base64 = reEv.target?.result as string;
+                                        if (!base64) {
+                                          addToast('Gagal membaca file.', 'error');
+                                          setIsUploadingBgFront(false);
+                                          return;
+                                        }
+                                        addToast('Sedang mengunggah background depan ke Google Drive...', 'info');
+                                        const driveUrl = await uploadFileToGoogleDrive(
+                                          base64,
+                                          file.name,
+                                          undefined,
+                                          lembagaLogin || '',
+                                          'KARTU IDENTITAS'
+                                        );
+                                        setCetakCardBgFront(driveUrl);
+                                        addToast('Berhasil mengunggah background depan ke Google Drive!', 'success');
+                                        await saveCardConfigToCloud(driveUrl, undefined);
+                                      } catch (err: any) {
+                                        console.error(err);
+                                        addToast('Gagal mengunggah ke Google Drive: ' + (err.message || String(err)), 'error');
+                                      } finally {
+                                        setIsUploadingBgFront(false);
+                                      }
                                     };
                                     reader.readAsDataURL(file);
                                   }
@@ -10931,25 +11582,58 @@ Schema requirements:
                                 <img src={cetakCardBgBack} className="w-full h-full object-cover animate-fade-in" />
                                 <button
                                   type="button"
-                                  onClick={() => setCetakCardBgBack(null)}
+                                  onClick={async () => {
+                                    const oldBack = cetakCardBgBack;
+                                    setCetakCardBgBack(null);
+                                    addToast('Menghapus background belakang dari Google Drive...', 'info');
+                                    if (oldBack) await handleDeleteDriveFile(oldBack);
+                                    await saveCardConfigToCloud(undefined, null);
+                                  }}
                                   className="absolute inset-0 bg-black/70 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white text-[8px] font-bold cursor-pointer"
                                 >
                                   Hapus
                                 </button>
                               </div>
                             ) : null}
-                            <label className="flex-1 border border-dashed border-slate-300 hover:border-indigo-500 bg-slate-50 hover:bg-indigo-50/20 p-2.5 rounded-lg text-center cursor-pointer transition text-[10px] font-bold text-slate-600 block leading-none">
-                              <span>📁 Pilih File Gambar</span>
+                            <label className={`flex-1 border border-dashed border-slate-300 hover:border-indigo-500 bg-slate-50 hover:bg-indigo-50/20 p-2.5 rounded-lg text-center cursor-pointer transition text-[10px] font-bold text-slate-600 block leading-none ${isUploadingBgBack ? 'opacity-50 pointer-events-none' : ''}`}>
+                              <span>{isUploadingBgBack ? '⏳ Mengunggah...' : '📁 Pilih File Gambar'}</span>
                               <input
                                 type="file"
                                 accept="image/*"
                                 className="hidden"
+                                disabled={isUploadingBgBack}
                                 onChange={(e) => {
                                   const file = e.target.files?.[0];
                                   if (file) {
+                                    if (!checkFileConstraints(file, true)) return;
+                                    setIsUploadingBgBack(true);
+                                    addToast('Membaca file...', 'info');
                                     const reader = new FileReader();
-                                    reader.onload = (reEv) => {
-                                      setCetakCardBgBack(reEv.target?.result as string);
+                                    reader.onload = async (reEv) => {
+                                      try {
+                                        const base64 = reEv.target?.result as string;
+                                        if (!base64) {
+                                          addToast('Gagal membaca file.', 'error');
+                                          setIsUploadingBgBack(false);
+                                          return;
+                                        }
+                                        addToast('Sedang mengunggah background belakang ke Google Drive...', 'info');
+                                        const driveUrl = await uploadFileToGoogleDrive(
+                                          base64,
+                                          file.name,
+                                          undefined,
+                                          lembagaLogin || '',
+                                          'KARTU IDENTITAS'
+                                        );
+                                        setCetakCardBgBack(driveUrl);
+                                        addToast('Berhasil mengunggah background belakang ke Google Drive!', 'success');
+                                        await saveCardConfigToCloud(undefined, driveUrl);
+                                      } catch (err: any) {
+                                        console.error(err);
+                                        addToast('Gagal mengunggah ke Google Drive: ' + (err.message || String(err)), 'error');
+                                      } finally {
+                                        setIsUploadingBgBack(false);
+                                      }
                                     };
                                     reader.readAsDataURL(file);
                                   }
@@ -11035,7 +11719,16 @@ Schema requirements:
                         )}
                       </div>
 
-                      <div className="pt-2 border-t">
+                      <div className="pt-2 border-t space-y-2">
+                        <button
+                          type="button"
+                          disabled={isSavingCardConfig}
+                          onClick={() => saveCardConfigToCloud()}
+                          className={`w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition flex items-center justify-center space-x-1.5 disabled:opacity-50 cursor-pointer shadow-md hover:-translate-y-0.5 active:translate-y-0`}
+                        >
+                          <span>{isSavingCardConfig ? '⏳ Menyimpan Desain...' : '💾 Simpan Desain untuk Semua Admin'}</span>
+                        </button>
+
                         <button
                           onClick={() => executeDeviceSavePdf('area-kartu-identitas')}
                           disabled={!selectedAnggota}
@@ -12122,6 +12815,7 @@ Schema requirements:
                         field.name === 'linkProfile' || 
                         field.name === 'linkFoto' || 
                         field.name === 'alamat' ||
+                        field.name === 'linkGoogleDoc' ||
                         (field.type === 'dropdown-search' && modalType === 'add' && ['pembayaran', 'prestasi', 'pelanggaran', 'surat'].includes(modalTargetTab))
                           ? 'md:col-span-2' 
                           : ''
@@ -12330,67 +13024,48 @@ Schema requirements:
                         )
                       ) : modalTargetTab === 'prestasi' && field.name === 'linkFoto' ? (
                         <div className="space-y-3 bg-slate-50 p-4 rounded-xl border border-slate-200">
-                          <div className="flex items-center space-x-4">
-                            <span className="text-xs font-bold text-slate-500 uppercase tracking-wide">Sumber Foto Piagam:</span>
-                            <label className="flex items-center space-x-2 text-xs font-semibold text-slate-700 cursor-pointer">
-                              <input
-                                type="radio"
-                                name="prestasiImageSource"
-                                checked={prestasiUploadMethod === 'url'}
-                                onChange={() => {
-                                  setPrestasiUploadMethod('url');
-                                  setFormValues(prev => ({ ...prev, linkFoto: '' }));
-                                }}
-                                className="text-indigo-600 focus:ring-indigo-500 h-3.5 w-3.5 cursor-pointer"
-                              />
-                              <span>Gunakan URL Link</span>
-                            </label>
-                            <label className="flex items-center space-x-2 text-xs font-semibold text-slate-700 cursor-pointer">
-                              <input
-                                type="radio"
-                                name="prestasiImageSource"
-                                checked={prestasiUploadMethod === 'upload'}
-                                onChange={() => {
-                                  setPrestasiUploadMethod('upload');
-                                  setFormValues(prev => ({ ...prev, linkFoto: '' }));
-                                }}
-                                className="text-indigo-600 focus:ring-indigo-500 h-3.5 w-3.5 cursor-pointer"
-                              />
-                              <span>Upload File Foto</span>
-                            </label>
-                          </div>
+                          <span className="block text-xs font-black text-slate-700 uppercase tracking-wider">
+                            Foto Piagam Prestasi
+                          </span>
 
-                          {prestasiUploadMethod === 'url' ? (
-                            <input
-                              type="text"
-                              placeholder="https://images.unsplash.com/... atau link foto piagam"
-                              required={field.required}
-                              disabled={isFieldDisabled}
-                              value={formValues.linkFoto || ''}
-                              onChange={(e) => setFormValues(prev => ({ ...prev, linkFoto: e.target.value }))}
-                              className={`w-full px-4 py-2.5 text-xs rounded-xl border focus:outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all ${
-                                isFieldDisabled
-                                  ? 'bg-[#f1f5f9] border-[#e2e8f0] text-[#64748b] cursor-not-allowed font-mono'
-                                  : 'bg-white border-[#cbd5e1] text-[#0f172a] focus:bg-white'
-                              }`}
-                            />
-                          ) : (
-                            <div className="space-y-3">
-                              <div className="flex items-center space-x-3">
-                                {formValues.linkFoto && formValues.linkFoto.trim() !== '' && (
-                                  <div className="w-16 h-10 rounded border border-slate-200 overflow-hidden shrink-0 bg-white">
-                                    <img src={formValues.linkFoto} alt="Preview" className="w-full h-full object-cover" />
-                                  </div>
-                                )}
-                                <label className="flex-1 border border-dashed border-slate-300 hover:border-indigo-500 bg-white hover:bg-indigo-50/10 p-3 rounded-xl text-center cursor-pointer transition text-xs font-bold text-slate-600 block">
-                                  <span>📁 {formValues.linkFoto ? 'Ubah File Gambar' : 'Pilih File Gambar (PNG, JPG, dll)'}</span>
+                          <div className="flex items-center space-x-3 pt-1">
+                            {formValues.linkFoto ? (
+                              <div className="relative group shrink-0 w-12 h-12 rounded-lg border border-slate-300 overflow-hidden bg-slate-100">
+                                <img src={formValues.linkFoto} className="w-full h-full object-cover" />
+                                <button
+                                  type="button"
+                                  onClick={() => setFormValues(prev => ({ ...prev, linkFoto: '' }))}
+                                  className="absolute inset-0 bg-black/70 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white text-[8px] font-bold cursor-pointer"
+                                >
+                                  Hapus
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="w-12 h-12 rounded-lg border-2 border-dashed border-slate-300 flex items-center justify-center bg-slate-100 shrink-0">
+                                <span className="text-[10px] text-slate-400 font-bold">KOSONG</span>
+                              </div>
+                            )}
+
+                            <div className="flex-1 flex flex-col space-y-2">
+                              <div className="flex gap-2">
+                                <label className="flex-1 border border-dashed border-slate-300 hover:border-indigo-500 bg-white hover:bg-indigo-50/20 px-3 py-2.5 rounded-lg text-center cursor-pointer transition text-[11px] font-bold text-slate-600 block leading-none">
+                                  <span className="flex items-center justify-center space-x-1">
+                                    <span>📁 Pilih File Piagam (PNG, JPG, HEIC/HEIF)</span>
+                                  </span>
                                   <input
                                     type="file"
-                                    accept="image/*"
+                                    accept="image/jpeg,image/jpg,image/png,image/heic,image/heif,.heic,.heif"
                                     className="hidden"
                                     onChange={(e) => {
                                       const file = e.target.files?.[0];
                                       if (file) {
+                                        const ext = file.name.split('.').pop()?.toLowerCase() || '';
+                                        const allowedExts = ['jpeg', 'jpg', 'png', 'heic', 'heif'];
+                                        if (!allowedExts.includes(ext)) {
+                                          addToast('Hanya mendukung file PNG, JPG, JPEG, atau HEIC/HEIF.', 'error');
+                                          return;
+                                        }
+                                        if (!checkFileConstraints(file, true)) return;
                                         const r = new FileReader();
                                         r.onload = (ev) => {
                                           if (ev.target?.result) {
@@ -12403,160 +13078,163 @@ Schema requirements:
                                   />
                                 </label>
                               </div>
-                              {formValues.linkFoto && (
-                                <p className="text-[10px] text-slate-400 font-mono truncate max-w-full">
-                                  Terunggah: {formValues.linkFoto.substring(0, 50)}...
-                                </p>
-                              )}
                             </div>
-                          )}
+                          </div>
                         </div>
                       ) : modalTargetTab === 'banner' && field.name === 'linkFoto' ? (
                         <div className="space-y-3 bg-slate-50 p-4 rounded-xl border border-slate-200">
-                          <div className="flex items-center space-x-4">
-                            <span className="text-xs font-bold text-slate-500 uppercase tracking-wide">Sumber Gambar:</span>
-                            <label className="flex items-center space-x-2 text-xs font-semibold text-slate-700 cursor-pointer">
-                              <input
-                                type="radio"
-                                name="bannerImageSource"
-                                checked={bannerUploadMethod === 'url'}
-                                onChange={() => {
-                                  setBannerUploadMethod('url');
-                                  setFormValues(prev => ({ ...prev, linkFoto: '' }));
-                                }}
-                                className="text-indigo-600 focus:ring-indigo-500 h-3.5 w-3.5 cursor-pointer"
-                              />
-                              <span>Gunakan URL Link</span>
-                            </label>
-                            <label className="flex items-center space-x-2 text-xs font-semibold text-slate-700 cursor-pointer">
-                              <input
-                                type="radio"
-                                name="bannerImageSource"
-                                checked={bannerUploadMethod === 'upload'}
-                                onChange={() => {
-                                  setBannerUploadMethod('upload');
-                                  setFormValues(prev => ({ ...prev, linkFoto: '' }));
-                                }}
-                                className="text-indigo-600 focus:ring-indigo-500 h-3.5 w-3.5 cursor-pointer"
-                              />
-                              <span>Upload File Foto</span>
-                            </label>
+                          <div className="flex items-center justify-between">
+                            <span className="block text-xs font-black text-slate-700 uppercase tracking-wider">
+                              Foto Banner
+                            </span>
+                            <div className="flex bg-slate-200/60 p-0.5 rounded-lg">
+                              <button
+                                type="button"
+                                onClick={() => setBannerUploadMethod('url')}
+                                className={`px-2 py-1 text-[10px] font-bold rounded-md transition ${
+                                  bannerUploadMethod === 'url'
+                                    ? 'bg-white text-indigo-600 shadow-sm'
+                                    : 'text-slate-600 hover:text-slate-800'
+                                }`}
+                              >
+                                Tulis Link/URL
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setBannerUploadMethod('upload')}
+                                className={`px-2 py-1 text-[10px] font-bold rounded-md transition ${
+                                  bannerUploadMethod === 'upload'
+                                    ? 'bg-white text-indigo-600 shadow-sm'
+                                    : 'text-slate-600 hover:text-slate-800'
+                                }`}
+                              >
+                                Unggah File/Foto
+                              </button>
+                            </div>
                           </div>
 
                           {bannerUploadMethod === 'url' ? (
-                            <input
-                              type="text"
-                              placeholder="https://images.unsplash.com/... atau link foto banner"
-                              required={field.required}
-                              disabled={isFieldDisabled}
-                              value={formValues.linkFoto || ''}
-                              onChange={(e) => setFormValues(prev => ({ ...prev, linkFoto: e.target.value }))}
-                              className={`w-full px-4 py-2.5 text-xs rounded-xl border focus:outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all ${
-                                isFieldDisabled
-                                  ? 'bg-[#f1f5f9] border-[#e2e8f0] text-[#64748b] cursor-not-allowed font-mono'
-                                  : 'bg-white border-[#cbd5e1] text-[#0f172a] focus:bg-white'
-                              }`}
-                            />
-                          ) : (
-                            <div className="space-y-3">
-                              <div className="flex items-center space-x-3">
-                                {formValues.linkFoto && formValues.linkFoto.trim() !== '' && (
-                                  <div className="w-16 h-10 rounded border border-slate-200 overflow-hidden shrink-0 bg-white">
-                                    <img src={formValues.linkFoto} alt="Preview" className="w-full h-full object-cover" />
-                                  </div>
-                                )}
-                                <label className="flex-1 border border-dashed border-slate-300 hover:border-indigo-500 bg-white hover:bg-indigo-50/10 p-3 rounded-xl text-center cursor-pointer transition text-xs font-bold text-slate-600 block">
-                                  <span>📁 {formValues.linkFoto ? 'Ubah File Gambar' : 'Pilih File Gambar (PNG, JPG, dll)'}</span>
-                                  <input
-                                    type="file"
-                                    accept="image/*"
-                                    className="hidden"
-                                    onChange={(e) => {
-                                      const file = e.target.files?.[0];
-                                      if (file) {
-                                        const r = new FileReader();
-                                        r.onload = (ev) => {
-                                          if (ev.target?.result) {
-                                            setFormValues(prev => ({ ...prev, linkFoto: ev.target.result as string }));
-                                          }
-                                        };
-                                        r.readAsDataURL(file);
-                                      }
+                            <div className="space-y-1.5">
+                              <input
+                                type="text"
+                                placeholder="Contoh: https://... link gambar atau video .mp4"
+                                value={formValues.linkFoto || ''}
+                                onChange={(e) => setFormValues(prev => ({ ...prev, linkFoto: e.target.value }))}
+                                className="w-full px-3 py-2 text-xs rounded-lg border border-[#cbd5e1] bg-white text-[#0f172a] focus:outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all font-sans cursor-text h-[38px]"
+                              />
+                              {formValues.linkFoto && (
+                                <div className="mt-2 text-center">
+                                  <span className="text-[10px] text-slate-400 font-bold block mb-1">PREVIEW GAMBAR</span>
+                                  <img
+                                    src={formValues.linkFoto}
+                                    alt="Preview"
+                                    className="max-h-24 mx-auto rounded-md border border-slate-200 object-contain"
+                                    onError={(e) => {
+                                      (e.target as HTMLElement).style.display = 'none';
                                     }}
                                   />
-                                </label>
-                              </div>
-                              {formValues.linkFoto && (
-                                <p className="text-[10px] text-slate-400 font-mono truncate max-w-full">
-                                  Terunggah: {formValues.linkFoto.substring(0, 50)}...
-                                </p>
+                                </div>
                               )}
+                            </div>
+                          ) : (
+                            <div className="flex items-center space-x-3 pt-1">
+                              {formValues.linkFoto ? (
+                                <div className="relative group shrink-0 w-12 h-12 rounded-lg border border-slate-300 overflow-hidden bg-slate-100">
+                                  <img src={formValues.linkFoto} className="w-full h-full object-cover" />
+                                  <button
+                                    type="button"
+                                    onClick={() => setFormValues(prev => ({ ...prev, linkFoto: '' }))}
+                                    className="absolute inset-0 bg-black/70 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white text-[8px] font-bold cursor-pointer"
+                                  >
+                                    Hapus
+                                  </button>
+                                </div>
+                              ) : (
+                                <div className="w-12 h-12 rounded-lg border-2 border-dashed border-slate-300 flex items-center justify-center bg-slate-100 shrink-0">
+                                  <span className="text-[10px] text-slate-400 font-bold">KOSONG</span>
+                                </div>
+                              )}
+
+                              <div className="flex-1 flex flex-col space-y-2">
+                                <div className="flex gap-2">
+                                  <label className="flex-1 border border-dashed border-slate-300 hover:border-indigo-500 bg-white hover:bg-indigo-50/20 px-3 py-2.5 rounded-lg text-center cursor-pointer transition text-[11px] font-bold text-slate-600 block leading-none">
+                                    <span className="flex items-center justify-center space-x-1">
+                                      <span>📁 Pilih File Banner (PNG, JPG, HEIC/HEIF)</span>
+                                    </span>
+                                    <input
+                                      type="file"
+                                      accept="image/jpeg,image/jpg,image/png,image/heic,image/heif,.heic,.heif"
+                                      className="hidden"
+                                      onChange={(e) => {
+                                        const file = e.target.files?.[0];
+                                        if (file) {
+                                          const ext = file.name.split('.').pop()?.toLowerCase() || '';
+                                          const allowedExts = ['jpeg', 'jpg', 'png', 'heic', 'heif'];
+                                          if (!allowedExts.includes(ext)) {
+                                            addToast('Hanya mendukung file PNG, JPG, JPEG, atau HEIC/HEIF.', 'error');
+                                            return;
+                                          }
+                                          if (!checkFileConstraints(file, true)) return;
+                                          const r = new FileReader();
+                                          r.onload = (ev) => {
+                                            if (ev.target?.result) {
+                                              setFormValues(prev => ({ ...prev, linkFoto: ev.target.result as string }));
+                                            }
+                                          };
+                                          r.readAsDataURL(file);
+                                        }
+                                      }}
+                                    />
+                                  </label>
+                                </div>
+                              </div>
                             </div>
                           )}
                         </div>
                       ) : modalTargetTab === 'anggota' && field.name === 'linkProfile' ? (
                         <div className="space-y-3 bg-slate-50 p-4 rounded-xl border border-slate-200">
-                          <div className="flex items-center space-x-4">
-                            <span className="text-xs font-bold text-slate-500 uppercase tracking-wide">Sumber Foto Profil:</span>
-                            <label className="flex items-center space-x-2 text-xs font-semibold text-slate-700 cursor-pointer">
-                              <input
-                                type="radio"
-                                name="memberProfileSource"
-                                checked={memberUploadMethod === 'url'}
-                                onChange={() => {
-                                  setMemberUploadMethod('url');
-                                  setFormValues(prev => ({ ...prev, linkProfile: '' }));
-                                }}
-                                className="text-indigo-600 focus:ring-indigo-500 h-3.5 w-3.5 cursor-pointer"
-                              />
-                              <span>Gunakan URL Link</span>
-                            </label>
-                            <label className="flex items-center space-x-2 text-xs font-semibold text-slate-700 cursor-pointer">
-                              <input
-                                type="radio"
-                                name="memberProfileSource"
-                                checked={memberUploadMethod === 'upload'}
-                                onChange={() => {
-                                  setMemberUploadMethod('upload');
-                                  setFormValues(prev => ({ ...prev, linkProfile: '' }));
-                                }}
-                                className="text-indigo-600 focus:ring-indigo-500 h-3.5 w-3.5 cursor-pointer"
-                              />
-                              <span>Upload File Foto</span>
-                            </label>
-                          </div>
+                          <span className="block text-xs font-black text-slate-700 uppercase tracking-wider">
+                            Foto Profil Anggota
+                          </span>
 
-                          {memberUploadMethod === 'url' ? (
-                            <input
-                              type="text"
-                              placeholder="https://images.unsplash.com/... atau link foto profil"
-                              required={field.required}
-                              disabled={isFieldDisabled}
-                              value={formValues.linkProfile || ''}
-                              onChange={(e) => setFormValues(prev => ({ ...prev, linkProfile: e.target.value }))}
-                              className={`w-full px-4 py-2.5 text-xs rounded-xl border focus:outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all ${
-                                isFieldDisabled
-                                  ? 'bg-[#f1f5f9] border-[#e2e8f0] text-[#64748b] cursor-not-allowed font-mono'
-                                  : 'bg-white border-[#cbd5e1] text-[#0f172a] focus:bg-white'
-                              }`}
-                            />
-                          ) : (
-                            <div className="space-y-3">
-                              <div className="flex items-center space-x-3">
-                                {formValues.linkProfile && formValues.linkProfile.trim() !== '' && (
-                                  <div className="w-12 h-12 rounded-full border border-slate-200 overflow-hidden shrink-0 bg-white">
-                                    <img src={formValues.linkProfile} alt="Preview" className="w-full h-full object-cover" />
-                                  </div>
-                                )}
-                                <label className="flex-1 border border-dashed border-slate-300 hover:border-indigo-500 bg-white hover:bg-indigo-50/10 p-3 rounded-xl text-center cursor-pointer transition text-xs font-bold text-slate-600 block">
-                                  <span>📁 {formValues.linkProfile ? 'Ubah File Gambar' : 'Pilih File Gambar (PNG, JPG, dll)'}</span>
+                          <div className="flex items-center space-x-3 pt-1">
+                            {formValues.linkProfile ? (
+                              <div className="relative group shrink-0 w-12 h-12 rounded-full border border-slate-300 overflow-hidden bg-slate-100">
+                                <img src={formValues.linkProfile} className="w-full h-full object-cover" />
+                                <button
+                                  type="button"
+                                  onClick={() => setFormValues(prev => ({ ...prev, linkProfile: '' }))}
+                                  className="absolute inset-0 bg-black/70 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white text-[8px] font-bold cursor-pointer"
+                                >
+                                  Hapus
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="w-12 h-12 rounded-full border-2 border-dashed border-slate-300 flex items-center justify-center bg-slate-100 shrink-0">
+                                <span className="text-[10px] text-slate-400 font-bold">KOSONG</span>
+                              </div>
+                            )}
+
+                            <div className="flex-1 flex flex-col space-y-2">
+                              <div className="flex gap-2">
+                                <label className="flex-1 border border-dashed border-slate-300 hover:border-indigo-500 bg-white hover:bg-indigo-50/20 px-3 py-2.5 rounded-lg text-center cursor-pointer transition text-[11px] font-bold text-slate-600 block leading-none">
+                                  <span className="flex items-center justify-center space-x-1">
+                                    <span>📁 Pilih File Foto (PNG, JPG, HEIC/HEIF)</span>
+                                  </span>
                                   <input
                                     type="file"
-                                    accept="image/*"
+                                    accept="image/jpeg,image/jpg,image/png,image/heic,image/heif,.heic,.heif"
                                     className="hidden"
                                     onChange={(e) => {
                                       const file = e.target.files?.[0];
                                       if (file) {
+                                        const ext = file.name.split('.').pop()?.toLowerCase() || '';
+                                        const allowedExts = ['jpeg', 'jpg', 'png', 'heic', 'heif'];
+                                        if (!allowedExts.includes(ext)) {
+                                          addToast('Hanya mendukung file PNG, JPG, JPEG, atau HEIC/HEIF.', 'error');
+                                          return;
+                                        }
+                                        if (!checkFileConstraints(file, true)) return;
                                         const r = new FileReader();
                                         r.onload = (ev) => {
                                           if (ev.target?.result) {
@@ -12569,105 +13247,51 @@ Schema requirements:
                                   />
                                 </label>
                               </div>
-                              {formValues.linkProfile && (
-                                <p className="text-[10px] text-slate-400 font-mono truncate max-w-full">
-                                  Terunggah: {formValues.linkProfile.substring(0, 50)}...
-                                </p>
-                              )}
                             </div>
-                          )}
+                          </div>
                         </div>
                       ) : modalTargetTab === 'pengumuman' && field.name === 'linkFile' ? (
                         <div className="space-y-3 bg-slate-50 p-4 rounded-xl border border-slate-200 col-span-1 md:col-span-2">
-                          <div className="flex items-center space-x-4">
-                            <span className="text-xs font-bold text-slate-500 uppercase tracking-wide">Sumber File / Tautan:</span>
-                            <label className="flex items-center space-x-2 text-xs font-semibold text-slate-700 cursor-pointer">
-                              <input
-                                type="radio"
-                                name="pengumumanFileSource"
-                                checked={pengumumanUploadMethod === 'url'}
-                                onChange={() => {
-                                  setPengumumanUploadMethod('url');
-                                  setFormValues(prev => ({ ...prev, linkFile: '', namaFile: '', tipeFile: '' }));
-                                }}
-                                className="text-indigo-600 focus:ring-indigo-500 h-3.5 w-3.5 cursor-pointer"
-                              />
-                              <span>Gunakan URL Link</span>
-                            </label>
-                            <label className="flex items-center space-x-2 text-xs font-semibold text-slate-700 cursor-pointer">
-                              <input
-                                type="radio"
-                                name="pengumumanFileSource"
-                                checked={pengumumanUploadMethod === 'upload'}
-                                onChange={() => {
-                                  setPengumumanUploadMethod('upload');
-                                  setFormValues(prev => ({ ...prev, linkFile: '', namaFile: '', tipeFile: '' }));
-                                }}
-                                className="text-indigo-600 focus:ring-indigo-500 h-3.5 w-3.5 cursor-pointer"
-                              />
-                              <span>Upload File Dokumen / Foto</span>
-                            </label>
-                          </div>
+                          <span className="block text-xs font-black text-slate-700 uppercase tracking-wider">
+                            File / Dokumen Pengumuman
+                          </span>
 
-                          {pengumumanUploadMethod === 'url' ? (
-                            <input
-                              type="text"
-                              placeholder="Masukkan tautan luar atau URL file (PDF, Dokumen, Gambar, dll)..."
-                              required={field.required}
-                              disabled={isFieldDisabled}
-                              value={formValues.linkFile || ''}
-                              onChange={(e) => {
-                                const urlVal = e.target.value;
-                                let name = '';
-                                let type = 'link';
-                                try {
-                                  if (urlVal.trim()) {
-                                    const urlObj = new URL(urlVal);
-                                    const pathname = urlObj.pathname;
-                                    name = pathname.substring(pathname.lastIndexOf('/') + 1) || 'Link External';
-                                    if (name.toLowerCase().endsWith('.pdf')) type = 'pdf';
-                                    else if (name.toLowerCase().endsWith('.doc') || name.toLowerCase().endsWith('.docx')) type = 'doc';
-                                    else if (/\.(jpg|jpeg|png|gif|webp)$/i.test(name)) type = 'image';
-                                  } else {
-                                    name = '';
-                                  }
-                                } catch (_) {
-                                  name = 'Tautan Luar';
-                                }
-                                setFormValues(prev => ({
-                                  ...prev,
-                                  linkFile: urlVal,
-                                  namaFile: name,
-                                  tipeFile: type
-                                }));
-                              }}
-                              className={`w-full px-4 py-2.5 text-xs rounded-xl border focus:outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all ${
-                                isFieldDisabled
-                                  ? 'bg-[#f1f5f9] border-[#e2e8f0] text-[#64748b] cursor-not-allowed font-mono'
-                                  : 'bg-white border-[#cbd5e1] text-[#0f172a] focus:bg-white'
-                              }`}
-                            />
-                          ) : (
-                            <div className="space-y-3">
-                              <div className="flex items-center space-x-3">
-                                {formValues.linkFile && formValues.linkFile.startsWith('data:') && (
-                                  <div className="w-12 h-12 rounded border border-slate-200 overflow-hidden shrink-0 bg-white flex items-center justify-center">
-                                    {String(formValues.tipeFile).includes('image') ? (
-                                      <img src={formValues.linkFile} alt="Preview" className="w-full h-full object-cover" />
-                                    ) : (
-                                      <FileText className="w-6 h-6 text-indigo-500" />
-                                    )}
-                                  </div>
+                          <div className="flex items-center space-x-3 pt-1">
+                            {formValues.linkFile ? (
+                              <div className="relative group shrink-0 w-12 h-12 rounded-lg border border-slate-300 overflow-hidden bg-slate-100 flex items-center justify-center">
+                                {String(formValues.tipeFile).includes('image') || String(formValues.linkFile).startsWith('data:image/') ? (
+                                  <img src={formValues.linkFile} alt="Preview" className="w-full h-full object-cover" />
+                                ) : (
+                                  <FileText className="w-6 h-6 text-indigo-500" />
                                 )}
-                                <label className="flex-1 border border-dashed border-slate-300 hover:border-indigo-500 bg-white hover:bg-indigo-50/10 p-3 rounded-xl text-center cursor-pointer transition text-xs font-bold text-slate-600 block">
-                                  <span>📁 {formValues.linkFile ? 'Ubah File Dokumen/Foto' : 'Pilih File (PDF, DOC, PNG, JPG, dll)'}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => setFormValues(prev => ({ ...prev, linkFile: '', namaFile: '', tipeFile: '' }))}
+                                  className="absolute inset-0 bg-black/70 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white text-[8px] font-bold cursor-pointer"
+                                >
+                                  Hapus
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="w-12 h-12 rounded-lg border-2 border-dashed border-slate-300 flex items-center justify-center bg-slate-100 shrink-0">
+                                <span className="text-[10px] text-slate-400 font-bold">KOSONG</span>
+                              </div>
+                            )}
+
+                            <div className="flex-1 flex flex-col space-y-2">
+                              <div className="flex gap-2">
+                                <label className="flex-1 border border-dashed border-slate-300 hover:border-indigo-500 bg-white hover:bg-indigo-50/20 px-3 py-2.5 rounded-lg text-center cursor-pointer transition text-[11px] font-bold text-slate-600 block leading-none">
+                                  <span className="flex items-center justify-center space-x-1">
+                                    <span>📁 Pilih File Dokumen (PDF, DOCX, CSV, dll.)</span>
+                                  </span>
                                   <input
                                     type="file"
-                                    accept=".pdf,.doc,.docx,image/*"
+                                    accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.ppt,.pptx,.txt,image/*"
                                     className="hidden"
                                     onChange={(e) => {
                                       const file = e.target.files?.[0];
                                       if (file) {
+                                        if (!checkFileConstraints(file, false)) return;
                                         const r = new FileReader();
                                         r.onload = (ev) => {
                                           if (ev.target?.result) {
@@ -12678,6 +13302,10 @@ Schema requirements:
                                               ft = 'pdf';
                                             } else if (file.name.toLowerCase().endsWith('.doc') || file.name.toLowerCase().endsWith('.docx')) {
                                               ft = 'doc';
+                                            } else if (file.name.toLowerCase().endsWith('.csv')) {
+                                              ft = 'csv';
+                                            } else if (file.name.toLowerCase().endsWith('.xls') || file.name.toLowerCase().endsWith('.xlsx')) {
+                                              ft = 'excel';
                                             }
                                             setFormValues(prev => ({
                                               ...prev,
@@ -12693,16 +13321,102 @@ Schema requirements:
                                   />
                                 </label>
                               </div>
-                              {formValues.linkFile && (
-                                <div className="text-xs text-slate-600 bg-white p-2.5 rounded-lg border border-slate-100 flex items-center justify-between">
-                                  <span className="truncate font-semibold max-w-[70%]" title={formValues.namaFile}>
-                                    📄 {formValues.namaFile || 'File Terunggah'}
+                            </div>
+                          </div>
+
+                          {formValues.linkFile && (
+                            <div className="text-xs text-slate-600 bg-white p-2.5 rounded-lg border border-slate-100 flex items-center justify-between">
+                              <span className="truncate font-semibold max-w-[70%]" title={formValues.namaFile}>
+                                📄 {formValues.namaFile || 'File Terunggah'}
+                              </span>
+                              <span className="text-[10px] font-mono bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded uppercase font-bold shrink-0">
+                                {formValues.tipeFile || 'file'}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      ) : modalTargetTab === 'surat' && field.name === 'linkGoogleDoc' ? (
+                        <div className="space-y-3 bg-slate-50 p-4 rounded-xl border border-slate-200 col-span-1 md:col-span-2">
+                          <div className="flex items-center space-x-3 pt-1">
+                            {formValues.linkGoogleDoc ? (
+                              <div className="relative group shrink-0 w-12 h-12 rounded-lg border border-slate-300 overflow-hidden bg-slate-100 flex items-center justify-center">
+                                {String(formValues.tipeFileSurat).includes('image') || String(formValues.linkGoogleDoc).startsWith('data:image/') ? (
+                                  <img src={formValues.linkGoogleDoc} alt="Preview" className="w-full h-full object-cover" />
+                                ) : (
+                                  <FileText className="w-6 h-6 text-indigo-500" />
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => setFormValues(prev => ({ ...prev, linkGoogleDoc: '', namaFileSurat: '', tipeFileSurat: '' }))}
+                                  className="absolute inset-0 bg-black/70 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white text-[8px] font-bold cursor-pointer"
+                                >
+                                  Hapus
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="w-12 h-12 rounded-lg border-2 border-dashed border-slate-300 flex items-center justify-center bg-slate-100 shrink-0">
+                                <span className="text-[10px] text-slate-400 font-bold">KOSONG</span>
+                              </div>
+                            )}
+
+                            <div className="flex-1 flex flex-col space-y-2">
+                              <div className="flex gap-2">
+                                <label className="flex-1 border border-dashed border-slate-300 hover:border-indigo-500 bg-white hover:bg-indigo-50/20 px-3 py-2.5 rounded-lg text-center cursor-pointer transition text-[11px] font-bold text-slate-600 block leading-none">
+                                  <span className="flex items-center justify-center space-x-1">
+                                    <span>📁 Pilih File Dokumen (.pdf, .doc, .docx, .xls, .xlsx, .csv, .ppt, .pptx, .txt)</span>
                                   </span>
-                                  <span className="text-[10px] font-mono bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded uppercase font-bold shrink-0">
-                                    {formValues.tipeFile || 'file'}
-                                  </span>
-                                </div>
-                              )}
+                                  <input
+                                    type="file"
+                                    accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.ppt,.pptx,.txt,.tx,image/*"
+                                    className="hidden"
+                                    onChange={(e) => {
+                                      const file = e.target.files?.[0];
+                                      if (file) {
+                                        if (!checkFileConstraints(file, false)) return;
+                                        const r = new FileReader();
+                                        r.onload = (ev) => {
+                                          if (ev.target?.result) {
+                                            let ft = 'link';
+                                            if (file.type.startsWith('image/')) {
+                                              ft = 'image';
+                                            } else if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
+                                              ft = 'pdf';
+                                            } else if (file.name.toLowerCase().endsWith('.doc') || file.name.toLowerCase().endsWith('.docx')) {
+                                              ft = 'doc';
+                                            } else if (file.name.toLowerCase().endsWith('.csv')) {
+                                              ft = 'csv';
+                                            } else if (file.name.toLowerCase().endsWith('.xls') || file.name.toLowerCase().endsWith('.xlsx')) {
+                                              ft = 'excel';
+                                            } else if (file.name.toLowerCase().endsWith('.ppt') || file.name.toLowerCase().endsWith('.pptx')) {
+                                              ft = 'ppt';
+                                            } else if (file.name.toLowerCase().endsWith('.txt') || file.name.toLowerCase().endsWith('.tx')) {
+                                              ft = 'text';
+                                            }
+                                            setFormValues(prev => ({
+                                              ...prev,
+                                              linkGoogleDoc: ev.target.result as string,
+                                              namaFileSurat: file.name,
+                                              tipeFileSurat: ft
+                                            }));
+                                          }
+                                        };
+                                        r.readAsDataURL(file);
+                                      }
+                                    }}
+                                  />
+                                </label>
+                              </div>
+                            </div>
+                          </div>
+
+                          {formValues.linkGoogleDoc && (
+                            <div className="text-xs text-slate-600 bg-white p-2.5 rounded-lg border border-slate-100 flex items-center justify-between">
+                              <span className="truncate font-semibold max-w-[70%]" title={formValues.namaFileSurat}>
+                                📄 {formValues.namaFileSurat || (String(formValues.linkGoogleDoc).startsWith('data:') ? 'File Terunggah' : formValues.linkGoogleDoc)}
+                              </span>
+                              <span className="text-[10px] font-mono bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded uppercase font-bold shrink-0">
+                                {formValues.tipeFileSurat || 'file'}
+                              </span>
                             </div>
                           )}
                         </div>

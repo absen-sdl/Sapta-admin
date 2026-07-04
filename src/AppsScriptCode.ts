@@ -23,7 +23,9 @@ export const GOOGLE_APPS_SCRIPT_CODE = `/**
 
 // Konfigurasi Skema Struktur Kolom Sesuai Permintaan Anda
 var SHEET_SCHEMAS = {
-  "KELOLA AKUN": ["Nama", "username", "pasword", "remove menu", "Foto Profile"],
+  "KELOLA AKUN": ["Nama Lengkap", "username", "pasword", "remove menu", "Akses Aplikasi Sapta Absen", "Foto Profile"],
+  "ADMIN SAPTA DATA": ["Nama Lengkap", "username", "pasword", "remove menu", "Akses Aplikasi Sapta Absen", "Foto Profile"],
+  "AKUN SAPTA": ["Nama Lengkap", "username", "pasword", "remove menu", "Akses Aplikasi Sapta Absen", "Foto Profile"],
   "DATA ANGGOTA": ["No.Induk/NISN/NIA", "Nama Lengkap", "Tempat Lahir", "Tanggal Lahir", "Jenis Kelamin", "Jenjang Pendidikan", "Nama Sekolah", "Kelas", "Alamat", "No Hp", "E-Mail", "Pin", "Link-Profile", "Status", "edit/add by"],
   "ABSENSI": ["ID ABSENSI", "No.Induk/NISN/NIA", "Nama Lengkap", "Kelas", "Tanggal", "Jam Datang", "Jam Pulang", "Status", "Metode Absensi", "Jenis Kegiatan"],
   "PELANGGARAN": ["ID Pelanggaran", "Tanggal", "No.Induk/NISN/NIA", "Nama", "Jenis Pelanggaran", "Nama Pelanggaran", "Keterangan", "Ada Denda", "Nominal Denda", "Jenis Hukuman", "Status Tindak Lanjut", "edit/add by"],
@@ -35,6 +37,7 @@ var SHEET_SCHEMAS = {
   "INFORMASI ADMIN": ["idInformasiAdmin", "Judul", "Isi", "Jenis kegiatan", "Tanggal", "Waktu", "edit/add by"],
   "BANNER": ["ID Banner", "Judul", "Link Foto", "Link Artikel", "Tanggal Input", "Sasaran", "edit/add by"],
   "PENGUMUMAN": ["ID Pengumuman", "Tanggal", "Judul", "Link File", "Nama File", "Tipe File", "edit/add by"],
+  "CONFIG KARTU": ["Lembaga", "Tema Warna", "Orientasi", "Bg Depan", "Bg Belakang", "Warna Teks Depan", "Warna Teks Belakang", "Sembunyikan Header", "Sembunyikan Footer", "Ketentuan", "edit/add by"],
   "LOG NOTIFIKASI": ["ID Log", "Tanggal", "Operator", "Tipe Aksi", "Menu", "Keterangan"]
 };
 
@@ -122,7 +125,7 @@ function getOrCreateSheetAndColumns(sheetName) {
     var existingHeaders = [];
     if (lastCol > 0) {
       existingHeaders = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(function(h) {
-        return h.toString().trim().toLowerCase();
+        return h.toString().trim().toLowerCase().replace(/[^a-z0-9]/g, "");
       });
     } else {
       // Baris pertama kosong, langsung isi schemaHeaders
@@ -141,7 +144,7 @@ function getOrCreateSheetAndColumns(sheetName) {
     var missingHeaders = [];
     for (var i = 0; i < schemaHeaders.length; i++) {
       var hName = schemaHeaders[i];
-      var hClean = hName.toString().trim().toLowerCase();
+      var hClean = hName.toString().trim().toLowerCase().replace(/[^a-z0-9]/g, "");
       if (existingHeaders.indexOf(hClean) === -1) {
         missingHeaders.push(hName);
       }
@@ -165,10 +168,8 @@ function getOrCreateSheetAndColumns(sheetName) {
   return sheet;
 }
 
-/**
- * Fungsi otomatis mendokumentasikan dan memformat kolom database
- * Jalankan ini sekali untuk menyiapkan seluruh sheet & kolom secara instan!
- */
+// Fungsi otomatis mendokumentasikan dan memformat kolom database
+// Jalankan ini sekali untuk menyiapkan seluruh sheet & kolom secara instan!
 function setupSpreadsheetColumns() {
   try {
     for (var sheetName in SHEET_SCHEMAS) {
@@ -198,6 +199,15 @@ function doGet(e) {
   try {
     var action = e.parameter.action;
     var sheetName = getSheetNameRobust(e.parameter.sheetName);
+    
+    // Jika dipicu tanpa action dan tanpa sheetName (misal: pengujian tautan di browser)
+    if (!action && !sheetName) {
+      return createJsonResponse({
+        status: "success",
+        message: "Server web app Google Apps Script Anda AKTIF! Hubungkan dengan aplikasi React Anda menggunakan URL Web App ini.",
+        healthCheck: true
+      });
+    }
     
     if (!action || action === "read") {
       if (!sheetName) {
@@ -238,6 +248,7 @@ function doPost(e) {
     var sheetName = getSheetNameRobust(payload.sheetName);
     var data = payload.data || {};
     var targetId = payload.targetId || payload.primaryKey;
+    var lembaga = payload.lembaga || data.Lembaga || data.lembaga || "";
 
     if (!action) {
       return createJsonResponse({ error: "Parameter 'action' wajib disematkan." });
@@ -245,17 +256,28 @@ function doPost(e) {
 
     // --- FITUR AUTO-UPLOAD FOTO/FILE KE GOOGLE DRIVE ---
     if (action === "upload" || action === "uploadFile") {
-      var base64Data = payload.base64Data || payload.data;
+      var base64Data = payload.base64Data || (typeof payload.data === "string" ? payload.data : "");
       var filename = payload.filename || "upload_file";
+      var uploadLembaga = payload.lembaga || "";
+      var uploadSheetName = payload.sheetName || "UploadAction";
       if (!base64Data) {
         return createJsonResponse({ error: "Data base64 tidak ditemukan untuk proses upload." });
       }
-      var uploadedUrl = uploadBase64Image(base64Data, filename, "UploadAction");
+      var uploadedUrl = uploadBase64Image(base64Data, filename, uploadSheetName, uploadLembaga);
       if (uploadedUrl) {
         return createJsonResponse({ status: "success", url: uploadedUrl });
       } else {
         return createJsonResponse({ error: "Gagal mengunggah file ke Google Drive." });
       }
+    }
+
+    if (action === "deleteFile") {
+      var fileUrl = payload.url || payload.fileUrl;
+      if (!fileUrl) {
+        return createJsonResponse({ error: "Parameter 'url' file wajib disertakan." });
+      }
+      deleteFileByUrl(fileUrl);
+      return createJsonResponse({ status: "success", message: "File berhasil dihapus dari Google Drive." });
     }
 
     if (!sheetName) {
@@ -268,7 +290,18 @@ function doPost(e) {
         if (data.hasOwnProperty(key)) {
           var val = data[key];
           if (typeof val === "string" && val.indexOf("data:") === 0 && val.indexOf(";base64,") !== -1) {
-            var uploadedUrl = uploadBase64Image(val, key, sheetName);
+            // Coba cari nama file asli dari field pendukung
+            var originalFilename = "";
+            if (key === "linkFile") {
+              originalFilename = data.namaFile || data.nama_file || data.filename || "";
+            } else if (key === "linkGoogleDoc") {
+              originalFilename = data.namaFileSurat || data.nama_file_surat || data.namaFile || data.nama_file || "";
+            } else if (key === "foto") {
+              originalFilename = data.namaFoto || data.nama_foto || data.namaFile || data.nama_file || "";
+            }
+            
+            var filenameParam = originalFilename || key;
+            var uploadedUrl = uploadBase64Image(val, filenameParam, sheetName, lembaga);
             if (uploadedUrl) {
               data[key] = uploadedUrl;
             }
@@ -410,6 +443,19 @@ function updateData(sheetName, targetId, data) {
     return createJsonResponse({ error: "Data dengan ID '" + targetId + "' tidak ditemukan dalam tabel." });
   }
 
+  // Sebelum memperbarui, bandingkan nilai lama untuk menghapus file di Google Drive jika diganti atau dihapus
+  for (var colIdx = 0; colIdx < headers.length; colIdx++) {
+    var colName = headers[colIdx].toString().trim();
+    var newVal = getObjectValueCaseInsensitive(data, colName);
+    if (newVal !== undefined) {
+      var oldVal = sheet.getRange(rowToEdit, colIdx + 1).getValue().toString().trim();
+      // Jika nilai baru berbeda atau dikosongkan, hapus file lama dari Google Drive
+      if (oldVal !== newVal.toString().trim() && (oldVal.indexOf("drive.google.com") !== -1 || oldVal.indexOf("googleusercontent.com") !== -1)) {
+        deleteFileByUrl(oldVal);
+      }
+    }
+  }
+
   // Edit sel data secara dinamis berdasarkan kolom yang tersedia
   for (var colIdx = 0; colIdx < headers.length; colIdx++) {
     var colName = headers[colIdx].toString().trim();
@@ -441,7 +487,17 @@ function deleteData(sheetName, targetId) {
   
   for (var i = 0; i < ids.length; i++) {
     if (ids[i][0].toString().trim().toLowerCase() === targetStr) {
-      sheet.deleteRow(i + 2); // Menghapus baris riil
+      var rowToDelete = i + 2;
+      
+      // Deteksi dan hapus semua file Google Drive yang tertaut di baris yang akan dihapus
+      for (var colIdx = 0; colIdx < headers.length; colIdx++) {
+        var oldVal = sheet.getRange(rowToDelete, colIdx + 1).getValue().toString().trim();
+        if (oldVal && (oldVal.indexOf("drive.google.com") !== -1 || oldVal.indexOf("googleusercontent.com") !== -1)) {
+          deleteFileByUrl(oldVal);
+        }
+      }
+
+      sheet.deleteRow(rowToDelete); // Menghapus baris riil
       return createJsonResponse({ status: "success", message: "ID " + targetId + " berhasil dihapus secara permanen dari basis data Google Sheets." });
     }
   }
@@ -450,12 +506,31 @@ function deleteData(sheetName, targetId) {
 }
 
 /**
+ * MENGHAPUS FILE DI GOOGLE DRIVE BERDASARKAN URL FILE
+ */
+function deleteFileByUrl(url) {
+  if (!url || typeof url !== "string") return;
+  try {
+    var fileId = extractFileIdFromUrl(url);
+    if (fileId) {
+      var file = DriveApp.getFileById(fileId);
+      if (file) {
+        file.setTrashed(true); // Pindahkan ke Sampah secara aman
+        Logger.log("Berhasil membuang file ke sampah dengan ID: " + fileId);
+      }
+    }
+  } catch (err) {
+    Logger.log("Gagal menghapus file dari Google Drive (URL: " + url + "): " + err.toString());
+  }
+}
+
+/**
  * FUNGSI UTILITAS / HELPER
  * Menentukan indeks kolom untuk Primary Key secara dinamis
  */
 function getPrimaryKeyColIndex(sheetName, headers) {
   var name = sheetName.toUpperCase().trim();
-  if (name === "AKUN SAPTA" || name === "KELOLA AKUN") {
+  if (name === "AKUN SAPTA" || name === "KELOLA AKUN" || name === "ADMIN SAPTA DATA") {
     for (var i = 0; i < headers.length; i++) {
       var h = headers[i].toString().trim().toLowerCase();
       if (h === "username" || h === "user") {
@@ -476,10 +551,11 @@ function getSheetNameRobust(name) {
     // Dipetakan ke sheet internal "ABSENSI"
     return "ABSENSI";
   }
-  if (upper === "KELOLA AKUN" || upper === "AKUN SAPTA") {
+  if (upper === "KELOLA AKUN" || upper === "AKUN SAPTA" || upper === "ADMIN SAPTA DATA") {
     var ss = getActiveSpreadsheetRobust();
     if (getSheetCaseInsensitive(ss, "KELOLA AKUN")) return "KELOLA AKUN";
     if (getSheetCaseInsensitive(ss, "AKUN SAPTA")) return "AKUN SAPTA";
+    if (getSheetCaseInsensitive(ss, "ADMIN SAPTA DATA")) return "ADMIN SAPTA DATA";
     return "KELOLA AKUN"; // Default
   }
   if (upper === "INFORMASI ADMIN" || upper === "INFOMASI: ADMIN" || upper === "INFORMASI: ADMIN" || upper === "INFOMASI ADMIN" || upper === "INFORMASI_ADMIN") {
@@ -501,6 +577,8 @@ function getObjectValueCaseInsensitive(obj, keyToFind) {
   var synonyms = {
     "nama": ["nama", "namalengkap", "fullname", "name"],
     "namalengkap": ["nama", "namalengkap", "fullname", "name"],
+    "noinduknisnnia": ["noinduknisnnia", "nia", "noinduk", "nisn", "nomorinduk", "nomorindukanggota"],
+    "nia": ["noinduknisnnia", "nia", "noinduk", "nisn", "nomorinduk", "nomorindukanggota"],
     "idperaturan": ["idperaturan", "id", "id_peraturan"],
     "idsurat": ["idsurat", "id", "id_surat"],
     "idtransaksi": ["idtransaksi", "id", "id_transaksi"],
@@ -518,7 +596,8 @@ function getObjectValueCaseInsensitive(obj, keyToFind) {
     "idpengumuman": ["idpengumuman", "id", "id_pengumuman"],
     "linkfile": ["linkfile", "file", "url", "link", "link_file"],
     "namafile": ["namafile", "filename", "nama_file"],
-    "tipefile": ["tipefile", "filetype", "tipe_file"]
+    "tipefile": ["tipefile", "filetype", "tipe_file"],
+    "aksesaplikasisaptaabsen": ["aksesaplikasisaptaabsen", "aksessaptaabsen", "akses_sapta_absen", "sapta_absen_akses", "sapta_absen", "saptaabsen", "akses aplikasi sapta absen"]
   };
 
   // 1. Coba pencocokan langsung (clean key)
@@ -585,8 +664,12 @@ function createJsonResponse(data) {
 /**
  * FUNGSI BANTU UNGGAH FOTO/FILE BASE64 KE GOOGLE DRIVE
  */
-function uploadBase64Image(base64Data, fieldName, sheetName) {
+function uploadBase64Image(base64Data, fieldName, sheetName, lembaga) {
   try {
+    if (!base64Data || typeof base64Data !== "string") {
+      Logger.log("Info: Fungsi uploadBase64Image dipicu tanpa data base64 (kemungkinan dijalankan langsung secara manual dari editor Apps Script menggunakan tombol 'Run'). Ini normal dan aman jika Anda hanya menguji di editor. Fungsi ini akan bekerja secara otomatis ketika menerima kiriman berkas/foto asli dari aplikasi web.");
+      return null;
+    }
     var matches = base64Data.match(/^data:(.+);base64,(.+)$/);
     var mimeType = "image/jpeg";
     var base64Part = base64Data;
@@ -599,31 +682,111 @@ function uploadBase64Image(base64Data, fieldName, sheetName) {
     var decoded = Utilities.base64Decode(base64Part);
     
     var ext = "jpg";
-    if (mimeType.indexOf("png") !== -1) ext = "png";
-    else if (mimeType.indexOf("gif") !== -1) ext = "gif";
-    else if (mimeType.indexOf("pdf") !== -1) ext = "pdf";
-    else if (mimeType.indexOf("webp") !== -1) ext = "webp";
+    var lowerMime = mimeType.toLowerCase();
+    if (lowerMime.indexOf("png") !== -1) ext = "png";
+    else if (lowerMime.indexOf("gif") !== -1) ext = "gif";
+    else if (lowerMime.indexOf("webp") !== -1) ext = "webp";
+    else if (lowerMime.indexOf("pdf") !== -1) ext = "pdf";
+    else if (lowerMime.indexOf("csv") !== -1) ext = "csv";
+    else if (lowerMime.indexOf("excel") !== -1 || lowerMime.indexOf("spreadsheet") !== -1 || lowerMime.indexOf("xls") !== -1) ext = "xlsx";
+    else if (lowerMime.indexOf("word") !== -1 || lowerMime.indexOf("document") !== -1 || lowerMime.indexOf("msword") !== -1) ext = "docx";
+    else if (lowerMime.indexOf("powerpoint") !== -1 || lowerMime.indexOf("presentation") !== -1 || lowerMime.indexOf("ppt") !== -1) ext = "pptx";
+    else if (lowerMime.indexOf("text") !== -1 || lowerMime.indexOf("plain") !== -1) ext = "txt";
+    else if (lowerMime.indexOf("heic") !== -1) ext = "heic";
+    else if (lowerMime.indexOf("heif") !== -1) ext = "heif";
     
-    var fileName = (sheetName || "Upload") + "_" + (fieldName || "file") + "_" + new Date().getTime() + "." + ext;
-    var blob = Utilities.newBlob(decoded, mimeType, fileName);
-    
-    var folderName = "Aplikasi_Upload_Foto";
-    var folders = DriveApp.getFoldersByName(folderName);
-    var folder;
-    if (folders.hasNext()) {
-      folder = folders.next();
-    } else {
-      folder = DriveApp.createFolder(folderName);
+    var filenameClean = fieldName || "file";
+    var extFromFilename = "";
+    if (filenameClean.indexOf(".") !== -1) {
+      var parts = filenameClean.split(".");
+      extFromFilename = parts[parts.length - 1].toLowerCase();
     }
     
-    var file = folder.createFile(blob);
+    if (extFromFilename && ["png", "jpg", "jpeg", "gif", "webp", "pdf", "csv", "xls", "xlsx", "doc", "docx", "ppt", "pptx", "txt", "heic", "heif"].indexOf(extFromFilename) !== -1) {
+      ext = extFromFilename;
+    }
+    
+    // Hilangkan ekstensi dari nama file jika ada agar tidak double
+    var baseName = filenameClean;
+    if (extFromFilename && baseName.toLowerCase().endsWith("." + extFromFilename)) {
+      baseName = baseName.substring(0, baseName.length - (extFromFilename.length + 1));
+    }
+    
+    var fileName = baseName + "_" + new Date().getTime() + "." + ext;
+    var blob = Utilities.newBlob(decoded, mimeType, fileName);
+    
+    var driveRoot = DriveApp.getRootFolder();
+    
+    // Helper to find folder excluding trashed folders
+    var getActiveFolderByName = function(parent, name) {
+      var folders = parent.getFoldersByName(name);
+      while (folders.hasNext()) {
+        var f = folders.next();
+        if (!f.isTrashed()) {
+          return f;
+        }
+      }
+      return null;
+    };
+    
+    // 1. Dapatkan atau buat Folder Utama "SAPTA DIGITAL" sebagai wadah root di Google Drive Anda
+    var parentFolder = getActiveFolderByName(driveRoot, "SAPTA DIGITAL");
+    if (!parentFolder) {
+      parentFolder = driveRoot.createFolder("SAPTA DIGITAL");
+      parentFolder.setSharing(DriveApp.Access.ANYONE, DriveApp.Permission.VIEW);
+    }
+    
+    // 2. Dapatkan atau buat Folder Lembaga (misal: "PRAMUKA SUNAN DRAJAT LAMONGAN", "SMKSDL", dll.)
+    var cleanLembaga = (lembaga || "Lembaga Umum").toString().trim();
+    var folderLembaga = getActiveFolderByName(parentFolder, cleanLembaga);
+    if (!folderLembaga) {
+      folderLembaga = parentFolder.createFolder(cleanLembaga);
+      folderLembaga.setSharing(DriveApp.Access.ANYONE, DriveApp.Permission.VIEW);
+    }
+    
+    // 3. Dapatkan atau buat Folder Menu didalam Folder Lembaga
+    var cleanMenu = (sheetName || "Umum").toString().trim();
+    var folderMenuName = cleanMenu;
+    var upperMenu = cleanMenu.toUpperCase();
+    if (upperMenu === "DATA ANGGOTA" || upperMenu === "ANGGOTA") {
+      folderMenuName = "Data Anggota";
+    } else if (upperMenu === "KARTU IDENTITAS" || upperMenu === "KARTU_IDENTITAS" || upperMenu === "KARTU") {
+      folderMenuName = "Kartu Identitas";
+    } else if (upperMenu === "PRESTASI") {
+      folderMenuName = "Prestasi";
+    } else if (upperMenu === "SURAT") {
+      folderMenuName = "Surat";
+    } else if (upperMenu === "BANNER") {
+      folderMenuName = "Banner";
+    } else if (upperMenu === "PENGUMUMAN" || upperMenu === "KELOLA PENGUMUMAN") {
+      folderMenuName = "Kelola Pengumuman";
+    } else if (upperMenu === "PELANGGARAN") {
+      folderMenuName = "Pelanggaran";
+    } else if (upperMenu === "PEMBAYARAN") {
+      folderMenuName = "Pembayaran";
+    } else if (upperMenu === "INFORMASI" || upperMenu === "INFORMASI ADMIN") {
+      folderMenuName = "Informasi";
+    } else if (upperMenu === "KELOLA AKUN" || upperMenu === "AKUN SAPTA" || upperMenu === "ADMIN SAPTA DATA" || upperMenu === "AKUN") {
+      folderMenuName = "Kelola Akun";
+    } else {
+      // default capitalized
+      folderMenuName = cleanMenu.charAt(0).toUpperCase() + cleanMenu.slice(1).toLowerCase();
+    }
+    
+    var targetFolder = getActiveFolderByName(folderLembaga, folderMenuName);
+    if (!targetFolder) {
+      targetFolder = folderLembaga.createFolder(folderMenuName);
+      targetFolder.setSharing(DriveApp.Access.ANYONE, DriveApp.Permission.VIEW);
+    }
+    
+    var file = targetFolder.createFile(blob);
     file.setSharing(DriveApp.Access.ANYONE, DriveApp.Permission.VIEW);
     
     var fileId = file.getId();
     var viewUrl = "https://drive.google.com/uc?export=view&id=" + fileId;
     return viewUrl;
   } catch (err) {
-    Logger.log("Gagal mengunggah foto base64: " + err.toString());
+    Logger.log("Gagal mengunggah file base64: " + err.toString());
     return base64Data; // Kembalikan data asli jika gagal
   }
 }
@@ -692,5 +855,160 @@ function writeLogActivity(action, sheetName, data, targetId) {
  */
 function myFunction() {
   console.log("myFunction berhasil dipicu dan dijalankan dengan aman.");
+}
+
+/**
+ * =========================================================================
+ * FUNGSI TAMBAHAN UNTUK SPREADSHEET / APPSHEET (HAPUS & EDIT BERKAS)
+ * =========================================================================
+ */
+
+/**
+ * 1. FITUR HAPUS DATA & FILE DARI DRIVE (HAPUS DATA)
+ * Mengambil baris aktif di Google Sheets, mendeteksi kolom URL file secara dinamis 
+ * (mencari kolom foto, file, dokumen, atau surat), memindahkan file tersebut ke trash Drive,
+ * lalu menghapus seluruh baris data di Spreadsheet.
+ */
+function hapusDataDanFile() {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+  var baris = sheet.getActiveCell().getRow();
+  
+  // Baris header (baris 1) tidak boleh dihapus
+  if (baris <= 1) {
+    try {
+      SpreadsheetApp.getUi().alert("Peringatan", "Baris header atau baris ke-1 tidak boleh dihapus!", SpreadsheetApp.getUi().ButtonSet.OK);
+    } catch (e) {
+      Logger.log("Peringatan: Baris header tidak boleh dihapus.");
+    }
+    return;
+  }
+  
+  var lastColumn = sheet.getLastColumn();
+  if (lastColumn === 0) return;
+  
+  // Ambil semua header kolom pada baris 1
+  var headers = sheet.getRange(1, 1, 1, lastColumn).getValues()[0];
+  var fileUrlsToTrash = [];
+  
+  // Deteksi kolom yang berisi file/foto/dokumen secara otomatis
+  for (var colIdx = 0; colIdx < headers.length; colIdx++) {
+    var headerName = headers[colIdx].toString().trim().toLowerCase();
+    
+    // Kata kunci penentu kolom berkas/file/foto
+    if (
+      headerName.indexOf("foto") !== -1 || 
+      headerName.indexOf("profile") !== -1 || 
+      headerName.indexOf("dokumen") !== -1 || 
+      headerName.indexOf("file") !== -1 || 
+      headerName.indexOf("bukti") !== -1 || 
+      headerName.indexOf("surat") !== -1 || 
+      headerName.indexOf("lampiran") !== -1 ||
+      headerName.indexOf("gambar") !== -1
+    ) {
+      var cellValue = sheet.getRange(baris, colIdx + 1).getValue().toString().trim();
+      if (cellValue) {
+        fileUrlsToTrash.push(cellValue);
+      }
+    }
+  }
+  
+  // Jika tidak terdeteksi otomatis, gunakan kolom fallback manual (kolom B atau kolom 2)
+  if (fileUrlsToTrash.length === 0) {
+    var kolomLinkManual = 2; // Silakan sesuaikan indeks kolom jika ingin manual (A=1, B=2, dst)
+    if (kolomLinkManual <= lastColumn) {
+      var manualValue = sheet.getRange(baris, kolomLinkManual).getValue().toString().trim();
+      if (manualValue) {
+        fileUrlsToTrash.push(manualValue);
+      }
+    }
+  }
+  
+  // Pindahkan semua file yang terdeteksi ke Trash Google Drive
+  for (var i = 0; i < fileUrlsToTrash.length; i++) {
+    var url = fileUrlsToTrash[i];
+    if (url && (url.indexOf("drive.google.com") !== -1 || url.indexOf("googleusercontent.com") !== -1)) {
+      var fileId = extractFileIdFromUrl(url);
+      if (fileId) {
+        try {
+          DriveApp.getFileById(fileId).setTrashed(true);
+          Logger.log("Berhasil memindahkan file ke sampah Drive. ID: " + fileId);
+        } catch (e) {
+          Logger.log("Gagal memindahkan file ke sampah Drive (ID: " + fileId + "): " + e.message);
+        }
+      }
+    }
+  }
+  
+  // Hapus baris aktif dari spreadsheet
+  sheet.deleteRow(baris);
+}
+
+/**
+ * 2. FITUR EDIT DATA (UPLOAD ULANG)
+ * Menerima URL file lama Google Drive, mengekstrak File ID, 
+ * lalu memindahkannya ke sampah (trash) tanpa menghapus baris di Spreadsheet.
+ *
+ * @param {string} linkFileLama - URL dari file lama yang ingin dibuang ke sampah.
+ */
+function hapusFileLamaSaatEdit(linkFileLama) {
+  if (!linkFileLama || typeof linkFileLama !== "string") {
+    Logger.log("Peringatan: URL file lama kosong atau tidak valid.");
+    return;
+  }
+  
+  if (linkFileLama.indexOf("drive.google.com") !== -1 || linkFileLama.indexOf("googleusercontent.com") !== -1) {
+    var fileId = extractFileIdFromUrl(linkFileLama);
+    if (fileId) {
+      try {
+        DriveApp.getFileById(fileId).setTrashed(true);
+        Logger.log("Berhasil membuang file lama ke sampah Drive. ID: " + fileId);
+      } catch (e) {
+        Logger.log("Gagal membuang file lama ke sampah Drive (ID: " + fileId + "): " + e.message);
+      }
+    }
+  }
+}
+
+/**
+ * Fungsi pembantu untuk mengekstrak Google Drive File ID dari berbagai pola URL
+ * (Google Drive Viewer, Direct Download link, atau Googleusercontent preview)
+ *
+ * @param {string} url - URL lengkap dari Google Drive
+ * @return {string|null} ID File Google Drive, atau null jika tidak ditemukan
+ */
+function extractFileIdFromUrl(url) {
+  if (!url || typeof url !== "string") return null;
+  
+  // Pola 1: Menggunakan parameter query id (contoh: ?id=FILE_ID atau &id=FILE_ID)
+  if (url.indexOf("id=") !== -1) {
+    var parts = url.split("id=");
+    if (parts.length > 1) {
+      return parts[1].split("&")[0];
+    }
+  }
+  
+  // Pola 2: URL standar sharing/viewer (contoh: /file/d/FILE_ID/view atau /file/d/FILE_ID)
+  if (url.indexOf("/file/d/") !== -1) {
+    var parts = url.split("/file/d/");
+    if (parts.length > 1) {
+      return parts[1].split("/")[0];
+    }
+  }
+  
+  // Pola 3: URL host langsung googleusercontent (contoh: googleusercontent.com/d/FILE_ID)
+  if (url.indexOf("googleusercontent.com/d/") !== -1) {
+    var parts = url.split("googleusercontent.com/d/");
+    if (parts.length > 1) {
+      return parts[1].split("/")[0].split("=")[0];
+    }
+  }
+  
+  // Pola 4: Gunakan regex pencocokan umum 25 karakter atau more
+  var match = url.match(/[-\w]{25,}/);
+  if (match) {
+    return match[0];
+  }
+  
+  return null;
 }
 `;

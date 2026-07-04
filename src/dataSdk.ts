@@ -24,6 +24,7 @@ const STORAGE_KEYS: Record<string, string> = {
   'BANNER': 'panel_banner',
   'LOG NOTIFIKASI': 'panel_log_notifikasi',
   'PENGUMUMAN': 'panel_pengumuman',
+  'CONFIG KARTU': 'panel_config_kartu',
 };
 
 // All mock/bot data arrays are completely empty, keeping only clean user-generated or synced data
@@ -245,6 +246,8 @@ function getIdKeyForSheet(sheetName: string): string {
       return 'idPengumuman';
     case 'LOG NOTIFIKASI':
       return 'idLog';
+    case 'CONFIG KARTU':
+      return 'Lembaga';
     default:
       return 'id';
   }

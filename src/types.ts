@@ -92,6 +92,8 @@ export interface Surat {
   namaLengkap: string;
   perihal: string;
   linkGoogleDoc: string;
+  namaFileSurat?: string;
+  tipeFileSurat?: string;
 }
 
 export interface Peraturan {
